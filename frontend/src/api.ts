@@ -192,11 +192,88 @@ export function loadSources(companyId: string) {
   return request<{ sources: Source[] }>(`/api/v1/companies/${companyId}/sources`);
 }
 
-export function createSource(companyId: string, dataset: "cash" | "revenue", namespace: string) {
+export type PlanEvent = {
+  id: string;
+  direction: string;
+  amount: string;
+  remaining: string;
+  due_date: string;
+  expected_date: string;
+  status: string;
+  overdue: boolean;
+  version: number;
+};
+
+export type Forecast = {
+  status: string;
+  opening: string | null;
+  gap_date: string | null;
+  gap_amount: string | null;
+  points: { date: string; closing: string; inflows: string; outflows: string }[];
+};
+
+export type GroupForecast = {
+  status: string;
+  group_opening: string | null;
+  company_risks: { company_id: string; gap_amount: string | null; gap_date: string | null; status: string }[];
+};
+
+export function loadCalendar(companyId: string) {
+  return request<{ events: PlanEvent[] }>(`/api/v1/companies/${companyId}/calendar`);
+}
+
+export function createPlanEvent(companyId: string, amount: string, day: string) {
+  return request<PlanEvent>(`/api/v1/companies/${companyId}/planned-cash`, {
+    method: "POST",
+    headers: { "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({
+      direction: "out",
+      amount,
+      due_date: day,
+      expected_date: day,
+      confidence: "expected",
+      priority: "normal",
+    }),
+  });
+}
+
+export function moveExpected(eventId: string, version: number, expectedDate: string) {
+  return request<PlanEvent>(`/api/v1/planned-cash/${eventId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ version, expected_date: expectedDate }),
+  });
+}
+
+export function loadForecast(companyId: string, scenario = "base") {
+  const query = `as_of=2026-10-14&scenario=${scenario}`;
+  return request<Forecast>(`/api/v1/companies/${companyId}/forecast?${query}`);
+}
+
+export function loadGroupForecast(scenario = "base") {
+  return request<{ csrf_token: string; memberships: { tenant_id: string }[] }>(
+    "/api/v1/auth/me",
+  ).then((me) => {
+    setCsrf(me.csrf_token);
+    const tenant = me.memberships[0]?.tenant_id;
+    if (!tenant) {
+      throw new Error("Нет пространства");
+    }
+    setTenant(tenant);
+    const query = `as_of=2026-10-14&scenario=${scenario}`;
+    return request<GroupForecast>(`/api/v1/workspaces/${tenant}/forecast?${query}`);
+  });
+}
+
+export function createSource(
+  companyId: string,
+  dataset: "cash" | "revenue" | "plan",
+  namespace: string,
+) {
+  const names = { revenue: "Продажи", plan: "План", cash: "Деньги" };
   return request<Source>(`/api/v1/companies/${companyId}/sources`, {
     method: "POST",
     body: JSON.stringify({
-      name: dataset === "revenue" ? "Продажи" : "Деньги",
+      name: names[dataset],
       type: "file",
       namespace,
       format: "csv",

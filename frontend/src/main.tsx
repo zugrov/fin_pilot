@@ -6,6 +6,8 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import "./index.css";
 import { BillingPage, BillingReturnPage } from "./pages/BillingPage";
 import { ForgotPage, LoginPage, RegisterPage, ResetPage, VerifyPage } from "./pages/AuthPages";
+import { CalendarPage } from "./pages/CalendarPage";
+import { ForecastPage } from "./pages/ForecastPage";
 import { ImportPage } from "./pages/ImportPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { SalesPage } from "./pages/SalesPage";
@@ -16,6 +18,8 @@ const router = createBrowserRouter([
   { path: "/overview", element: <OverviewPage /> },
   { path: "/wallets", element: <WalletsPage /> },
   { path: "/sales", element: <SalesPage /> },
+  { path: "/calendar", element: <CalendarPage /> },
+  { path: "/forecast", element: <ForecastPage /> },
   { path: "/import", element: <ImportPage /> },
   { path: "/register", element: <RegisterPage /> },
   { path: "/login", element: <LoginPage /> },

@@ -5,6 +5,8 @@ const LINKS = [
   ["/overview", "Обзор"],
   ["/wallets", "Кошельки"],
   ["/sales", "Продажи"],
+  ["/calendar", "Календарь"],
+  ["/forecast", "Прогноз"],
   ["/import", "Импорт"],
   ["/billing", "Тариф"],
 ] as const;
