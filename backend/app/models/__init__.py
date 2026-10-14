@@ -63,6 +63,15 @@ from app.models.signals import (
     BudgetLine,
     BudgetVersion,
 )
+from app.models.telegram import (
+    BotDraft,
+    DigestSnapshot,
+    DigestSubscription,
+    NotificationOutbox,
+    TelegramBinding,
+    TelegramLinkToken,
+    TelegramUpdate,
+)
 
 __all__ = [
     "Alert",
@@ -79,6 +88,7 @@ __all__ = [
     "BillingPeriod",
     "BillingQuote",
     "BillingWebhookInbox",
+    "BotDraft",
     "CashCategory",
     "CashTransaction",
     "ClassificationRule",
@@ -87,6 +97,8 @@ __all__ = [
     "CompanyAccess",
     "Direction",
     "CompanyEntitlement",
+    "DigestSnapshot",
+    "DigestSubscription",
     "EmailOutbox",
     "ForecastContribution",
     "ForecastPoint",
@@ -98,6 +110,7 @@ __all__ = [
     "Invoice",
     "InvoiceLine",
     "Membership",
+    "NotificationOutbox",
     "Obligation",
     "ObligationCashLink",
     "OpeningBalance",
@@ -114,6 +127,9 @@ __all__ = [
     "SourceIdentity",
     "Subscription",
     "TariffVersion",
+    "TelegramBinding",
+    "TelegramLinkToken",
+    "TelegramUpdate",
     "Tenant",
     "TransactionRevision",
     "TransferGroup",

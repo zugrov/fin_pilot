@@ -88,10 +88,10 @@ erDiagram
 
 Этап 7 (`0007_signals`): `BudgetVersion`, `BudgetLine`, `BudgetDailyAllocation`, `AlertRule`, `Alert`. Дневные доли только `calendar_days`. У источника `dataset` бывает `budget`. `Reconciliation` и `BalanceSnapshot` по-прежнему не созданы, сигнал сверки остатков не считается.
 
+Этап 8 (`0008_telegram`): `TelegramLinkToken`, `TelegramBinding`, `DigestSubscription`, `DigestSnapshot`, `NotificationOutbox`, `TelegramUpdate`, `BotDraft`. Один scheduled snapshot на подписку и местную дату. Отправленная часть outbox не повторяется. Боевой Bot API не вызывается при выключенном `SEND_EXTERNAL_MESSAGES`.
+
 ## Последующие этапы (таблицы ещё не создаются)
 
-`CompanyCategoryMap` не создаётся.
-
-Этап 8: `TelegramBinding`, `TelegramLinkToken`, `DigestSubscription`, `DigestSnapshot`, `NotificationOutbox`, `TelegramUpdate`, `BotDraft`.
+`CompanyCategoryMap` не создаётся. `Reconciliation` и `BalanceSnapshot` по-прежнему не созданы.
 
 Этап 9: `EmailIngestion`.

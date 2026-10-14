@@ -18,8 +18,8 @@
 ## Почта и Telegram
 
 - [ ] Провайдер писем, домен, SPF/DKIM. `SEND_REAL_EMAIL` остаётся `false`.
-- [ ] `BOT_TOKEN` и `TELEGRAM_WEBHOOK_SECRET`. `SEND_EXTERNAL_MESSAGES` остаётся `false`.
-- [ ] Боевой webhook Telegram регистрируется только после разрешения. В разработке long polling, не одновременно с webhook.
+- [ ] `BOT_TOKEN` и `TELEGRAM_WEBHOOK_SECRET`. `SEND_EXTERNAL_MESSAGES` остаётся `false`. Mock-тесты этапа 8 этот пункт не закрывают.
+- [ ] Боевой webhook Telegram регистрируется только после разрешения. В разработке long polling, не одновременно с webhook. Репозиторий webhook не регистрирует.
 
 ## 1С и пилотные файлы
 
