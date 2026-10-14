@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     quote_ttl_minutes: int = 15
     webhook_max_bytes: int = 1_000_000
     webhook_rate_limit: int = Field(default=60)
+    import_storage_dir: str = "var/imports"
+    import_max_bytes: int = 20 * 1024 * 1024
+    import_max_rows: int = 100_000
+    import_max_uncompressed_bytes: int = 50 * 1024 * 1024
 
     @field_validator("app_env")
     @classmethod

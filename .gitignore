@@ -22,3 +22,4 @@ celerybeat-schedule.*
 coverage/
 playwright-report/
 test-results/
+var/
