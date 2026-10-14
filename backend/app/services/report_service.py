@@ -233,6 +233,71 @@ def _section(session: Session, row: CashTransaction) -> str:
     return category.cash_flow_section
 
 
+def group_cashflow_payload(session: Session, companies: list, at: datetime, period) -> dict:
+    date_from, date_to = period
+    company_ids = {company.id for company in companies}
+    incoming = {code: Decimal("0") for code in SECTIONS}
+    outgoing = {code: Decimal("0") for code in SECTIONS}
+    excluded: list[str] = []
+    if companies:
+        rows = list(
+            session.scalars(
+                select(CashTransaction).where(
+                    CashTransaction.tenant_id == companies[0].tenant_id,
+                    CashTransaction.company_id.in_(company_ids),
+                    CashTransaction.status == "posted",
+                    CashTransaction.business_date >= date_from,
+                    CashTransaction.business_date <= date_to,
+                )
+            ).all()
+        )
+        for row in rows:
+            if _internal(session, row):
+                continue
+            if _paired_inside(session, row, company_ids):
+                token = str(row.transfer_group_id)
+                if token not in excluded:
+                    excluded.append(token)
+                continue
+            section = _section(session, row)
+            if row.direction == "in":
+                incoming[section] += row.amount
+            else:
+                outgoing[section] += row.amount
+    external_in = sum(incoming.values(), Decimal("0"))
+    external_out = sum(outgoing.values(), Decimal("0"))
+    return {
+        "as_of": at.isoformat(),
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "scope_company_ids": [str(company.id) for company in companies],
+        "excluded_transfer_ids": excluded,
+        "external_in": money_str(external_in),
+        "external_out": money_str(external_out),
+        "net_external": money_str(money(external_in - external_out)),
+        "sections": [
+            {"code": code, "in": money_str(incoming[code]), "out": money_str(outgoing[code])}
+            for code in SECTIONS
+        ],
+    }
+
+
+def _paired_inside(session: Session, row: CashTransaction, company_ids: set[uuid.UUID]) -> bool:
+    if row.transfer_group_id is None:
+        return False
+    group = session.get(TransferGroup, row.transfer_group_id)
+    if group is None or group.kind != "intercompany" or group.status != "linked":
+        return False
+    present = set(
+        session.scalars(
+            select(CashTransaction.company_id).where(
+                CashTransaction.transfer_group_id == group.id
+            )
+        ).all()
+    )
+    return len(present) >= 2 and present <= company_ids
+
+
 def _internal(session: Session, row: CashTransaction) -> bool:
     if row.transfer_group_id is None:
         return False

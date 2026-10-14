@@ -12,6 +12,7 @@ from app.api.v1 import (
     billing,
     companies,
     imports,
+    plan,
     revenue,
     rules,
     transactions,
@@ -96,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(transactions.router, prefix="/api/v1")
     app.include_router(imports.router, prefix="/api/v1")
     app.include_router(revenue.router, prefix="/api/v1")
+    app.include_router(plan.router, prefix="/api/v1")
     app.include_router(rules.router, prefix="/api/v1")
     app.include_router(billing.router, prefix="/api/v1")
     app.include_router(webhooks.router, prefix="/api/v1")
