@@ -45,6 +45,7 @@ from app.models.imports import (
     SourceConnection,
     SourceIdentity,
 )
+from app.models.revenue import Counterparty, Direction, RevenueCashMatch, RevenueEntry
 
 __all__ = [
     "AnnualOfferVersion",
@@ -59,8 +60,10 @@ __all__ = [
     "CashCategory",
     "CashTransaction",
     "ClassificationRule",
+    "Counterparty",
     "Company",
     "CompanyAccess",
+    "Direction",
     "CompanyEntitlement",
     "EmailOutbox",
     "IdempotencyRecord",
@@ -74,6 +77,8 @@ __all__ = [
     "PaymentAttempt",
     "RawImportRow",
     "Refund",
+    "RevenueCashMatch",
+    "RevenueEntry",
     "Session",
     "SourceConnection",
     "SourceIdentity",

@@ -80,11 +80,13 @@ erDiagram
 
 Этап 3 (`0003_cash`): `Wallet`, `WalletAccess`, `CashTransaction`, `CashAllocation`, `TransactionRevision`, `TransferGroup`, `OpeningBalance`, `BalanceSnapshot`, `Reconciliation`, `CashCategory`.
 
-Этап 4 (`0004_import`): `SourceConnection`, `ImportProfile`, `ImportBatch`, `RawImportRow`, `SourceIdentity`, `ClassificationRule`. У операции есть текстовые `counterparty_inn` и `counterparty_name`. Сущность `Counterparty` остаётся этапу 5. Контракты файлов — в `docs/import-formats.md`.
+Этап 4 (`0004_import`): `SourceConnection`, `ImportProfile`, `ImportBatch`, `RawImportRow`, `SourceIdentity`, `ClassificationRule`. У операции есть текстовые `counterparty_inn` и `counterparty_name`. Контракты файлов — в `docs/import-formats.md`.
+
+Этап 5 (`0005_revenue`): `Direction`, `Counterparty`, `RevenueEntry`, `RevenueCashMatch`. У источника есть `dataset` и `coverage_through`.
 
 ## Последующие этапы (таблицы ещё не создаются)
 
-Этап 5: `RevenueEntry`, `RevenueCashMatch`, `Direction`, `Counterparty`, `CompanyCategoryMap`.
+Этап 5 закрыт по таблицам выше. `CompanyCategoryMap` не создаётся.
 
 Этап 6: `PlannedCashEvent`, `PaymentMatch`, `RecurrenceRule`, `Obligation`, `ObligationCashLink`, `ForecastRun`, `ForecastPoint`, `ForecastContribution`.
 
