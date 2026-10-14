@@ -24,10 +24,13 @@ class MockTelegram:
 
 
 class BotApiTelegram:
-    def __init__(self, token: str) -> None:
+    def __init__(self, token: str, allowed_chats: set[int]) -> None:
         self._token = token
+        self._allowed_chats = allowed_chats
 
     def send(self, chat_id: int, payload: dict) -> SendOutcome:
+        if chat_id not in self._allowed_chats:
+            return SendOutcome("failed", error="recipient")
         body = {
             "chat_id": chat_id,
             "text": payload["text"],
@@ -74,7 +77,7 @@ class BotApiTelegram:
 
 def build_transport(settings) -> BotApiTelegram | None:
     if settings.send_external_messages and settings.bot_token:
-        return BotApiTelegram(settings.bot_token)
+        return BotApiTelegram(settings.bot_token, settings.allowed_telegram_chats)
     return None
 
 

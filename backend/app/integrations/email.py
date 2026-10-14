@@ -30,6 +30,8 @@ class SmtpEmailProvider:
     def send(self, message: EmailMessage) -> None:
         if not self._settings.send_real_email:
             raise AppError(403, "email_disabled", "Реальная почта выключена")
+        if not self._settings.email_recipient_allowed(message.to_email):
+            raise AppError(403, "recipient_not_allowed", "Получатель не в списке")
         import smtplib
         from email.message import EmailMessage as MimeMessage
 

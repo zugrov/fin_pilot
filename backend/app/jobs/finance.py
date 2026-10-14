@@ -114,6 +114,13 @@ def dispatch_outbox(session: Session, settings: Settings, provider, at: datetime
                 )
                 handled += 1
             continue
+        if not settings.email_recipient_allowed(str(row["to_email"])):
+            session.execute(
+                text("SELECT app_mark_outbox(:id, 'cancelled', 'recipient')"),
+                {"id": row["id"]},
+            )
+            handled += 1
+            continue
         provider.send(EmailMessage(row["to_email"], row["template_key"], row["payload_redacted"]))
         session.execute(text("SELECT app_mark_outbox(:id, 'sent', NULL)"), {"id": row["id"]})
         handled += 1

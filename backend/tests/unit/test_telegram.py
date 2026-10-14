@@ -61,6 +61,32 @@ def test_t10_app_starts_without_bot_token() -> None:
         application.state.worker_engine.dispose()
 
 
+def test_real_telegram_without_allowlist_does_not_call_network(monkeypatch) -> None:
+    def boom(*_args, **_kwargs):
+        raise AssertionError("telegram")
+
+    monkeypatch.setattr("httpx.post", boom)
+    empty = Settings(
+        bot_token="token",
+        send_external_messages=True,
+        app_env="test",
+        telegram_chat_allowlist="",
+    )
+    listed = Settings(
+        bot_token="token",
+        send_external_messages=True,
+        app_env="test",
+        telegram_chat_allowlist="99,abc",
+    )
+    empty_transport = build_transport(empty)
+    listed_transport = build_transport(listed)
+    assert empty_transport is not None
+    assert listed_transport is not None
+    assert empty_transport.send(1, {"text": "x"}).error == "recipient"
+    assert listed_transport.send(1, {"text": "x"}).error == "recipient"
+    assert listed.allowed_telegram_chats == {99}
+
+
 def test_empty_group_totals_are_unavailable() -> None:
     totals = _totals([], False)
     assert totals["cash_total"] is None

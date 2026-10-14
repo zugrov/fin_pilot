@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     billing_guard_bypass: bool = False
     refunds_enabled: bool = False
     billing_staff_emails: str = ""
+    outbound_email_allowlist: str = ""
+    telegram_chat_allowlist: str = ""
     bot_token: str = ""
     bot_username: str = ""
     telegram_webhook_secret: str = ""
@@ -98,6 +100,30 @@ class Settings(BaseSettings):
     def staff_emails(self) -> set[str]:
         raw = self.billing_staff_emails.split(",")
         return {item.strip().lower() for item in raw if item.strip()}
+
+    @property
+    def allowed_outbound_emails(self) -> set[str]:
+        raw = self.outbound_email_allowlist.split(",")
+        return {item.strip().casefold() for item in raw if item.strip()}
+
+    @property
+    def allowed_telegram_chats(self) -> set[int]:
+        chats: set[int] = set()
+        for item in self.telegram_chat_allowlist.split(","):
+            raw = item.strip()
+            if not raw:
+                continue
+            try:
+                chats.add(int(raw))
+            except ValueError:
+                continue
+        return chats
+
+    def email_recipient_allowed(self, address: str) -> bool:
+        normalized = address.strip().casefold()
+        if not normalized:
+            return False
+        return normalized in self.allowed_outbound_emails
 
     @property
     def yookassa_ips(self) -> set[str]:
