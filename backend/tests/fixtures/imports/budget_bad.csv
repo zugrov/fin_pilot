@@ -1,0 +1,4 @@
+year,month,basis,metric_type,category_code,direction_code,amount,distribution_method
+2026,10,cash,cash_out,missing,,100.00,calendar_days
+2026,13,cash,cash_out,,,10.00,calendar_days
+2026,10,cash,cash_in,,,0.00,calendar_days

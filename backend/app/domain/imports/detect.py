@@ -18,6 +18,6 @@ def _sniff(content: bytes, encoding: str) -> str:
     if text.startswith("1CClientBankExchange"):
         return "clientbank"
     first = text.splitlines()[0] if text else ""
-    if first.startswith("external_id,"):
+    if first.startswith("external_id,") or first.startswith("year,"):
         return "csv"
     raise ImportFormatError("unsupported_format", "Неизвестный формат")

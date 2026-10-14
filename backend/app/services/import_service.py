@@ -7,6 +7,7 @@ from io import StringIO
 from pathlib import Path
 
 from app.config import Settings
+from app.domain.imports.budget_reader import read_budget_csv
 from app.domain.imports.clientbank import read_clientbank
 from app.domain.imports.contracts import ImportFormatError, ImportLine
 from app.domain.imports.csv_reader import read_csv
@@ -31,6 +32,15 @@ from app.models.imports import (
 from app.security.access import BILLING_MANAGER, OPERATOR
 from app.security.context import set_context
 from app.security.tokens import canonical_hash
+from app.services.budget_import import (
+    create_imported as create_budget_row,
+)
+from app.services.budget_import import (
+    prepare_budget,
+)
+from app.services.budget_import import (
+    revise_imported as revise_budget_row,
+)
 from app.services.cash_service import _audit, _remember_revision
 from app.services.plan_import import (
     create_imported as create_plan_row,
@@ -87,12 +97,15 @@ def create_source(
     known_encoding = encoding in {"utf-8", "utf-8-sig", "cp1251"}
     if allowed is None or file_format not in allowed or not known_encoding:
         raise AppError(422, "validation_error", "Неизвестный тип источника")
-    if dataset not in {"cash", "revenue", "plan"} or vat_basis not in {"net", "unknown"}:
+    known = {"cash", "revenue", "plan", "budget"}
+    if dataset not in known or vat_basis not in {"net", "unknown"}:
         raise AppError(422, "validation_error", "Неизвестный набор данных")
     if dataset == "revenue" and (source_type != "file" or file_format != "csv"):
         raise AppError(422, "validation_error", "Продажи загружаются только из CSV")
     if dataset == "plan" and (source_type != "file" or file_format != "csv"):
         raise AppError(422, "validation_error", "План загружается только из CSV")
+    if dataset == "budget" and (source_type != "file" or file_format != "csv"):
+        raise AppError(422, "validation_error", "Бюджет загружается только из CSV")
     if file_format == "clientbank" and wallet_id is None:
         raise AppError(422, "validation_error", "ClientBank привязывается к кошельку")
     if wallet_id is not None:
@@ -187,6 +200,8 @@ def receive_import(
             lines = _parse_revenue(content, connection, settings)
         elif connection.dataset == "plan":
             lines = _parse_plan(content, connection, settings)
+        elif connection.dataset == "budget":
+            lines = _parse_budget(content, connection, settings)
         else:
             lines = _parse(content, connection, wallet_code, settings)
     except ImportFormatError as exc:
@@ -230,6 +245,8 @@ def receive_import(
             prepared = prepare_revenue(session, company, connection, line)
         elif connection.dataset == "plan":
             prepared = prepare_plan(session, company, connection, line)
+        elif connection.dataset == "budget":
+            prepared = prepare_budget(session, company, connection, line)
         else:
             prepared = _prepare(session, company, connection, line, rules)
         if prepared["duplicate_status"] == "invalid":
@@ -338,6 +355,15 @@ def commit_import(
                 create_plan_row(session, company, connection, company_user, row, batch.id, at)
             elif row.proposed_action == "revise":
                 revise_plan_row(session, company, connection, company_user, row, at)
+            else:
+                continue
+            committed += 1
+            continue
+        if connection.dataset == "budget":
+            if row.proposed_action == "create":
+                create_budget_row(session, company, connection, company_user, row, batch.id, at)
+            elif row.proposed_action == "revise":
+                revise_budget_row(session, company, connection, company_user, row, at)
             else:
                 continue
             committed += 1
@@ -650,6 +676,12 @@ def _identity(session, company, connection, row: RawImportRow, tx_id, at: dateti
         )
     )
     session.flush()
+
+
+def _parse_budget(content: bytes, connection: SourceConnection, settings: Settings):
+    return read_budget_csv(
+        content, encoding=connection.encoding, max_rows=settings.import_max_rows
+    )
 
 
 def _parse_plan(content: bytes, connection: SourceConnection, settings: Settings):
