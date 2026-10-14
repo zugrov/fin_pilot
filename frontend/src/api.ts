@@ -137,6 +137,15 @@ export type Source = {
   dataset: string;
   format: string;
   namespace: string;
+  type?: string;
+  coverage_through?: string | null;
+  last_attempt_at?: string | null;
+  last_success_at?: string | null;
+  last_error?: string | null;
+  host?: string | null;
+  folder?: string | null;
+  sender?: string | null;
+  username?: string | null;
 };
 
 export type ImportPreview = {
@@ -321,6 +330,36 @@ export function loadAlerts(companyId: string) {
 
 export function ackAlert(alertId: string) {
   return request<AlertItem>(`/api/v1/alerts/${alertId}/ack`, { method: "POST" });
+}
+
+export type MailboxFields = {
+  host: string;
+  username: string;
+  folder: string;
+  sender: string;
+  password: string;
+};
+
+export function createMailbox(companyId: string, walletId: string, fields: MailboxFields) {
+  return request<Source>(`/api/v1/companies/${companyId}/sources`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: "Выписка",
+      type: "email",
+      namespace: `mail-${crypto.randomUUID().slice(0, 8)}`,
+      format: "clientbank",
+      dataset: "cash",
+      wallet_id: walletId,
+      mailbox: fields,
+    }),
+  });
+}
+
+export function testMailbox(companyId: string, sourceId: string) {
+  return request<{ status: string; saved: boolean }>(
+    `/api/v1/companies/${companyId}/sources/${sourceId}/test`,
+    { method: "POST" },
+  );
 }
 
 export function createSource(
