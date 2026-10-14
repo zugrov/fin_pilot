@@ -1,0 +1,31 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { createBrowserRouter, RouterProvider } from "react-router-dom";
+
+import "./index.css";
+import { BillingPage, BillingReturnPage } from "./pages/BillingPage";
+import { ForgotPage, LoginPage, RegisterPage, ResetPage, VerifyPage } from "./pages/AuthPages";
+
+const router = createBrowserRouter([
+  { path: "/", element: <BillingPage /> },
+  { path: "/register", element: <RegisterPage /> },
+  { path: "/login", element: <LoginPage /> },
+  { path: "/verify-email", element: <VerifyPage /> },
+  { path: "/forgot-password", element: <ForgotPage /> },
+  { path: "/reset-password", element: <ResetPage /> },
+  { path: "/billing", element: <BillingPage /> },
+  { path: "/billing/return", element: <BillingReturnPage /> },
+]);
+
+const queryClient = new QueryClient();
+const root = document.getElementById("root");
+if (root) {
+  createRoot(root).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </StrictMode>,
+  );
+}
