@@ -6,9 +6,17 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import "./index.css";
 import { BillingPage, BillingReturnPage } from "./pages/BillingPage";
 import { ForgotPage, LoginPage, RegisterPage, ResetPage, VerifyPage } from "./pages/AuthPages";
+import { ImportPage } from "./pages/ImportPage";
+import { OverviewPage } from "./pages/OverviewPage";
+import { SalesPage } from "./pages/SalesPage";
+import { WalletsPage } from "./pages/WalletsPage";
 
 const router = createBrowserRouter([
-  { path: "/", element: <BillingPage /> },
+  { path: "/", element: <OverviewPage /> },
+  { path: "/overview", element: <OverviewPage /> },
+  { path: "/wallets", element: <WalletsPage /> },
+  { path: "/sales", element: <SalesPage /> },
+  { path: "/import", element: <ImportPage /> },
   { path: "/register", element: <RegisterPage /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/verify-email", element: <VerifyPage /> },
