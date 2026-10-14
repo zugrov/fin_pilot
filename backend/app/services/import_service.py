@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app.config import Settings
 from app.domain.imports.budget_reader import read_budget_csv
-from app.domain.imports.clientbank import read_clientbank
+from app.domain.imports.clientbank import read_clientbank, statement_period_end
 from app.domain.imports.contracts import ImportFormatError, ImportLine
 from app.domain.imports.csv_reader import read_csv
 from app.domain.imports.dedup import classify_duplicate
@@ -23,6 +23,7 @@ from app.models.cash import CashCategory, CashTransaction, Wallet
 from app.models.identity import AuditLog, Company, IdempotencyRecord, Membership, User
 from app.models.imports import (
     ClassificationRule,
+    EmailIngestion,
     ImportBatch,
     ImportProfile,
     RawImportRow,
@@ -63,7 +64,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 SCOPE = "import-upload"
-TYPES = {"file": {"csv", "xlsx"}, "clientbank": {"clientbank"}, "onec": {"csv", "xlsx"}}
+TYPES = {
+    "file": {"csv", "xlsx"},
+    "clientbank": {"clientbank"},
+    "onec": {"csv", "xlsx"},
+    "email": {"clientbank"},
+}
 CONDITION_KEYS = {
     "description_contains",
     "counterparty_inn",
@@ -90,6 +96,7 @@ def create_source(
     at: datetime,
     dataset: str = "cash",
     vat_basis: str = "net",
+    mailbox: dict | None = None,
 ) -> dict:
     _deny(membership)
     open_company(session, user, company.id, settings, "write")
@@ -106,8 +113,18 @@ def create_source(
         raise AppError(422, "validation_error", "План загружается только из CSV")
     if dataset == "budget" and (source_type != "file" or file_format != "csv"):
         raise AppError(422, "validation_error", "Бюджет загружается только из CSV")
+    if source_type == "email" and dataset != "cash":
+        raise AppError(422, "validation_error", "Почта принимает только денежную выписку")
     if file_format == "clientbank" and wallet_id is None:
         raise AppError(422, "validation_error", "ClientBank привязывается к кошельку")
+    config: dict = {}
+    secret = None
+    if source_type == "email":
+        from app.security.mailbox_crypto import seal_mailbox
+
+        if mailbox is None:
+            raise AppError(422, "validation_error", "Нужны настройки ящика")
+        config, secret = seal_mailbox(settings, mailbox)
     if wallet_id is not None:
         wallet = _wallet(session, company, wallet_id)
         if file_format == "clientbank" and not wallet.code:
@@ -126,6 +143,9 @@ def create_source(
         vat_basis=vat_basis,
         enabled=True,
         status="active",
+        poll_interval_minutes=30,
+        config_redacted=config,
+        encrypted_credentials=secret,
         created_at=at,
     )
     session.add(connection)
@@ -379,6 +399,7 @@ def commit_import(
             committed += 1
     batch.rows_committed = committed
     batch.completed_at = at
+    _apply_statement_coverage(session, settings, connection, batch, at)
     if pending:
         batch.status = "completed_with_errors"
         batch.quality_flags = ["partial_import"]
@@ -679,9 +700,7 @@ def _identity(session, company, connection, row: RawImportRow, tx_id, at: dateti
 
 
 def _parse_budget(content: bytes, connection: SourceConnection, settings: Settings):
-    return read_budget_csv(
-        content, encoding=connection.encoding, max_rows=settings.import_max_rows
-    )
+    return read_budget_csv(content, encoding=connection.encoding, max_rows=settings.import_max_rows)
 
 
 def _parse_plan(content: bytes, connection: SourceConnection, settings: Settings):
@@ -860,6 +879,38 @@ def _deny(membership: Membership) -> None:
         raise AppError(403, "forbidden", "Импорт недоступен")
 
 
+def _iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.isoformat()
+
+
+def _apply_statement_coverage(session, settings, connection: SourceConnection, batch, at) -> None:
+    if connection.format != "clientbank":
+        return
+    path = Path(settings.import_storage_dir) / batch.file_storage_key
+    if not path.is_file():
+        return
+    try:
+        end = statement_period_end(path.read_bytes(), encoding=connection.encoding)
+    except ImportFormatError:
+        return
+    if end is not None and (
+        connection.coverage_through is None or end > connection.coverage_through
+    ):
+        connection.coverage_through = end
+    found = session.scalar(
+        select(EmailIngestion).where(
+            EmailIngestion.tenant_id == batch.tenant_id,
+            EmailIngestion.batch_id == batch.id,
+        )
+    )
+    if found is None:
+        return
+    found.status = "committed"
+    connection.last_success_at = at
+
+
 def _source_payload(connection: SourceConnection) -> dict:
     return {
         "id": str(connection.id),
@@ -871,12 +922,19 @@ def _source_payload(connection: SourceConnection) -> dict:
         "dataset": connection.dataset,
         "vat_basis": connection.vat_basis,
         "coverage_through": (
-            None
-            if connection.coverage_through is None
-            else connection.coverage_through.isoformat()
+            None if connection.coverage_through is None else connection.coverage_through.isoformat()
         ),
         "authoritative": connection.authoritative,
         "wallet_id": None if connection.wallet_id is None else str(connection.wallet_id),
+        "poll_interval_minutes": connection.poll_interval_minutes,
+        "last_attempt_at": _iso(connection.last_attempt_at),
+        "last_success_at": _iso(connection.last_success_at),
+        "next_attempt_at": _iso(connection.next_attempt_at),
+        "last_error": connection.last_error,
+        "host": (connection.config_redacted or {}).get("host"),
+        "folder": (connection.config_redacted or {}).get("folder"),
+        "sender": (connection.config_redacted or {}).get("sender"),
+        "username": (connection.config_redacted or {}).get("username"),
     }
 
 

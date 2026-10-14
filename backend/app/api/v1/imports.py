@@ -4,7 +4,7 @@ from uuid import UUID
 from app.api.deps import current_session, get_db, require_csrf, settings_of, tenant_of
 from app.clock import now
 from app.errors import AppError
-from app.services import import_service
+from app.services import import_service, mail_service
 from app.services.wallet_service import open_company
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import Response
@@ -18,6 +18,14 @@ class CoverageIn(BaseModel):
     coverage_through: date
 
 
+class MailboxIn(BaseModel):
+    host: str
+    username: str
+    folder: str
+    sender: str
+    password: str
+
+
 class SourceIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     type: str
@@ -28,6 +36,7 @@ class SourceIn(BaseModel):
     wallet_id: UUID | None = None
     dataset: str = "cash"
     vat_basis: str = "net"
+    mailbox: MailboxIn | None = None
 
 
 def _actor(request: Request, session: Session, company_id: UUID, mode: str, *, mutate: bool):
@@ -59,7 +68,26 @@ def post_source(
         at=now(),
         dataset=payload.dataset,
         vat_basis=payload.vat_basis,
+        mailbox=None if payload.mailbox is None else payload.mailbox.model_dump(),
     )
+
+
+@router.post("/companies/{company_id}/sources/{source_id}/test")
+def post_mailbox_test(
+    company_id: UUID, source_id: UUID, request: Request, session: Session = Depends(get_db)
+):
+    _user, _membership, company = _actor(request, session, company_id, "write", mutate=True)
+    connection = mail_service.email_source(session, company, source_id)
+    return mail_service.test_mailbox(settings_of(request), connection)
+
+
+@router.post("/companies/{company_id}/sources/{source_id}/sync")
+def post_mailbox_sync(
+    company_id: UUID, source_id: UUID, request: Request, session: Session = Depends(get_db)
+):
+    user, _membership, company = _actor(request, session, company_id, "write", mutate=True)
+    connection = mail_service.email_source(session, company, source_id)
+    return mail_service.sync_mailbox(session, settings_of(request), connection, user, now())
 
 
 @router.post("/companies/{company_id}/sources/{source_id}/coverage")
@@ -122,9 +150,7 @@ def post_import(
 def get_preview(batch_id: UUID, request: Request, session: Session = Depends(get_db)):
     _row, user = current_session(request, session)
     membership = tenant_of(request, session, user)
-    return import_service.preview_import(
-        session, membership, user, settings_of(request), batch_id
-    )
+    return import_service.preview_import(session, membership, user, settings_of(request), batch_id)
 
 
 @router.get("/imports/{batch_id}/errors")

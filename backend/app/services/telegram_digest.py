@@ -9,6 +9,7 @@ from app.domain.telegram_text import (
     content_hash,
     escape_html,
     in_quiet,
+    local_to_utc,
     materiality_worsened,
     slot_state,
     split_parts,
@@ -31,7 +32,7 @@ from app.services.cash_service import company_summary, summary_payload
 from app.services.plan_service import slices_for
 from app.services.report_service import revenue_snapshot
 from app.services.telegram_binding import load_companies, zone_of
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -77,6 +78,11 @@ def schedule_digests(session: Session, settings: Settings, at: datetime) -> int:
             subscription.last_scheduled_for = local_date
             subscription.updated_at = at
             continue
+        report = local_date - timedelta(days=1)
+        if _email_pending(session, subscription, report):
+            slot = local_to_utc(local_date, subscription.local_time, subscription.timezone)
+            if at < slot + timedelta(minutes=30):
+                continue
         if _create_scheduled(session, settings, subscription, local_date, at):
             created += 1
     consider_urgent(session, settings, at)
@@ -359,9 +365,7 @@ def _metrics(
             flags.append("partial_scope")
             continue
         cards.append(
-            _company_card(
-                session, company, report_date, moment, at, subscription.privacy_level
-            )
+            _company_card(session, company, report_date, moment, at, subscription.privacy_level)
         )
     partial = "partial_scope" in flags or any(card["cash_total"] is None for card in cards)
     if partial and "partial_scope" not in flags:
@@ -452,11 +456,7 @@ def _blocks(metrics: dict) -> list[str]:
     blocks = [header]
     if metrics["partial"]:
         blocks.append("Групповой итог предварительный: неполный агрегат.")
-    gaps = [
-        card
-        for card in metrics["companies"]
-        if card["gap_amount"] not in {None, "0.00"}
-    ]
+    gaps = [card for card in metrics["companies"] if card["gap_amount"] not in {None, "0.00"}]
     if gaps:
         lines = [
             f"{escape_html(card['name'])} {escape_html(str(card['gap_date']))}: "
@@ -746,6 +746,29 @@ def _membership(session, subscription: DigestSubscription) -> Membership | None:
             MembershipRow.status == "active",
         )
     )
+
+
+def _email_pending(session, subscription: DigestSubscription, report_date: date) -> bool:
+    membership = _membership(session, subscription)
+    if membership is None:
+        return False
+    companies = load_companies(session, membership, subscription.company_scope)
+    if not companies:
+        return False
+    company_ids = [item.id for item in companies]
+    found = session.scalar(
+        select(SourceConnection.id).where(
+            SourceConnection.tenant_id == subscription.tenant_id,
+            SourceConnection.company_id.in_(company_ids),
+            SourceConnection.type == "email",
+            SourceConnection.enabled.is_(True),
+            or_(
+                SourceConnection.coverage_through.is_(None),
+                SourceConnection.coverage_through < report_date,
+            ),
+        )
+    )
+    return found is not None
 
 
 def _report_date(subscription: DigestSubscription, at: datetime) -> date:
