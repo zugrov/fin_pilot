@@ -64,12 +64,12 @@ export function BudgetsPage() {
       <label className="mb-3 block text-sm">
         Сумма расхода на октябрь
         <input
-          className="mt-1 block rounded border px-3 py-2"
+          className="mt-1 block w-full max-w-md rounded border px-3 py-2"
           value={amount}
           onChange={(event) => setAmount(event.target.value)}
         />
       </label>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button
           type="button"
           className="rounded border px-3 py-2"

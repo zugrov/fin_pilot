@@ -30,7 +30,7 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
 export function Button(props: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
-      className="w-full rounded-md bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+      className="w-full break-words rounded-md bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
       {...props}
     />
   );

@@ -103,7 +103,7 @@ export function ImportPage() {
       <h1 className="mb-4 text-xl font-semibold">Импорт</h1>
       {sources.isLoading ? <p>Загрузка</p> : null}
       {sources.isError ? <p className="text-red-700">Не удалось загрузить источники.</p> : null}
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
         <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("cash")}>Деньги</button>
         <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("revenue")}>Продажи</button>
         <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("plan")}>План</button>

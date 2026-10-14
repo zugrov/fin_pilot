@@ -38,7 +38,7 @@ export function BillingPage() {
       <p className="mb-4 text-sm text-slate-600">
         Скидка за год: {tariff.data?.annual_discount_percent ?? "—"}%. Цена приходит с сервера.
       </p>
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
         <button type="button" className="rounded border px-3 py-1" onClick={() => setInterval("month")}>Месяц</button>
         <button type="button" className="rounded border px-3 py-1" onClick={() => setInterval("year")}>Год</button>
       </div>

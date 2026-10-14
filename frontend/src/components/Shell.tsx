@@ -17,14 +17,14 @@ const LINKS = [
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="mx-auto min-h-screen w-full max-w-5xl px-4 py-6">
-      <nav className="mb-6 flex flex-wrap gap-4 text-sm">
+      <nav className="mb-6 flex flex-wrap gap-x-4 gap-y-2 text-sm">
         {LINKS.map(([path, label]) => (
           <Link key={path} to={path}>
             {label}
           </Link>
         ))}
       </nav>
-      {children}
+      <div className="min-w-0 break-words">{children}</div>
     </div>
   );
 }
