@@ -39,6 +39,7 @@ from app.models.identity import (
 )
 from app.models.imports import (
     ClassificationRule,
+    EmailIngestion,
     ImportBatch,
     ImportProfile,
     RawImportRow,
@@ -99,6 +100,7 @@ __all__ = [
     "CompanyEntitlement",
     "DigestSnapshot",
     "DigestSubscription",
+    "EmailIngestion",
     "EmailOutbox",
     "ForecastContribution",
     "ForecastPoint",

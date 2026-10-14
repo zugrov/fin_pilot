@@ -90,8 +90,8 @@ erDiagram
 
 Этап 8 (`0008_telegram`): `TelegramLinkToken`, `TelegramBinding`, `DigestSubscription`, `DigestSnapshot`, `NotificationOutbox`, `TelegramUpdate`, `BotDraft`. Один scheduled snapshot на подписку и местную дату. Отправленная часть outbox не повторяется. Боевой Bot API не вызывается при выключенном `SEND_EXTERNAL_MESSAGES`.
 
+Этап 9 (`0009_mail`): `EmailIngestion`. У источника есть интервал опроса, попытки, редактура настроек ящика и зашифрованный пароль. Уникальны источник, `uidvalidity`, `uid` и хеш вложения. Тип источника бывает `email`.
+
 ## Последующие этапы (таблицы ещё не создаются)
 
 `CompanyCategoryMap` не создаётся. `Reconciliation` и `BalanceSnapshot` по-прежнему не созданы.
-
-Этап 9: `EmailIngestion`.

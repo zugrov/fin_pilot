@@ -1,3 +1,5 @@
+from datetime import date, datetime
+
 from app.domain.imports.contracts import CLIENTBANK_VERSION, ImportFormatError, ImportLine
 from app.domain.imports.normalize import decode_text, normalize_row
 
@@ -17,6 +19,9 @@ def read_clientbank(
     if version != CLIENTBANK_VERSION:
         raise ImportFormatError("unsupported_format", "Неподдерживаемая версия ClientBankExchange")
     documents = _documents(lines)
+    period_end = statement_period_end(content, encoding=encoding)
+    if not documents and period_end is None:
+        raise ImportFormatError("unsupported_format", "Пустая выписка без даты конца")
     if len(documents) > max_rows:
         raise ImportFormatError("unsupported_format", "Слишком много строк")
     parsed: list[ImportLine] = []
@@ -30,6 +35,23 @@ def read_clientbank(
             seen.add(line.external_id)
         parsed.append(line)
     return parsed
+
+
+def statement_period_end(content: bytes, *, encoding: str) -> date | None:
+    """Конец периода из шапки. Дата письма сюда не попадает."""
+    text = decode_text(content, encoding)
+    lines = [item.strip() for item in text.splitlines() if item.strip()]
+    for item in lines:
+        if item.startswith("СекцияДокумент="):
+            return None
+        if not item.startswith("ДатаКонца="):
+            continue
+        raw = item.split("=", 1)[1].strip()
+        try:
+            return datetime.strptime(raw, "%d.%m.%Y").date()
+        except ValueError as exc:
+            raise ImportFormatError("unsupported_format", "Некорректная ДатаКонца") from exc
+    return None
 
 
 def _documents(lines: list[str]) -> list[dict[str, str]]:

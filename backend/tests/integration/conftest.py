@@ -40,6 +40,7 @@ from sqlalchemy import create_engine, text
 BACKEND = Path(__file__).resolve().parents[2]
 PASSWORD = "long-password-1"
 TRUNCATE = """
+email_ingestions,
 notification_outbox, bot_drafts, digest_snapshots, digest_subscriptions,
 telegram_updates, telegram_bindings, telegram_link_tokens,
 alerts, alert_rules, budget_daily_allocations, budget_lines, budget_versions,
@@ -65,9 +66,7 @@ def _admin():
 @pytest.fixture(scope="session")
 def migrated_database():
     admin = _admin()
-    exists = admin.execute(
-        "SELECT 1 FROM pg_database WHERE datname = 'finpilot_test'"
-    ).fetchone()
+    exists = admin.execute("SELECT 1 FROM pg_database WHERE datname = 'finpilot_test'").fetchone()
     if exists is None:
         admin.execute("CREATE DATABASE finpilot_test")
     config = Config(str(BACKEND / "alembic.ini"))

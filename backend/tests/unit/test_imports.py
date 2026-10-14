@@ -1,7 +1,8 @@
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from app.domain.imports.clientbank import read_clientbank
+from app.domain.imports.clientbank import read_clientbank, statement_period_end
 from app.domain.imports.contracts import ImportFormatError
 from app.domain.imports.csv_reader import read_csv
 from app.domain.imports.dedup import classify_duplicate
@@ -131,6 +132,21 @@ def test_rule_skips_when_conditions_miss() -> None:
         )
         is None
     )
+
+
+def test_statement_end_is_not_the_receive_date() -> None:
+    content = (
+        "1CClientBankExchange\nВерсияФормата=1.03\nДатаКонца=13.10.2026\nКонецФайла\n"
+    ).encode()
+    assert statement_period_end(content, encoding="utf-8") == date(2026, 10, 13)
+    assert read_clientbank(content, encoding="utf-8", max_rows=10, wallet_code="main") == []
+    empty = "1CClientBankExchange\nВерсияФормата=1.03\nКонецФайла\n".encode()
+    try:
+        read_clientbank(empty, encoding="utf-8", max_rows=10, wallet_code="main")
+        raised = False
+    except ImportFormatError as exc:
+        raised = exc.code == "unsupported_format"
+    assert raised is True
 
 
 def test_spreadsheet_text_is_escaped() -> None:

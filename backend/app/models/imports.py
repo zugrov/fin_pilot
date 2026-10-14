@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +27,13 @@ class SourceConnection(Base):
     vat_basis: Mapped[str] = mapped_column(String(16), default="net")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[str] = mapped_column(String(16), default="active")
+    poll_interval_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    config_redacted: Mapped[dict] = mapped_column(JSONB, default=dict)
+    encrypted_credentials: Mapped[str | None] = mapped_column(Text)
+    last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -97,6 +104,21 @@ class SourceIdentity(Base):
     planned_event_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     budget_line_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     payload_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class EmailIngestion(Base):
+    __tablename__ = "email_ingestions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    connection_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    uidvalidity: Mapped[int] = mapped_column(BigInteger)
+    uid: Mapped[int] = mapped_column(BigInteger)
+    message_id: Mapped[str | None] = mapped_column(Text)
+    attachment_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
