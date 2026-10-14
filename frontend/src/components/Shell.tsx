@@ -10,6 +10,7 @@ const LINKS = [
   ["/budgets", "Бюджет"],
   ["/alerts", "Алерты"],
   ["/import", "Импорт"],
+  ["/telegram", "Telegram"],
   ["/billing", "Тариф"],
 ] as const;
 

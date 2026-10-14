@@ -13,6 +13,7 @@ import { ForecastPage } from "./pages/ForecastPage";
 import { ImportPage } from "./pages/ImportPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { SalesPage } from "./pages/SalesPage";
+import { TelegramPage } from "./pages/TelegramPage";
 import { WalletsPage } from "./pages/WalletsPage";
 
 const router = createBrowserRouter([
@@ -25,6 +26,7 @@ const router = createBrowserRouter([
   { path: "/budgets", element: <BudgetsPage /> },
   { path: "/alerts", element: <AlertsPage /> },
   { path: "/import", element: <ImportPage /> },
+  { path: "/telegram", element: <TelegramPage /> },
   { path: "/register", element: <RegisterPage /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/verify-email", element: <VerifyPage /> },

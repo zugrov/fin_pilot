@@ -364,6 +364,77 @@ export function commitImport(batchId: string) {
   return request<ImportPreview>(`/api/v1/imports/${batchId}/commit`, { method: "POST" });
 }
 
+export type TelegramBinding = {
+  status: string;
+  id?: string;
+  linked_at?: string | null;
+};
+
+export type TelegramToken = {
+  token: string;
+  expires_at: string;
+  deep_link: string | null;
+};
+
+export type TelegramSubscription = {
+  id: string;
+  local_time: string;
+  timezone: string;
+  days_of_week: number[];
+  mode: string;
+  enabled: boolean;
+  instant_alerts: boolean;
+  quiet_start: string | null;
+  quiet_end: string | null;
+  privacy_level: string;
+  company_scope: string[] | null;
+};
+
+export type TelegramPreview = {
+  text: string;
+  sent: boolean;
+  content_hash: string;
+};
+
+export function createLinkToken() {
+  return request<TelegramToken>("/api/v1/telegram/link-token", { method: "POST" });
+}
+
+export function loadBinding() {
+  return request<TelegramBinding>("/api/v1/telegram/binding");
+}
+
+export function confirmBinding() {
+  return request<TelegramBinding>("/api/v1/telegram/binding/confirm", { method: "POST" });
+}
+
+export function unlinkBinding() {
+  return request<TelegramBinding>("/api/v1/telegram/binding", { method: "DELETE" });
+}
+
+export function loadSubscription() {
+  return request<TelegramSubscription>("/api/v1/telegram/subscription");
+}
+
+export function saveSubscription(payload: {
+  local_time: string;
+  timezone: string;
+  days_of_week: number[];
+  mode: string;
+  enabled: boolean;
+  instant_alerts: boolean;
+  privacy_level: string;
+}) {
+  return request<TelegramSubscription>("/api/v1/telegram/subscription", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function previewDigest() {
+  return request<TelegramPreview>("/api/v1/telegram/digest-preview", { method: "POST" });
+}
+
 export function checkout(quoteId: string, idempotencyKey: string) {
   return request<{ confirmation_url: string | null; activated: boolean }>(
     "/api/v1/billing/checkout",

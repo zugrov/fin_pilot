@@ -16,6 +16,7 @@ from app.api.v1 import (
     revenue,
     rules,
     signals,
+    telegram,
     transactions,
     wallets,
     webhooks,
@@ -100,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(revenue.router, prefix="/api/v1")
     app.include_router(plan.router, prefix="/api/v1")
     app.include_router(signals.router, prefix="/api/v1")
+    app.include_router(telegram.router, prefix="/api/v1")
     app.include_router(rules.router, prefix="/api/v1")
     app.include_router(billing.router, prefix="/api/v1")
     app.include_router(webhooks.router, prefix="/api/v1")
