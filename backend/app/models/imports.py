@@ -94,6 +94,7 @@ class SourceIdentity(Base):
     external_id: Mapped[str] = mapped_column(String(128))
     canonical_entity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     revenue_entry_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    planned_event_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     payload_hash: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

@@ -45,6 +45,16 @@ from app.models.imports import (
     SourceConnection,
     SourceIdentity,
 )
+from app.models.plan import (
+    ForecastContribution,
+    ForecastPoint,
+    ForecastRun,
+    Obligation,
+    ObligationCashLink,
+    PaymentMatch,
+    PlannedCashEvent,
+    RecurrenceRule,
+)
 from app.models.revenue import Counterparty, Direction, RevenueCashMatch, RevenueEntry
 
 __all__ = [
@@ -66,6 +76,9 @@ __all__ = [
     "Direction",
     "CompanyEntitlement",
     "EmailOutbox",
+    "ForecastContribution",
+    "ForecastPoint",
+    "ForecastRun",
     "IdempotencyRecord",
     "ImportBatch",
     "ImportProfile",
@@ -73,9 +86,14 @@ __all__ = [
     "Invoice",
     "InvoiceLine",
     "Membership",
+    "Obligation",
+    "ObligationCashLink",
     "OpeningBalance",
+    "PaymentMatch",
+    "PlannedCashEvent",
     "PaymentAttempt",
     "RawImportRow",
+    "RecurrenceRule",
     "Refund",
     "RevenueCashMatch",
     "RevenueEntry",

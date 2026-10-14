@@ -84,11 +84,11 @@ erDiagram
 
 Этап 5 (`0005_revenue`): `Direction`, `Counterparty`, `RevenueEntry`, `RevenueCashMatch`. У источника есть `dataset` и `coverage_through`.
 
+Этап 6 (`0006_plan`): `PlannedCashEvent`, `PaymentMatch`, `RecurrenceRule`, `Obligation`, `ObligationCashLink`, `ForecastRun`, `ForecastPoint`, `ForecastContribution`. У источника `dataset` бывает `plan`.
+
 ## Последующие этапы (таблицы ещё не создаются)
 
-Этап 5 закрыт по таблицам выше. `CompanyCategoryMap` не создаётся.
-
-Этап 6: `PlannedCashEvent`, `PaymentMatch`, `RecurrenceRule`, `Obligation`, `ObligationCashLink`, `ForecastRun`, `ForecastPoint`, `ForecastContribution`.
+`CompanyCategoryMap` не создаётся. Бюджет и алерты не создаются.
 
 Этап 7: `BudgetVersion`, `BudgetLine`, `BudgetDailyAllocation`, `AlertRule`, `Alert`.
 
