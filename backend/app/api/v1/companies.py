@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -17,6 +18,13 @@ from app.security.access import (
     load_company,
 )
 from app.services.cash_service import company_summary, summary_payload
+from app.services.report_service import (
+    cashflow_payload,
+    dashboard_payload,
+    default_period,
+    group_revenue,
+    revenue_snapshot,
+)
 from app.services.tenant_service import (
     create_company,
     create_workspace,
@@ -166,12 +174,20 @@ def group_summary(tenant_id: UUID, request: Request, session: Session = Depends(
         chosen = visible
     totals: list[str | None] = []
     available: list[str | None] = []
+    revenues: list[str | None] = []
     flags: list[str] = []
+    moment = now()
+    period = _period(request, moment)
     for company in chosen:
-        payload = summary_payload(company_summary(session, company, now()))
+        payload = summary_payload(company_summary(session, company, moment))
         totals.append(payload["cash_total"])
         available.append(payload["available"])
         for flag in payload["quality_flags"]:
+            if flag != "missing_revenue_source" and flag not in flags:
+                flags.append(flag)
+        snap = revenue_snapshot(session, company.id, company.tenant_id, period)
+        revenues.append(snap["amount"])
+        for flag in snap["quality_flags"]:
             if flag not in flags:
                 flags.append(flag)
     if not chosen or any(item is None for item in totals):
@@ -186,12 +202,18 @@ def group_summary(tenant_id: UUID, request: Request, session: Session = Depends(
             sum((Decimal(item) for item in available if item is not None), Decimal("0"))
         )
         basis = "cash"
-    if not flags:
+    if not chosen:
         flags = ["missing_revenue_source"]
+    revenue_total, revenue_label = group_revenue(revenues)
     return {
         "scope_company_ids": [str(company.id) for company in chosen],
         "partial": len(chosen) != len(visible),
-        "metrics": {"cash_total": cash_total, "available": available_total, "revenue": None},
+        "metrics": {
+            "cash_total": cash_total,
+            "available": available_total,
+            "revenue": revenue_total,
+        },
+        "revenue_label": revenue_label,
         "quality_flags": flags,
         "metric_basis": basis,
         "company_risks": [],
@@ -256,20 +278,40 @@ def dashboard(company_id: UUID, request: Request, session: Session = Depends(get
         grace_days=settings.billing_grace_days,
         bypass=settings.billing_bypass_allowed(),
     )
-    payload = summary_payload(company_summary(session, company, now()))
-    return {
-        "company_id": str(company.id),
-        "as_of": now().isoformat(),
-        "metric_basis": payload["metric_basis"],
-        "quality_flags": payload["quality_flags"],
-        "values": {
-            "cash_total": payload["cash_total"],
-            "available": payload["available"],
-            "restricted": payload["restricted"],
-            "revenue": None,
-            "net_cash_flow": None,
-        },
-    }
+    moment = now()
+    return dashboard_payload(session, company, moment, _period(request, moment))
+
+
+@router.get("/companies/{company_id}/cashflow")
+def cashflow(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+    _row, user = current_session(request, session)
+    membership, company = find_company_across_memberships(session, user.id, company_id)
+    settings = settings_of(request)
+    assert_finance_access(
+        session,
+        membership=membership,
+        company=company,
+        user_verified=user.email_verified_at is not None,
+        at=now(),
+        mode="read",
+        grace_days=settings.billing_grace_days,
+        bypass=settings.billing_bypass_allowed(),
+    )
+    return cashflow_payload(session, company, now(), _period(request, now()))
+
+
+def _period(request: Request, at) -> tuple[date, date]:
+    start, end = default_period(at)
+    raw_from = request.query_params.get("date_from")
+    raw_to = request.query_params.get("date_to")
+    try:
+        if raw_from:
+            start = date.fromisoformat(raw_from)
+        if raw_to:
+            end = date.fromisoformat(raw_to)
+    except ValueError as exc:
+        raise AppError(400, "validation_error", "Некорректная дата") from exc
+    return start, end
 
 
 @router.get("/companies/{company_id}/export")

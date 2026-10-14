@@ -1,0 +1,2 @@
+external_id,recognition_date,document_number,counterparty_inn,amount_ex_vat,vat_amount,amount_inc_vat,entry_type,direction_code
+sale-1,2026-10-10,15,7700000001,100000.00,20000.00,120000.00,sale,

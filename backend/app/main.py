@@ -7,7 +7,17 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.api.v1 import auth, billing, companies, imports, rules, transactions, wallets, webhooks
+from app.api.v1 import (
+    auth,
+    billing,
+    companies,
+    imports,
+    revenue,
+    rules,
+    transactions,
+    wallets,
+    webhooks,
+)
 from app.clock import reset_clock, set_clock
 from app.config import Settings, get_settings
 from app.errors import AppError
@@ -85,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(wallets.router, prefix="/api/v1")
     app.include_router(transactions.router, prefix="/api/v1")
     app.include_router(imports.router, prefix="/api/v1")
+    app.include_router(revenue.router, prefix="/api/v1")
     app.include_router(rules.router, prefix="/api/v1")
     app.include_router(billing.router, prefix="/api/v1")
     app.include_router(webhooks.router, prefix="/api/v1")

@@ -1,3 +1,4 @@
+from datetime import date
 from uuid import UUID
 
 from app.api.deps import current_session, get_db, require_csrf, settings_of, tenant_of
@@ -13,6 +14,10 @@ from sqlalchemy.orm import Session
 router = APIRouter(tags=["imports"])
 
 
+class CoverageIn(BaseModel):
+    coverage_through: date
+
+
 class SourceIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     type: str
@@ -21,6 +26,8 @@ class SourceIn(BaseModel):
     encoding: str = "utf-8"
     authoritative: bool = True
     wallet_id: UUID | None = None
+    dataset: str = "cash"
+    vat_basis: str = "net"
 
 
 def _actor(request: Request, session: Session, company_id: UUID, mode: str, *, mutate: bool):
@@ -49,6 +56,31 @@ def post_source(
         encoding=payload.encoding,
         authoritative=payload.authoritative,
         wallet_id=payload.wallet_id,
+        at=now(),
+        dataset=payload.dataset,
+        vat_basis=payload.vat_basis,
+    )
+
+
+@router.post("/companies/{company_id}/sources/{source_id}/coverage")
+def post_coverage(
+    company_id: UUID,
+    source_id: UUID,
+    payload: CoverageIn,
+    request: Request,
+    session: Session = Depends(get_db),
+):
+    from app.services import revenue_service
+
+    user, membership, company = _actor(request, session, company_id, "write", mutate=True)
+    return revenue_service.set_coverage(
+        session,
+        membership,
+        company,
+        user,
+        settings_of(request),
+        source_id,
+        coverage_through=payload.coverage_through,
         at=now(),
     )
 

@@ -13,6 +13,7 @@ from app.domain.imports.csv_reader import read_csv
 from app.domain.imports.dedup import classify_duplicate
 from app.domain.imports.detect import detect_format
 from app.domain.imports.normalize import escape_spreadsheet_text, payload_digest
+from app.domain.imports.revenue_reader import read_revenue_csv
 from app.domain.imports.rules import RuleView, matching_category
 from app.domain.imports.xlsx_reader import read_xlsx
 from app.errors import AppError
@@ -30,6 +31,12 @@ from app.security.access import BILLING_MANAGER, OPERATOR
 from app.security.context import set_context
 from app.security.tokens import canonical_hash
 from app.services.cash_service import _audit, _remember_revision
+from app.services.revenue_import import (
+    create_imported,
+    link_imported,
+    prepare_revenue,
+    revise_imported,
+)
 from app.services.wallet_service import open_company
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -61,6 +68,8 @@ def create_source(
     authoritative: bool,
     wallet_id: uuid.UUID | None,
     at: datetime,
+    dataset: str = "cash",
+    vat_basis: str = "net",
 ) -> dict:
     _deny(membership)
     open_company(session, user, company.id, settings, "write")
@@ -68,6 +77,10 @@ def create_source(
     known_encoding = encoding in {"utf-8", "utf-8-sig", "cp1251"}
     if allowed is None or file_format not in allowed or not known_encoding:
         raise AppError(422, "validation_error", "Неизвестный тип источника")
+    if dataset not in {"cash", "revenue"} or vat_basis not in {"net", "unknown"}:
+        raise AppError(422, "validation_error", "Неизвестный набор данных")
+    if dataset == "revenue" and (source_type != "file" or file_format != "csv"):
+        raise AppError(422, "validation_error", "Продажи загружаются только из CSV")
     if file_format == "clientbank" and wallet_id is None:
         raise AppError(422, "validation_error", "ClientBank привязывается к кошельку")
     if wallet_id is not None:
@@ -84,6 +97,8 @@ def create_source(
         wallet_id=wallet_id,
         format=file_format,
         encoding=encoding,
+        dataset=dataset,
+        vat_basis=vat_basis,
         enabled=True,
         status="active",
         created_at=at,
@@ -156,7 +171,10 @@ def receive_import(
         return payload
     wallet_code = _bound_code(session, company, connection)
     try:
-        lines = _parse(content, connection, wallet_code, settings)
+        if connection.dataset == "revenue":
+            lines = _parse_revenue(content, connection, settings)
+        else:
+            lines = _parse(content, connection, wallet_code, settings)
     except ImportFormatError as exc:
         raise AppError(422, exc.code, exc.message) from exc
     key = _store(settings, company.tenant_id, digest, content)
@@ -194,7 +212,10 @@ def receive_import(
         return _payload(session, found)
     invalid = 0
     for line in lines:
-        prepared = _prepare(session, company, connection, line, rules)
+        if connection.dataset == "revenue":
+            prepared = prepare_revenue(session, company, connection, line)
+        else:
+            prepared = _prepare(session, company, connection, line, rules)
         if prepared["duplicate_status"] == "invalid":
             invalid += 1
         session.add(
@@ -284,6 +305,17 @@ def commit_import(
         }:
             if row.duplicate_status in {"invalid", "ambiguous"}:
                 pending = True
+            continue
+        if connection.dataset == "revenue":
+            if row.proposed_action == "create":
+                create_imported(session, company, connection, company_user, row, batch.id, at)
+            elif row.proposed_action == "revise":
+                revise_imported(session, company, connection, company_user, row, at)
+            elif row.proposed_action == "link":
+                link_imported(session, company, connection, row, at)
+            else:
+                continue
+            committed += 1
             continue
         if row.proposed_action == "create":
             _create_row(session, company, connection, company_user, row, at)
@@ -595,6 +627,18 @@ def _identity(session, company, connection, row: RawImportRow, tx_id, at: dateti
     session.flush()
 
 
+def _parse_revenue(content: bytes, connection: SourceConnection, settings: Settings):
+    detect_format(content, connection.format, connection.encoding)
+    if connection.format != "csv":
+        raise ImportFormatError("unsupported_format", "Продажи загружаются только из CSV")
+    return read_revenue_csv(
+        content,
+        encoding=connection.encoding,
+        max_rows=settings.import_max_rows,
+        vat_basis=connection.vat_basis,
+    )
+
+
 def _parse(content: bytes, connection: SourceConnection, wallet_code: str, settings: Settings):
     detect_format(content, connection.format, connection.encoding)
     if connection.format == "csv":
@@ -760,6 +804,13 @@ def _source_payload(connection: SourceConnection) -> dict:
         "namespace": connection.namespace,
         "format": connection.format,
         "encoding": connection.encoding,
+        "dataset": connection.dataset,
+        "vat_basis": connection.vat_basis,
+        "coverage_through": (
+            None
+            if connection.coverage_through is None
+            else connection.coverage_through.isoformat()
+        ),
         "authoritative": connection.authoritative,
         "wallet_id": None if connection.wallet_id is None else str(connection.wallet_id),
     }
