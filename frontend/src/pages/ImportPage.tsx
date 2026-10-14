@@ -5,7 +5,7 @@ import { commitImport, createSource, listCompanies, loadSources, uploadImport } 
 import { Shell } from "../components/Shell";
 
 export function ImportPage() {
-  const [dataset, setDataset] = useState<"cash" | "revenue" | "plan">("plan");
+  const [dataset, setDataset] = useState<"cash" | "revenue" | "plan" | "budget">("budget");
   const [error, setError] = useState("");
   const [previewId, setPreviewId] = useState("");
   const client = useQueryClient();
@@ -51,6 +51,7 @@ export function ImportPage() {
         <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("cash")}>Деньги</button>
         <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("revenue")}>Продажи</button>
         <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("plan")}>План</button>
+        <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("budget")}>Бюджет</button>
       </div>
       {sources.isSuccess && chosen ? (
         <p className="mb-3 text-sm">Источник: {chosen.name}</p>

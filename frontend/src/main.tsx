@@ -6,6 +6,8 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import "./index.css";
 import { BillingPage, BillingReturnPage } from "./pages/BillingPage";
 import { ForgotPage, LoginPage, RegisterPage, ResetPage, VerifyPage } from "./pages/AuthPages";
+import { AlertsPage } from "./pages/AlertsPage";
+import { BudgetsPage } from "./pages/BudgetsPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { ForecastPage } from "./pages/ForecastPage";
 import { ImportPage } from "./pages/ImportPage";
@@ -20,6 +22,8 @@ const router = createBrowserRouter([
   { path: "/sales", element: <SalesPage /> },
   { path: "/calendar", element: <CalendarPage /> },
   { path: "/forecast", element: <ForecastPage /> },
+  { path: "/budgets", element: <BudgetsPage /> },
+  { path: "/alerts", element: <AlertsPage /> },
   { path: "/import", element: <ImportPage /> },
   { path: "/register", element: <RegisterPage /> },
   { path: "/login", element: <LoginPage /> },

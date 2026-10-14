@@ -264,12 +264,71 @@ export function loadGroupForecast(scenario = "base") {
   });
 }
 
+export type PlanFactLine = {
+  status: string;
+  fact: string | null;
+  percent: string | null;
+  plan_to_date: string | null;
+  delta: string | null;
+  metric_type: string;
+};
+
+export type PlanFact = {
+  quality_flags: string[];
+  bases: { basis: string; status: string; lines: PlanFactLine[] }[];
+};
+
+export type BudgetDraft = { id: string; status: string };
+
+export function loadPlanFact(companyId: string) {
+  return request<PlanFact>(
+    `/api/v1/companies/${companyId}/plan-fact?report_date=2026-10-31`,
+  );
+}
+
+export function createBudget(companyId: string, amount: string) {
+  return request<BudgetDraft>(`/api/v1/companies/${companyId}/budgets`, {
+    method: "POST",
+    headers: { "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({
+      name: "Год",
+      year: 2026,
+      basis: "cash",
+      lines: [{ month: 10, metric_type: "cash_out", amount }],
+    }),
+  });
+}
+
+export function approveBudget(versionId: string) {
+  return request<BudgetDraft>(`/api/v1/budgets/${versionId}/approve`, {
+    method: "POST",
+    headers: { "Idempotency-Key": crypto.randomUUID() },
+  });
+}
+
+export type AlertItem = {
+  id: string;
+  type: string;
+  status: string;
+  evidence: Record<string, string | number | null>;
+};
+
+export function loadAlerts(companyId: string) {
+  return request<{ status: string; alerts: AlertItem[] }>(
+    `/api/v1/companies/${companyId}/alerts?report_date=2026-10-31`,
+  );
+}
+
+export function ackAlert(alertId: string) {
+  return request<AlertItem>(`/api/v1/alerts/${alertId}/ack`, { method: "POST" });
+}
+
 export function createSource(
   companyId: string,
-  dataset: "cash" | "revenue" | "plan",
+  dataset: "cash" | "revenue" | "plan" | "budget",
   namespace: string,
 ) {
-  const names = { revenue: "Продажи", plan: "План", cash: "Деньги" };
+  const names = { revenue: "Продажи", plan: "План", budget: "Бюджет", cash: "Деньги" };
   return request<Source>(`/api/v1/companies/${companyId}/sources`, {
     method: "POST",
     body: JSON.stringify({

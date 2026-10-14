@@ -7,6 +7,8 @@ const LINKS = [
   ["/sales", "Продажи"],
   ["/calendar", "Календарь"],
   ["/forecast", "Прогноз"],
+  ["/budgets", "Бюджет"],
+  ["/alerts", "Алерты"],
   ["/import", "Импорт"],
   ["/billing", "Тариф"],
 ] as const;
