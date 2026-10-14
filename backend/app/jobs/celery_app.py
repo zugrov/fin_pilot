@@ -14,6 +14,8 @@ from app.services.billing_service import (
     process_inbox,
     reconcile_open_payments,
 )
+from app.services.telegram_digest import schedule_digests
+from app.services.telegram_dispatch import dispatch_outbox as dispatch_telegram
 
 
 def make_celery() -> Celery:
@@ -24,6 +26,8 @@ def make_celery() -> Celery:
         "reconcile-payments": {"task": "billing.reconcile", "schedule": 60.0},
         "renewal-reminders": {"task": "billing.reminders", "schedule": 3600.0},
         "dispatch-outbox": {"task": "mail.dispatch_outbox", "schedule": 30.0},
+        "telegram-schedule": {"task": "telegram.schedule_digests", "schedule": 60.0},
+        "telegram-dispatch": {"task": "telegram.dispatch_outbox", "schedule": 30.0},
     }
     app.conf.timezone = "Europe/Moscow"
     return app
@@ -80,5 +84,26 @@ def dispatch_outbox_task() -> int:
     def work(session: Session, settings: Settings) -> int:
         provider = build_email_provider(settings)
         return dispatch_outbox(session, settings, provider, datetime.now(UTC))
+
+    return _run(work)
+
+
+@celery_app.task(name="telegram.schedule_digests")
+def schedule_digests_task() -> int:
+    def work(session: Session, settings: Settings) -> int:
+        from app.services.telegram_bot import poll_once
+
+        poll_once(session, settings, datetime.now(UTC))
+        return schedule_digests(session, settings, datetime.now(UTC))
+
+    return _run(work)
+
+
+@celery_app.task(name="telegram.dispatch_outbox")
+def dispatch_telegram_task() -> int:
+    def work(session: Session, settings: Settings) -> int:
+        from app.integrations.telegram import build_transport
+
+        return dispatch_telegram(session, settings, build_transport(settings), datetime.now(UTC))
 
     return _run(work)
