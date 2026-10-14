@@ -19,6 +19,7 @@ class WalletIn(BaseModel):
     available_from: str | None = None
     minimum_reserve: str = "0.00"
     masked_identifier: str | None = Field(default=None, max_length=64)
+    code: str | None = Field(default=None, max_length=64)
 
 
 class OpeningIn(BaseModel):
@@ -85,6 +86,7 @@ def post_wallet(
         available_from=available_from,
         minimum_reserve=reserve,
         masked_identifier=payload.masked_identifier,
+        code=payload.code,
     )
     return cash_service.wallet_view(session, wallet, now())
 

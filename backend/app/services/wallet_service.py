@@ -92,6 +92,7 @@ def create_wallet(
     available_from: datetime | None,
     minimum_reserve: Decimal,
     masked_identifier: str | None,
+    code: str | None = None,
 ) -> Wallet:
     if wallet_type not in WALLET_TYPES:
         raise AppError(422, "validation_error", "Неизвестный тип кошелька")
@@ -99,11 +100,15 @@ def create_wallet(
         raise AppError(422, "validation_error", "Неизвестный вид доступности")
     if membership.role == OPERATOR:
         raise AppError(403, "forbidden", "Оператор не создаёт кошельки")
+    normalized_code = None if code is None else code.strip()
+    if normalized_code == "":
+        raise AppError(422, "validation_error", "Пустой код кошелька")
     moment = _now_setting()
     wallet = Wallet(
         tenant_id=company.tenant_id,
         company_id=company.id,
         name=name.strip(),
+        code=normalized_code,
         type=wallet_type,
         masked_identifier=masked_identifier,
         currency="RUB",

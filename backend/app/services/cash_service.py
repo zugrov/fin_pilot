@@ -305,6 +305,7 @@ def wallet_view(session: Session, wallet: Wallet, at: datetime) -> dict:
         "id": str(wallet.id),
         "company_id": str(wallet.company_id),
         "name": wallet.name,
+        "code": wallet.code,
         "type": wallet.type,
         "currency": wallet.currency,
         "availability_type": wallet.availability_type,
