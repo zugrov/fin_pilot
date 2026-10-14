@@ -86,11 +86,11 @@ erDiagram
 
 Этап 6 (`0006_plan`): `PlannedCashEvent`, `PaymentMatch`, `RecurrenceRule`, `Obligation`, `ObligationCashLink`, `ForecastRun`, `ForecastPoint`, `ForecastContribution`. У источника `dataset` бывает `plan`.
 
+Этап 7 (`0007_signals`): `BudgetVersion`, `BudgetLine`, `BudgetDailyAllocation`, `AlertRule`, `Alert`. Дневные доли только `calendar_days`. У источника `dataset` бывает `budget`. `Reconciliation` и `BalanceSnapshot` по-прежнему не созданы, сигнал сверки остатков не считается.
+
 ## Последующие этапы (таблицы ещё не создаются)
 
-`CompanyCategoryMap` не создаётся. Бюджет и алерты не создаются.
-
-Этап 7: `BudgetVersion`, `BudgetLine`, `BudgetDailyAllocation`, `AlertRule`, `Alert`.
+`CompanyCategoryMap` не создаётся.
 
 Этап 8: `TelegramBinding`, `TelegramLinkToken`, `DigestSubscription`, `DigestSnapshot`, `NotificationOutbox`, `TelegramUpdate`, `BotDraft`.
 

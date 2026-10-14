@@ -40,6 +40,7 @@ from sqlalchemy import create_engine, text
 BACKEND = Path(__file__).resolve().parents[2]
 PASSWORD = "long-password-1"
 TRUNCATE = """
+alerts, alert_rules, budget_daily_allocations, budget_lines, budget_versions,
 forecast_contributions, forecast_points, forecast_runs, obligation_cash_links,
 payment_matches, planned_cash_events, obligations, recurrence_rules,
 revenue_cash_matches, source_identities, raw_import_rows, import_batches, import_profiles,

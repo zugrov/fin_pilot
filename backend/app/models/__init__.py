@@ -56,10 +56,22 @@ from app.models.plan import (
     RecurrenceRule,
 )
 from app.models.revenue import Counterparty, Direction, RevenueCashMatch, RevenueEntry
+from app.models.signals import (
+    Alert,
+    AlertRule,
+    BudgetDailyAllocation,
+    BudgetLine,
+    BudgetVersion,
+)
 
 __all__ = [
+    "Alert",
+    "AlertRule",
     "AnnualOfferVersion",
     "AuditLog",
+    "BudgetDailyAllocation",
+    "BudgetLine",
+    "BudgetVersion",
     "Base",
     "BillingAccount",
     "BillingActivation",
