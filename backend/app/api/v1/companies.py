@@ -3,9 +3,12 @@ from uuid import UUID
 
 from app.api.deps import current_session, get_db, require_csrf, settings_of, tenant_of
 from app.clock import now
+from app.domain.money import money_str
 from app.errors import AppError
 from app.models.identity import Company
 from app.security.access import (
+    BILLING_MANAGER,
+    OPERATOR,
     access_row,
     assert_finance_access,
     can_write_finance,
@@ -13,6 +16,7 @@ from app.security.access import (
     find_company_across_memberships,
     load_company,
 )
+from app.services.cash_service import company_summary, summary_payload
 from app.services.tenant_service import (
     create_company,
     create_workspace,
@@ -68,22 +72,6 @@ def _company_payload(company: Company) -> dict:
         "currency": company.currency,
         "status": company.status,
         "min_cash_reserve": reserve,
-    }
-
-
-def _unavailable(company_id: str) -> dict:
-    return {
-        "company_id": company_id,
-        "as_of": now().isoformat(),
-        "metric_basis": "unavailable",
-        "quality_flags": ["missing_opening_balance", "missing_revenue_source"],
-        "values": {
-            "cash_total": None,
-            "available": None,
-            "restricted": None,
-            "revenue": None,
-            "net_cash_flow": None,
-        },
     }
 
 
@@ -167,6 +155,8 @@ def group_summary(tenant_id: UUID, request: Request, session: Session = Depends(
     membership = tenant_of(request, session, user)
     if membership.tenant_id != tenant_id:
         raise AppError(404, "not_found", "Пространство не найдено")
+    if membership.role in {OPERATOR, BILLING_MANAGER}:
+        raise AppError(403, "forbidden", "Общая аналитика недоступна")
     visible = companies_for(session, membership)
     requested = request.query_params.get("company_ids")
     if requested:
@@ -174,12 +164,36 @@ def group_summary(tenant_id: UUID, request: Request, session: Session = Depends(
         chosen = [company for company in visible if str(company.id) in wanted]
     else:
         chosen = visible
+    totals: list[str | None] = []
+    available: list[str | None] = []
+    flags: list[str] = []
+    for company in chosen:
+        payload = summary_payload(company_summary(session, company, now()))
+        totals.append(payload["cash_total"])
+        available.append(payload["available"])
+        for flag in payload["quality_flags"]:
+            if flag not in flags:
+                flags.append(flag)
+    if not chosen or any(item is None for item in totals):
+        cash_total = None
+        available_total = None
+        basis = "unavailable"
+    else:
+        cash_total = money_str(
+            sum((Decimal(item) for item in totals if item is not None), Decimal("0"))
+        )
+        available_total = money_str(
+            sum((Decimal(item) for item in available if item is not None), Decimal("0"))
+        )
+        basis = "cash"
+    if not flags:
+        flags = ["missing_revenue_source"]
     return {
         "scope_company_ids": [str(company.id) for company in chosen],
         "partial": len(chosen) != len(visible),
-        "metrics": {"cash_total": None, "available": None, "revenue": None},
-        "quality_flags": ["missing_opening_balance", "missing_revenue_source"],
-        "metric_basis": "unavailable",
+        "metrics": {"cash_total": cash_total, "available": available_total, "revenue": None},
+        "quality_flags": flags,
+        "metric_basis": basis,
         "company_risks": [],
     }
 
@@ -242,7 +256,20 @@ def dashboard(company_id: UUID, request: Request, session: Session = Depends(get
         grace_days=settings.billing_grace_days,
         bypass=settings.billing_bypass_allowed(),
     )
-    return _unavailable(str(company.id))
+    payload = summary_payload(company_summary(session, company, now()))
+    return {
+        "company_id": str(company.id),
+        "as_of": now().isoformat(),
+        "metric_basis": payload["metric_basis"],
+        "quality_flags": payload["quality_flags"],
+        "values": {
+            "cash_total": payload["cash_total"],
+            "available": payload["available"],
+            "restricted": payload["restricted"],
+            "revenue": None,
+            "net_cash_flow": None,
+        },
+    }
 
 
 @router.get("/companies/{company_id}/export")

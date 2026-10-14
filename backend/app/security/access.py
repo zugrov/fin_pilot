@@ -166,7 +166,7 @@ def paid_through_state(
     raise AppError(402, "payment_required", "Оплаченный период закончился")
 
 
-def assert_finance_access(
+def assert_company_paid(
     session: Session,
     *,
     membership: Membership,
@@ -179,11 +179,6 @@ def assert_finance_access(
 ) -> None:
     if not user_verified:
         raise AppError(403, "email_not_verified", "Подтвердите почту")
-    access = access_row(session, membership, company.id)
-    if mode == "read" and not can_read_finance(membership, access):
-        raise AppError(403, "forbidden", "Недостаточно прав")
-    if mode in {"write", "send"} and not can_write_finance(membership, access):
-        raise AppError(403, "forbidden", "Недостаточно прав")
     if bypass:
         return
     subscription = session.scalar(
@@ -211,4 +206,32 @@ def assert_finance_access(
         grace_days=grace_days,
         mode=mode,
         entitled=entitled,
+    )
+
+
+def assert_finance_access(
+    session: Session,
+    *,
+    membership: Membership,
+    company: Company,
+    user_verified: bool,
+    at: datetime,
+    mode: str,
+    grace_days: int,
+    bypass: bool,
+) -> None:
+    access = access_row(session, membership, company.id)
+    if mode == "read" and not can_read_finance(membership, access):
+        raise AppError(403, "forbidden", "Недостаточно прав")
+    if mode in {"write", "send"} and not can_write_finance(membership, access):
+        raise AppError(403, "forbidden", "Недостаточно прав")
+    assert_company_paid(
+        session,
+        membership=membership,
+        company=company,
+        user_verified=user_verified,
+        at=at,
+        mode=mode,
+        grace_days=grace_days,
+        bypass=bypass,
     )
