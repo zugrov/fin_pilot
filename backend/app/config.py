@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     refunds_enabled: bool = False
     billing_staff_emails: str = ""
     bot_token: str = ""
+    bot_username: str = ""
     telegram_webhook_secret: str = ""
     quote_ttl_minutes: int = 15
     webhook_max_bytes: int = 1_000_000
