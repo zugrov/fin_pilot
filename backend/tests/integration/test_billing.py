@@ -305,9 +305,7 @@ def test_pay15_parallel_upgrade_does_not_double_limit(client, admin, app, fake) 
 def test_pay16_saas_payment_does_not_create_cash(client, admin, app, fake) -> None:
     _ready(client, admin, app)
     pay(client, app, fake, 1, "month")
-    from app.models import Base
-
-    assert "cash_transactions" not in Base.metadata.tables
+    assert _count(admin, "cash_transactions") == 0
     assert _count(admin, "billing_activations") == 1
 
 

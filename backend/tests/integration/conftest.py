@@ -40,6 +40,8 @@ from sqlalchemy import create_engine, text
 BACKEND = Path(__file__).resolve().parents[2]
 PASSWORD = "long-password-1"
 TRUNCATE = """
+transaction_revisions, cash_transactions, transfer_groups, opening_balances,
+wallet_access, wallets, cash_categories,
 billing_audit, refunds, billing_activations, billing_webhook_inbox,
 payment_attempts, invoice_lines, invoices, billing_quotes, company_entitlements,
 billing_periods, subscriptions, billing_accounts, idempotency_records, invitations,

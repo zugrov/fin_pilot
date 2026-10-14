@@ -11,7 +11,7 @@ from app.security.context import set_context
 from app.security.tokens import new_secret
 from app.services.auth_service import normalize_email
 from app.services.outbox import build_link, enqueue_email
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -65,6 +65,10 @@ def create_workspace(session: Session, user: User, name: str, timezone_name: str
         )
     )
     session.add(BillingAccount(tenant_id=tenant_id, billing_email=user.email))
+    session.execute(
+        text("SELECT seed_cash_categories(:tenant_id)"),
+        {"tenant_id": tenant_id},
+    )
     session.flush()
     return tenant_id
 

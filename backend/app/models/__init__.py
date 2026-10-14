@@ -15,6 +15,15 @@ from app.models.billing import (
     Subscription,
     TariffVersion,
 )
+from app.models.cash import (
+    CashCategory,
+    CashTransaction,
+    OpeningBalance,
+    TransactionRevision,
+    TransferGroup,
+    Wallet,
+    WalletAccess,
+)
 from app.models.identity import (
     AuditLog,
     Company,
@@ -39,6 +48,8 @@ __all__ = [
     "BillingPeriod",
     "BillingQuote",
     "BillingWebhookInbox",
+    "CashCategory",
+    "CashTransaction",
     "Company",
     "CompanyAccess",
     "CompanyEntitlement",
@@ -48,12 +59,17 @@ __all__ = [
     "Invoice",
     "InvoiceLine",
     "Membership",
+    "OpeningBalance",
     "PaymentAttempt",
     "Refund",
     "Session",
     "Subscription",
     "TariffVersion",
     "Tenant",
+    "TransactionRevision",
+    "TransferGroup",
     "User",
     "VerificationToken",
+    "Wallet",
+    "WalletAccess",
 ]
