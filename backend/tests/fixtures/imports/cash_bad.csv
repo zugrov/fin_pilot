@@ -1,0 +1,6 @@
+external_id,wallet_code,business_date,direction,amount,currency,counterparty_inn,counterparty_name,description,document_number,category_code,direction_code
+bad-date,main,10.10.2026,in,10.00,RUB,,,счёт,1,,
+bad-currency,main,2026-10-10,in,10.00,USD,,,счёт,2,,
+bad-wallet,missing,2026-10-10,out,10.00,RUB,,,счёт,3,,
+bad-direction,main,2026-10-10,plus,10.00,RUB,,,счёт,4,,
+good,main,2026-10-11,out,20.00,RUB,,,аренда,5,operating,
