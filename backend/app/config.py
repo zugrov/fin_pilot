@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     session_idle_minutes: int = 720
     session_absolute_hours: int = 336
     send_external_messages: bool = False
+    poll_imap: bool = False
     billing_enabled: bool = True
     billing_mode: str = "test"
     yookassa_shop_id: str = ""
@@ -78,6 +79,8 @@ class Settings(BaseSettings):
             raise ValueError("нужен боевой session secret")
         if self.billing_guard_bypass:
             raise ValueError("обход billing guard запрещён в production")
+        if self.poll_imap and self.secret_encryption_key == "dev-only-change-me":
+            raise ValueError("нужен ключ шифрования почты")
 
     @property
     def cors_origin_list(self) -> list[str]:

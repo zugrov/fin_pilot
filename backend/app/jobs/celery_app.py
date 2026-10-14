@@ -14,6 +14,7 @@ from app.services.billing_service import (
     process_inbox,
     reconcile_open_payments,
 )
+from app.services.mail_service import poll_mailboxes
 from app.services.telegram_digest import schedule_digests
 from app.services.telegram_dispatch import dispatch_outbox as dispatch_telegram
 
@@ -28,6 +29,7 @@ def make_celery() -> Celery:
         "dispatch-outbox": {"task": "mail.dispatch_outbox", "schedule": 30.0},
         "telegram-schedule": {"task": "telegram.schedule_digests", "schedule": 60.0},
         "telegram-dispatch": {"task": "telegram.dispatch_outbox", "schedule": 30.0},
+        "poll-mailboxes": {"task": "mail.poll_mailboxes", "schedule": 60.0},
     }
     app.conf.timezone = "Europe/Moscow"
     return app
@@ -95,6 +97,14 @@ def schedule_digests_task() -> int:
 
         poll_once(session, settings, datetime.now(UTC))
         return schedule_digests(session, settings, datetime.now(UTC))
+
+    return _run(work)
+
+
+@celery_app.task(name="mail.poll_mailboxes")
+def poll_mailboxes_task() -> int:
+    def work(session: Session, settings: Settings) -> int:
+        return poll_mailboxes(session, settings, datetime.now(UTC))
 
     return _run(work)
 
