@@ -1,0 +1,4 @@
+external_id,direction,amount,currency,due_date,expected_date,category_code,counterparty_inn,confidence,priority,wallet_code
+bad-date,out,100000.00,RUB,20.10.2026,2026-10-20,operating,,expected,normal,main
+bad-wallet,out,10000.00,RUB,2026-10-21,2026-10-21,operating,,expected,normal,missing
+ok-row,in,5000.00,RUB,2026-10-22,2026-10-22,,,expected,low,
