@@ -31,6 +31,7 @@
 ## Инфраструктура
 
 - [ ] VPS, домен, `PUBLIC_BASE_URL`, TLS.
+- [ ] Docker/Compose и Linux prefork Celery не проверены. Локально worker и beat подключаются к Redis. На macOS пул prefork падает в трейсере Celery до тела задачи; пул solo выполняет `billing.process_inbox` и `mail.dispatch_outbox`.
 - [ ] Боевые `DATABASE_URL`, `REDIS_URL`, `SESSION_SECRET`, `SECRET_ENCRYPTION_KEY` вне git.
 - [ ] Роли БД: миграции отдельно от приложения, минимум прав.
 - [ ] Проверенное восстановление backup. Цели RPO 24ч и RTO 4ч подтверждаются процедурой, а не обещанием.

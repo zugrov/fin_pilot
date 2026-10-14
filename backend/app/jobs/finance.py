@@ -78,10 +78,11 @@ def enqueue_financial_notice(
     )
 
 
-def dispatch_outbox(session: Session, settings: Settings, provider, at: datetime) -> None:
+def dispatch_outbox(session: Session, settings: Settings, provider, at: datetime) -> int:
     if settings.app_env == "production" and settings.email_provider_mode == "mock":
         raise RuntimeError("mock email запрещён в production")
     rows = session.execute(text("SELECT * FROM app_pending_outbox()")).mappings().all()
+    handled = 0
     for row in rows:
         if row["category"] == "financial":
             try:
@@ -100,6 +101,7 @@ def dispatch_outbox(session: Session, settings: Settings, provider, at: datetime
                     text("SELECT app_mark_outbox(:id, 'cancelled', 'access')"),
                     {"id": row["id"]},
                 )
+                handled += 1
                 continue
         if not settings.send_real_email:
             if settings.email_provider_mode == "mock" and settings.app_env != "production":
@@ -110,6 +112,9 @@ def dispatch_outbox(session: Session, settings: Settings, provider, at: datetime
                     text("SELECT app_mark_outbox(:id, 'sent', NULL)"),
                     {"id": row["id"]},
                 )
+                handled += 1
             continue
         provider.send(EmailMessage(row["to_email"], row["template_key"], row["payload_redacted"]))
         session.execute(text("SELECT app_mark_outbox(:id, 'sent', NULL)"), {"id": row["id"]})
+        handled += 1
+    return handled

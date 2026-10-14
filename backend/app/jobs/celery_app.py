@@ -6,7 +6,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings, get_settings
+from app.integrations.email import build_email_provider
 from app.integrations.payments import build_payment_provider
+from app.jobs.finance import dispatch_outbox
 from app.services.billing_service import (
     enqueue_renewal_reminders,
     process_inbox,
@@ -21,6 +23,7 @@ def make_celery() -> Celery:
         "process-inbox": {"task": "billing.process_inbox", "schedule": 30.0},
         "reconcile-payments": {"task": "billing.reconcile", "schedule": 60.0},
         "renewal-reminders": {"task": "billing.reminders", "schedule": 3600.0},
+        "dispatch-outbox": {"task": "mail.dispatch_outbox", "schedule": 30.0},
     }
     app.conf.timezone = "Europe/Moscow"
     return app
@@ -68,5 +71,14 @@ def reconcile_task() -> int:
 def reminders_task() -> int:
     def work(session: Session, settings: Settings) -> int:
         return enqueue_renewal_reminders(session, settings, datetime.now(UTC))
+
+    return _run(work)
+
+
+@celery_app.task(name="mail.dispatch_outbox")
+def dispatch_outbox_task() -> int:
+    def work(session: Session, settings: Settings) -> int:
+        provider = build_email_provider(settings)
+        return dispatch_outbox(session, settings, provider, datetime.now(UTC))
 
     return _run(work)

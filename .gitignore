@@ -17,6 +17,8 @@ frontend/dist/
 .idea/
 .vscode/
 *.log
+celerybeat-schedule
+celerybeat-schedule.*
 coverage/
 playwright-report/
 test-results/

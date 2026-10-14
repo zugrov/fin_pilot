@@ -23,22 +23,31 @@ class MemoryRateLimiter:
 
 
 class RedisRateLimiter:
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, *, fail_closed: bool) -> None:
         import redis
 
         self._redis = redis.Redis.from_url(url)
+        self._fail_closed = fail_closed
 
     def allow(self, key: str, limit: int, window_seconds: int) -> bool:
-        pipe = self._redis.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, window_seconds, nx=True)
-        count, _ = pipe.execute()
+        try:
+            pipe = self._redis.pipeline()
+            pipe.incr(key)
+            pipe.expire(key, window_seconds, nx=True)
+            count, _ = pipe.execute()
+        except Exception:
+            if self._fail_closed:
+                return False
+            raise
         return int(count) <= limit
 
 
 def build_rate_limiter(settings: Settings) -> MemoryRateLimiter | RedisRateLimiter:
     if settings.rate_limit_backend == "redis":
-        return RedisRateLimiter(settings.redis_url)
+        return RedisRateLimiter(
+            settings.redis_url,
+            fail_closed=settings.app_env == "production",
+        )
     return MemoryRateLimiter()
 
 
