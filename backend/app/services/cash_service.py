@@ -103,12 +103,15 @@ def create_transaction(
     idempotency_key: str,
     request_hash: str,
     at: datetime,
+    source: str = "manual",
 ) -> tuple[int, dict]:
     existing = _idempotent(session, user, idempotency_key, request_hash)
     if existing is not None:
         return existing.status_code, existing.response_body
     if direction not in {"in", "out"} or status not in {"draft", "posted"}:
         raise AppError(422, "validation_error", "Некорректные поля операции")
+    if source not in {"manual", "import", "telegram"}:
+        raise AppError(422, "validation_error", "Некорректный источник операции")
     wallet = visible_wallet(session, membership, wallet_id, "write")
     if wallet.company_id != company.id:
         raise AppError(404, "not_found", "Кошелёк не найден")
@@ -124,7 +127,7 @@ def create_transaction(
         currency="RUB",
         category_id=category_id,
         description=description,
-        source="manual",
+        source=source,
         status=status,
         classification_origin="manual" if category_id else "none",
         locked_classification=category_id is not None,
