@@ -64,6 +64,7 @@ class FakeYooKassa:
         self.by_key: dict[str, dict] = {}
         self.by_id: dict[str, dict] = {}
         self.timeout_once = False
+        self.next_test = True
         self.calls = 0
 
     def create_payment(self, idempotence_key: str, body: dict) -> dict:
@@ -81,7 +82,7 @@ class FakeYooKassa:
             "id": payment_id,
             "status": "pending",
             "paid": False,
-            "test": True,
+            "test": self.next_test,
             "amount": body["amount"],
             "metadata": body.get("metadata", {}),
             "confirmation": {

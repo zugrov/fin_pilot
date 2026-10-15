@@ -332,6 +332,34 @@ def test_pay17_no_default_vat_and_live_checkout_blocked(client, admin, app, fake
     assert tariff["annual_discount_percent"] == "15.00"
 
 
+def test_live_payment_does_not_activate_test_mode(client, admin, app, fake) -> None:
+    _ready(client, admin, app)
+    assert app.state.settings.billing_mode == "test"
+    quoted = client.post("/api/v1/billing/quote", json={"companies": 1, "interval": "month"})
+    assert quoted.status_code == 200
+    assert quoted.json()["payable_amount"] == "2500.00"
+    fake.next_test = False
+    blocked = client.post(
+        "/api/v1/billing/checkout",
+        json={"quote_id": quoted.json()["id"], "offer_accepted": True},
+        headers={"Idempotency-Key": "live-in-test"},
+    )
+    assert blocked.status_code == 422, blocked.text
+    assert blocked.json()["code"] == "live_payment_test_mode"
+    assert "confirmation_url" not in blocked.json()
+    provider_id = next(reversed(fake.by_id))
+    fake.mark(provider_id, "succeeded")
+    reconcile(app, fake)
+    assert _count(admin, "billing_activations") == 0
+    with admin.connect() as connection:
+        invoice_status = connection.execute(text("SELECT status FROM invoices")).scalar_one()
+        error = connection.execute(
+            text("SELECT provider_error FROM payment_attempts")
+        ).scalar_one()
+    assert invoice_status == "manual_review"
+    assert error == "live_payment_test_mode"
+
+
 def test_pay18_reconciliation_without_webhook(client, admin, app, fake) -> None:
     _ready(client, admin, app)
     quoted = client.post("/api/v1/billing/quote", json={"companies": 1, "interval": "month"})

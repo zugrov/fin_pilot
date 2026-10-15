@@ -208,7 +208,9 @@ def checkout(
         if existing.payment_attempt_id is not None:
             attempt = session.get(PaymentAttempt, existing.payment_attempt_id)
             if attempt is not None and attempt.status == "unknown":
-                body = _retry_unknown(session, provider, attempt, at)
+                body = _retry_unknown(session, provider, attempt, settings, at)
+                if body.get("code") in _MODE_MESSAGES:
+                    return 422, body
                 return 200, body
         return existing.status_code, existing.response_body
 
@@ -250,9 +252,27 @@ def checkout(
         )
         return 202, payload
     attempt.provider_payment_id = remote["id"]
+    attempt.test_mode = bool(remote.get("test"))
+    mode_problem = _mode_problem(remote, settings, tenant)
+    if mode_problem:
+        attempt.confirmation_url = None
+        attempt.status = "unknown"
+        attempt.provider_error = mode_problem
+        quote.status = "consumed"
+        invoice.status = "manual_review"
+        payload = {
+            "code": mode_problem,
+            "message": _MODE_MESSAGES[mode_problem],
+            "status": "unknown",
+            "payment_id": str(attempt.id),
+            "activated": False,
+        }
+        _remember(
+            session, user, tenant_id, idempotency_key, request_hash, 422, payload, attempt, at
+        )
+        return 422, payload
     attempt.confirmation_url = (remote.get("confirmation") or {}).get("confirmation_url")
     attempt.status = "pending" if remote.get("status") == "pending" else str(remote.get("status"))
-    attempt.test_mode = bool(remote.get("test"))
     quote.status = "consumed"
     invoice.status = "pending"
     account = session.scalar(select(BillingAccount).where(BillingAccount.tenant_id == tenant_id))
@@ -945,9 +965,35 @@ def _lines_for(quote: BillingQuote):
     )
 
 
-def _retry_unknown(session, provider, attempt: PaymentAttempt, at: datetime) -> dict:
+def _retry_unknown(
+    session,
+    provider,
+    attempt: PaymentAttempt,
+    settings: Settings,
+    at: datetime,
+) -> dict:
     remote = provider.create_payment(attempt.idempotence_key, attempt.request_body)
     attempt.provider_payment_id = remote["id"]
+    attempt.test_mode = bool(remote.get("test"))
+    invoice = session.get(Invoice, attempt.invoice_id)
+    tenant = None if invoice is None else session.get(Tenant, invoice.tenant_id)
+    mode_problem = None
+    if invoice is not None and tenant is not None:
+        mode_problem = _mode_problem(remote, settings, tenant)
+    if mode_problem:
+        attempt.confirmation_url = None
+        attempt.status = "unknown"
+        attempt.provider_error = mode_problem
+        if invoice is not None:
+            invoice.status = "manual_review"
+        _ = at
+        return {
+            "code": mode_problem,
+            "message": _MODE_MESSAGES[mode_problem],
+            "status": "unknown",
+            "payment_id": str(attempt.id),
+            "activated": False,
+        }
     attempt.confirmation_url = (remote.get("confirmation") or {}).get("confirmation_url")
     attempt.status = "pending"
     attempt.provider_error = None
@@ -988,8 +1034,22 @@ def _verification_problem(remote, invoice, settings, tenant) -> str | None:
         return "metadata_mismatch"
     if meta.get("interval") != invoice.billing_interval:
         return "metadata_mismatch"
-    if remote.get("test") is True and (tenant.is_live or settings.billing_mode == "live"):
+    return _mode_problem(remote, settings, tenant)
+
+
+_MODE_MESSAGES = {
+    "live_payment_test_mode": "Тестовый режим не принимает боевой платёж",
+    "test_payment_live_tenant": "Боевой режим не принимает тестовый платёж",
+}
+
+
+def _mode_problem(remote, settings, tenant) -> str | None:
+    # test=false у боевого магазина иначе открыл бы доступ при BILLING_MODE=test.
+    live = settings.billing_mode == "live" or tenant.is_live
+    if remote.get("test") is True and live:
         return "test_payment_live_tenant"
+    if remote.get("test") is not True and not live:
+        return "live_payment_test_mode"
     return None
 
 
