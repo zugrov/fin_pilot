@@ -14,7 +14,7 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_USER: postgres
         ports:
-          - 5432:5432
+          - 5433:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s
@@ -32,7 +32,7 @@ jobs:
         working-directory: backend
         run: >
           uv run python -c "import os, psycopg; user=os.popen('whoami').read().strip();
-          conn=psycopg.connect('postgresql://postgres@127.0.0.1:5432/postgres', autocommit=True);
+          conn=psycopg.connect('postgresql://postgres@127.0.0.1:5433/postgres', autocommit=True);
           conn.execute('CREATE ROLE %s WITH LOGIN SUPERUSER' % psycopg.sql.Identifier(user).as_string(conn))"
       - name: Ruff
         working-directory: backend
@@ -44,7 +44,7 @@ jobs:
         working-directory: backend
         run: uv run pytest
         env:
-          TEST_PG_PORT: "5432"
+          TEST_PG_PORT: "5433"
 
   frontend:
     runs-on: ubuntu-latest
