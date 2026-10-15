@@ -23,6 +23,12 @@ class MockEmailProvider:
         self.sent.append(message)
 
 
+AUTH_MAIL_SUBJECTS = {
+    "verify_email": "Подтверждение почты",
+    "reset_password": "Сброс пароля",
+}
+
+
 class SmtpEmailProvider:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -32,19 +38,33 @@ class SmtpEmailProvider:
             raise AppError(403, "email_disabled", "Реальная почта выключена")
         if not self._settings.email_recipient_allowed(message.to_email):
             raise AppError(403, "recipient_not_allowed", "Получатель не в списке")
+        link = _auth_link(message)
+        if message.template_key in AUTH_MAIL_SUBJECTS and not link:
+            raise AppError(422, "missing_link", "В письме нет ссылки")
         import smtplib
         from email.message import EmailMessage as MimeMessage
 
         mime = MimeMessage()
         mime["From"] = self._settings.smtp_from
         mime["To"] = message.to_email
-        mime["Subject"] = message.template_key
-        mime.set_content(message.template_key)
+        mime["Subject"] = AUTH_MAIL_SUBJECTS.get(message.template_key, message.template_key)
+        if message.template_key in AUTH_MAIL_SUBJECTS:
+            mime.set_content(link)
+        else:
+            mime.set_content(message.template_key)
         with smtplib.SMTP(self._settings.smtp_host, self._settings.smtp_port, timeout=20) as smtp:
             smtp.starttls()
             if self._settings.smtp_username:
                 smtp.login(self._settings.smtp_username, self._settings.smtp_password)
             smtp.send_message(mime)
+
+
+def _auth_link(message: EmailMessage) -> str:
+    payload = message.payload if isinstance(message.payload, dict) else {}
+    link = payload.get("link")
+    if not isinstance(link, str):
+        return ""
+    return link.strip()
 
 
 def build_email_provider(settings: Settings) -> EmailProvider:
