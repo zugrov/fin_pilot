@@ -33,7 +33,7 @@ from app.security.access import assert_billing_role
 from app.security.context import set_context
 from app.security.tokens import canonical_hash
 from app.services.outbox import enqueue_email
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -565,11 +565,16 @@ def subscription_view(
     )
     current = _covering(session, subscription.id, at)
     future = [item for item in periods if item.start_at > at and item.status != "revoked"]
+    paid_slots = current.company_limit if current is not None else 0
+    occupied_slots = _occupied_slots(session, subscription.id, at) if current is not None else 0
     return {
         "status": _display_status(subscription, at, grace_days),
         "company_limit": (
             current.company_limit if current is not None else subscription.company_limit
         ),
+        "paid_slots": paid_slots,
+        "occupied_slots": occupied_slots,
+        "free_slots": max(paid_slots - occupied_slots, 0),
         "stored_company_limit": subscription.company_limit,
         "current_interval": subscription.current_interval,
         "scheduled_interval": subscription.scheduled_interval,
@@ -1237,6 +1242,20 @@ def _billing_audit(session, tenant_id, action, entity_id, actor, at: datetime) -
             created_at=at,
         )
     )
+
+
+def _occupied_slots(session: Session, subscription_id: uuid.UUID, at: datetime) -> int:
+    count = session.scalar(
+        select(func.count())
+        .select_from(CompanyEntitlement)
+        .where(
+            CompanyEntitlement.subscription_id == subscription_id,
+            CompanyEntitlement.status == "active",
+            CompanyEntitlement.active_from <= at,
+            CompanyEntitlement.active_until > at,
+        )
+    )
+    return int(count or 0)
 
 
 def _display_status(subscription: Subscription, at: datetime, grace_days: int) -> str:

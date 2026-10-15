@@ -588,3 +588,115 @@ def test_pay15_concurrent_activation_is_once(client, admin, app, fake) -> None:
     assert _count(admin, "billing_activations") == 2
     assert client.get("/api/v1/billing/subscription").json()["company_limit"] == 2
 
+
+def _company(client, name: str, key: str):
+    tenant_id = client.headers["X-Tenant-Id"]
+    return client.post(
+        f"/api/v1/workspaces/{tenant_id}/companies",
+        json={"name": name, "kind": "company"},
+        headers={"Idempotency-Key": key},
+    )
+
+
+def _companies(client) -> list[dict]:
+    tenant_id = client.headers["X-Tenant-Id"]
+    response = client.get(f"/api/v1/workspaces/{tenant_id}/companies")
+    assert response.status_code == 200, response.text
+    return response.json()["companies"]
+
+
+def test_paid_free_slot_creates_and_assigns(client, admin, app, fake) -> None:
+    _ready(client, admin, app, "slot@example.com")
+    pay(client, app, fake, 1, "month")
+    view = client.get("/api/v1/billing/subscription").json()
+    assert view["paid_slots"] == 1
+    assert view["occupied_slots"] == 0
+    assert view["free_slots"] == 1
+    created = _company(client, "Учебная", "slot-create")
+    assert created.status_code == 200, created.text
+    assert created.json()["inn"] is None
+    assert created.json()["status"] == "draft"
+    activated = client.post(f"/api/v1/billing/companies/{created.json()['id']}/activate")
+    assert activated.status_code == 200, activated.text
+    after = client.get("/api/v1/billing/subscription").json()
+    assert after["occupied_slots"] == 1
+    assert after["free_slots"] == 0
+    assert after["paid_slots"] == 1
+    assert _companies(client)[0]["status"] == "active"
+
+
+def test_no_free_slot_refuses_second_company(client, admin, app, fake) -> None:
+    _ready(client, admin, app, "full@example.com")
+    pay(client, app, fake, 1, "month")
+    first = _company(client, "Первая", "full-1")
+    assert first.status_code == 200, first.text
+    opened = client.post(f"/api/v1/billing/companies/{first.json()['id']}/activate")
+    assert opened.status_code == 200, opened.text
+    second = _company(client, "Вторая", "full-2")
+    assert second.status_code == 200, second.text
+    blocked = client.post(f"/api/v1/billing/companies/{second.json()['id']}/activate")
+    assert blocked.status_code == 402
+    assert blocked.json()["message"] == "Нет свободного оплаченного слота"
+    rows = _companies(client)
+    assert {item["name"] for item in rows} == {"Первая", "Вторая"}
+    assert _count(admin, "company_entitlements") == 1
+    assert client.get("/api/v1/billing/subscription").json()["free_slots"] == 0
+
+
+def test_repeat_create_does_not_duplicate_company(client, admin, app, fake) -> None:
+    _ready(client, admin, app, "repeat@example.com")
+    pay(client, app, fake, 1, "month")
+    first = _company(client, "Одна", "same-company")
+    second = _company(client, "Одна", "same-company")
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["id"] == second.json()["id"]
+    assert len(_companies(client)) == 1
+    assert _count(admin, "companies") == 1
+
+
+def test_assignment_failure_keeps_created_company(client, admin, app, fake) -> None:
+    _ready(client, admin, app, "draft@example.com")
+    created = _company(client, "Черновик", "draft-keep")
+    assert created.status_code == 200, created.text
+    company_id = created.json()["id"]
+    blocked = client.post(f"/api/v1/billing/companies/{company_id}/activate")
+    assert blocked.status_code == 402
+    assert blocked.json()["message"] == "Нет оплаченного периода"
+    rows = _companies(client)
+    assert len(rows) == 1
+    assert rows[0]["id"] == company_id
+    assert rows[0]["status"] == "draft"
+    again = client.post(f"/api/v1/billing/companies/{company_id}/activate")
+    assert again.status_code == 402
+    assert _companies(client)[0]["id"] == company_id
+    assert _count(admin, "companies") == 1
+
+
+def test_same_payment_does_not_extend_subscription_twice(client, admin, app, fake) -> None:
+    _ready(client, admin, app, "replay@example.com")
+    pay(client, app, fake, 1, "month")
+    before = client.get("/api/v1/billing/subscription").json()["paid_through"]
+    provider_id = next(reversed(fake.by_id))
+    session = app.state.worker_session_factory()
+    try:
+        result = apply_remote_payment(
+            session,
+            app.state.settings,
+            fake.by_id[provider_id],
+            app.state.clock.now(),
+        )
+        session.commit()
+    finally:
+        session.close()
+    assert result["replay"] is True
+    client.post(
+        "/api/v1/integrations/yookassa/webhook",
+        json={"event": "payment.succeeded", "object": {"id": provider_id}},
+    )
+    process_payments(app, fake)
+    after = client.get("/api/v1/billing/subscription").json()
+    assert after["paid_through"] == before
+    assert after["paid_slots"] == 1
+    assert _count(admin, "billing_activations") == 1
+

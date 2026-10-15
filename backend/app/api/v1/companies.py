@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -6,7 +7,7 @@ from app.api.deps import current_session, get_db, require_csrf, settings_of, ten
 from app.clock import now
 from app.domain.money import money_str
 from app.errors import AppError
-from app.models.identity import Company
+from app.models.identity import Company, IdempotencyRecord
 from app.security.access import (
     BILLING_MANAGER,
     OPERATOR,
@@ -17,6 +18,7 @@ from app.security.access import (
     find_company_across_memberships,
     load_company,
 )
+from app.security.tokens import canonical_hash
 from app.services.cash_service import company_summary, summary_payload
 from app.services.report_service import (
     cashflow_payload,
@@ -35,7 +37,9 @@ from app.services.tenant_service import (
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 router = APIRouter(tags=["companies"])
 
@@ -66,6 +70,64 @@ class InviteIn(BaseModel):
 class AccessIn(BaseModel):
     user_id: UUID
     company_id: UUID
+
+
+def _company_request_hash(payload: CompanyIn) -> str:
+    body = {
+        "inn": payload.inn,
+        "kind": payload.kind,
+        "legal_name": payload.legal_name,
+        "name": payload.name,
+    }
+    return canonical_hash(json.dumps(body, sort_keys=True, separators=(",", ":")))
+
+
+def _begin_company_idempotency(session, user_id, tenant_id, key: str | None, payload: CompanyIn):
+    if not key:
+        return None
+    request_hash = _company_request_hash(payload)
+    existing = session.scalar(
+        select(IdempotencyRecord).where(
+            IdempotencyRecord.user_id == user_id,
+            IdempotencyRecord.scope == "company",
+            IdempotencyRecord.idempotency_key == key,
+        )
+    )
+    if existing is not None:
+        if existing.request_hash != request_hash:
+            raise AppError(409, "idempotency_conflict", "Ключ уже использован с другим запросом")
+        return existing.response_body
+    record = IdempotencyRecord(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        scope="company",
+        idempotency_key=key,
+        request_hash=request_hash,
+        status_code=200,
+        response_body={},
+        payment_attempt_id=None,
+        created_at=now(),
+    )
+    try:
+        with session.begin_nested():
+            session.add(record)
+            session.flush()
+    except IntegrityError:
+        existing = session.scalar(
+            select(IdempotencyRecord).where(
+                IdempotencyRecord.user_id == user_id,
+                IdempotencyRecord.scope == "company",
+                IdempotencyRecord.idempotency_key == key,
+            )
+        )
+        if existing is None:
+            raise
+        if existing.request_hash != request_hash:
+            raise AppError(
+                409, "idempotency_conflict", "Ключ уже использован с другим запросом"
+            ) from None
+        return existing.response_body
+    return record
 
 
 def _company_payload(company: Company) -> dict:
@@ -111,6 +173,10 @@ def post_company(
         raise AppError(404, "not_found", "Пространство не найдено")
     if payload.kind not in {"company", "ip"}:
         raise AppError(422, "validation_error", "Неизвестный вид фирмы")
+    key = request.headers.get("idempotency-key")
+    recorded = _begin_company_idempotency(session, user.id, membership.tenant_id, key, payload)
+    if isinstance(recorded, dict):
+        return recorded
     company = create_company(
         session,
         membership,
@@ -119,7 +185,11 @@ def post_company(
         inn=payload.inn,
         kind=payload.kind,
     )
-    return _company_payload(company)
+    result = _company_payload(company)
+    if recorded is not None:
+        recorded.response_body = result
+        flag_modified(recorded, "response_body")
+    return result
 
 
 @router.post("/workspaces/{tenant_id}/invitations")

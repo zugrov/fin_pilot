@@ -6,7 +6,10 @@ import { revenueDisplay } from "../lib/revenue";
 
 export function OverviewPage() {
   const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
-  const companyId = companies.data?.companies[0]?.id;
+  const preferred = sessionStorage.getItem("fp_company_id");
+  const companyId =
+    companies.data?.companies.find((item) => item.id === preferred)?.id ??
+    companies.data?.companies[0]?.id;
   const dashboard = useQuery({
     queryKey: ["dashboard", companyId],
     queryFn: () => loadDashboard(companyId ?? ""),

@@ -105,7 +105,25 @@ export function createQuote(companies: number, interval: "month" | "year") {
   });
 }
 
-export type Company = { id: string; name: string };
+export type Company = { id: string; name: string; status?: string };
+
+export type BillingSubscription = {
+  status: string;
+  company_limit: number;
+  paid_through: string | null;
+  paid_slots: number;
+  occupied_slots: number;
+  free_slots: number;
+  current_interval: string | null;
+};
+
+export type PaymentView = {
+  id: string;
+  status: string;
+  activated: boolean;
+  amount: string;
+  payment_id?: string;
+};
 
 export type Dashboard = {
   revenue_label: string;
@@ -475,12 +493,52 @@ export function previewDigest() {
 }
 
 export function checkout(quoteId: string, idempotencyKey: string) {
-  return request<{ confirmation_url: string | null; activated: boolean }>(
+  return request<{ confirmation_url: string | null; activated: boolean; payment_id?: string }>(
     "/api/v1/billing/checkout",
     {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
       body: JSON.stringify({ quote_id: quoteId, offer_accepted: true }),
     },
+  );
+}
+
+export async function loadBillingSubscription() {
+  await ensureWorkspace();
+  return request<BillingSubscription>("/api/v1/billing/subscription");
+}
+
+export async function loadPayment(paymentId: string) {
+  await ensureWorkspace();
+  return request<PaymentView>(`/api/v1/billing/payments/${paymentId}`);
+}
+
+async function withWorkspace<T>(action: (tenantId: string) => Promise<T>): Promise<T> {
+  const me = await request<{ csrf_token: string; memberships: { tenant_id: string }[] }>(
+    "/api/v1/auth/me",
+  );
+  setCsrf(me.csrf_token);
+  const tenantId = me.memberships[0]?.tenant_id;
+  if (!tenantId) {
+    throw new Error("Нет рабочего пространства");
+  }
+  setTenant(tenantId);
+  return action(tenantId);
+}
+
+export function createCompany(name: string, idempotencyKey: string) {
+  return withWorkspace((tenantId) =>
+    request<Company>(`/api/v1/workspaces/${tenantId}/companies`, {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify({ name, kind: "company" }),
+    }),
+  );
+}
+
+export function activateCompany(companyId: string) {
+  return request<{ company_id: string; status: string }>(
+    `/api/v1/billing/companies/${companyId}/activate`,
+    { method: "POST" },
   );
 }
