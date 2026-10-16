@@ -126,13 +126,20 @@ export type PaymentView = {
 };
 
 export type Dashboard = {
+  as_of: string;
+  date_from: string;
+  date_to: string;
   revenue_label: string;
   quality_flags: string[];
   values: {
     cash_total: string | null;
+    opening_balance: string | null;
+    cash_in: string | null;
+    cash_out: string | null;
     available: string | null;
     revenue: string | null;
     net_cash_flow: string | null;
+    operation_count: number | null;
   };
   drilldown_refs: { revenue_entry_ids: string[] };
 };

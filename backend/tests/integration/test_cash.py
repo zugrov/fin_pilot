@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import psycopg
@@ -113,6 +113,11 @@ def test_a8_missing_anchor_is_unavailable(client, admin, app, fake) -> None:
     assert dashboard.status_code == 200
     values = dashboard.json()["values"]
     assert values["cash_total"] is None
+    assert values["opening_balance"] is None
+    assert values["cash_in"] is None
+    assert values["cash_out"] is None
+    assert values["net_cash_flow"] is None
+    assert values["operation_count"] is None
     assert values["revenue"] is None
     assert "missing_anchor" in dashboard.json()["quality_flags"]
 
@@ -135,6 +140,32 @@ def test_a2_internal_transfer_is_not_external_turnover(client, admin, app, fake)
     assert summary["cash_total"] == "100000.00"
     assert summary["external_in"] == "0.00"
     assert summary["external_out"] == "0.00"
+    board = client.get(
+        f"/api/v1/companies/{company_id}/dashboard?date_from=2026-10-01&date_to=2026-10-31"
+    ).json()["values"]
+    assert board["cash_in"] == "0.00"
+    assert board["cash_out"] == "0.00"
+    assert board["cash_total"] == "100000.00"
+    assert board["opening_balance"] == "100000.00"
+    assert board["cash_in"] != board["cash_total"]
+
+
+def test_opening_balance_is_not_a_receipt(client, admin, app, fake) -> None:
+    freeze(app, datetime(2026, 10, 16, 12, tzinfo=UTC))
+    _tenant, company_id = _ready(client, admin, app, fake, "opening-not-in@example.com")
+    wallet = _wallet(client, company_id)
+    _anchor(client, wallet["id"], "100000.00")
+    values = client.get(
+        f"/api/v1/companies/{company_id}/dashboard?date_from=2026-10-01&date_to=2026-10-31"
+    ).json()["values"]
+    assert values["opening_balance"] == "100000.00"
+    assert values["cash_total"] == "100000.00"
+    assert values["cash_in"] == "0.00"
+    assert values["cash_out"] == "0.00"
+    assert values["net_cash_flow"] == "0.00"
+    assert values["operation_count"] == 0
+    assert values["cash_in"] != values["cash_total"]
+    assert values["revenue"] is None
 
 
 def test_a3_owner_contribution_is_financing(client, admin, app, fake) -> None:

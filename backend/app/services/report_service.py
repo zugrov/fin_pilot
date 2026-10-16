@@ -10,7 +10,7 @@ from app.domain.revenue import (
     assess_revenue,
     input_revision,
 )
-from app.models.cash import CashCategory, CashTransaction, TransferGroup, Wallet
+from app.models.cash import CashCategory, CashTransaction, OpeningBalance, TransferGroup, Wallet
 from app.models.imports import SourceConnection
 from app.models.revenue import RevenueEntry
 from app.services.cash_service import company_summary, summary_payload
@@ -92,10 +92,15 @@ def dashboard_payload(session: Session, company, at: datetime, period: tuple[dat
         if item not in flags:
             flags.append(item)
     flow = cashflow_payload(session, company, at, period)
-    net_flow = flow["net_external"]
+    for item in flow["quality_flags"]:
+        if item not in flags:
+            flags.append(item)
+    cash_in, cash_out, net_flow, operation_count = _period_movement(flow, cash["cash_total"])
     revision = input_revision(
         {
             "cash_total": cash["cash_total"] or "",
+            "cash_in": cash_in or "",
+            "cash_out": cash_out or "",
             "revenue": revenue["amount"] or "",
             "revenue_count": str(revenue["count"]),
             "coverage": revenue["coverage_through"] or "",
@@ -116,10 +121,14 @@ def dashboard_payload(session: Session, company, at: datetime, period: tuple[dat
         "drilldown_refs": {"revenue_entry_ids": revenue["entry_ids"]},
         "values": {
             "cash_total": cash["cash_total"],
+            "opening_balance": _opening_total(session, company),
+            "cash_in": cash_in,
+            "cash_out": cash_out,
             "available": cash["available"],
             "restricted": cash["restricted"],
             "revenue": revenue["amount"],
             "net_cash_flow": net_flow,
+            "operation_count": operation_count,
         },
     }
 
@@ -140,6 +149,7 @@ def cashflow_payload(session: Session, company, at: datetime, period: tuple[date
     incoming = {code: Decimal("0") for code in SECTIONS}
     outgoing = {code: Decimal("0") for code in SECTIONS}
     ids: dict[str, list[str]] = {code: [] for code in SECTIONS}
+    external_count = 0
     flags: list[str] = []
     wallets = session.scalars(
         select(Wallet).where(
@@ -156,6 +166,7 @@ def cashflow_payload(session: Session, company, at: datetime, period: tuple[date
         section = _section(session, row)
         if section == "unmapped" and "unclassified_operations" not in flags:
             flags.append("unclassified_operations")
+        external_count += 1
         if row.direction == "in":
             incoming[section] += row.amount
         else:
@@ -186,6 +197,7 @@ def cashflow_payload(session: Session, company, at: datetime, period: tuple[date
         ),
         "quality_flags": flags,
         "metric_basis": "cash",
+        "external_count": external_count,
         "net_external": money_str(money(external_in - external_out)),
         "sections": sections,
         "drilldown_refs": {
@@ -221,6 +233,46 @@ def _net_sum(entries: list[RevenueEntry]) -> str:
             total -= item.amount_ex_vat
         else:
             total += item.amount_ex_vat
+    return money_str(total)
+
+
+def _period_movement(
+    flow: dict, cash_total: str | None
+) -> tuple[str | None, str | None, str | None, int | None]:
+    # Остаток без начальной точки неизвестен. Обороты уже загруженных операций
+    # при этом известны. Ноль без единой операции здесь подменил бы отсутствие данных.
+    count = flow["external_count"]
+    incomplete = cash_total is None or "missing_opening_balance" in flow["quality_flags"]
+    if incomplete and count == 0:
+        return None, None, None, None
+    incoming = sum((Decimal(item["in"]) for item in flow["sections"]), Decimal("0"))
+    outgoing = sum((Decimal(item["out"]) for item in flow["sections"]), Decimal("0"))
+    return money_str(incoming), money_str(outgoing), flow["net_external"], count
+
+
+def _opening_total(session: Session, company) -> str | None:
+    wallets = list(
+        session.scalars(
+            select(Wallet).where(
+                Wallet.tenant_id == company.tenant_id,
+                Wallet.company_id == company.id,
+                Wallet.is_active.is_(True),
+            )
+        ).all()
+    )
+    if not wallets:
+        return None
+    total = Decimal("0")
+    for wallet in wallets:
+        opening = session.scalar(
+            select(OpeningBalance).where(
+                OpeningBalance.wallet_id == wallet.id,
+                OpeningBalance.status == "active",
+            )
+        )
+        if opening is None:
+            return None
+        total += opening.amount
     return money_str(total)
 
 

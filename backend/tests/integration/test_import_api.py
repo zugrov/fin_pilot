@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import psycopg
@@ -349,3 +349,84 @@ def test_posted_import_cannot_be_deleted(client, admin, app, fake, tmp_path) -> 
             raised = True
         connection.rollback()
     assert raised is True
+
+
+def _board(client, company_id: str, date_from: str, date_to: str) -> dict:
+    response = client.get(
+        f"/api/v1/companies/{company_id}/dashboard?date_from={date_from}&date_to={date_to}"
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_dashboard_splits_balance_and_period_receipts(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, datetime(2026, 10, 16, 12, tzinfo=UTC))
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "board@example.com")
+    opened = client.post(
+        f"/api/v1/wallets/{wallet_id}/opening-balance",
+        json={"effective_at": "2026-10-01T00:00:00+03:00", "amount": "100000.00"},
+    )
+    assert opened.status_code == 200, opened.text
+    source = _source(client, company_id, wallet_id, namespace="ucheb")
+    content = (
+        HEADER
+        + "T-001,main,2026-10-02,in,15000.00,RUB,,Учебный покупатель,Учебное поступление,УЧ-1,,\n"
+        + "T-002,main,2026-10-03,out,4000.00,RUB,,Учебный поставщик,Учебная выплата,УЧ-2,,\n"
+        + "T-003,main,2026-10-06,out,2500.50,RUB,,Учебная комиссия,Учебная комиссия банка,УЧ-3,,\n"
+    ).encode()
+    first = _upload(client, company_id, source["id"], content, "ucheb.csv", "board-a")
+    assert first.status_code == 200, first.text
+    assert _commit(client, first.json()["id"]).status_code == 200
+    full = _board(client, company_id, "2026-10-01", "2026-10-31")
+    values = full["values"]
+    assert values["opening_balance"] == "100000.00"
+    assert values["cash_in"] == "15000.00"
+    assert values["cash_out"] == "6500.50"
+    assert values["net_cash_flow"] == "8499.50"
+    assert values["cash_total"] == "108499.50"
+    assert values["operation_count"] == 3
+    assert values["cash_in"] != values["cash_total"]
+    assert values["cash_in"] != values["opening_balance"]
+    assert values["revenue"] is None
+    assert full["revenue_label"] == "Нет данных о выручке"
+    assert "unclassified_operations" in full["quality_flags"]
+    assert "intraday_approximation" in full["quality_flags"]
+    day = _board(client, company_id, "2026-10-06", "2026-10-06")["values"]
+    assert day["cash_in"] == "0.00"
+    assert day["cash_out"] == "2500.50"
+    assert day["net_cash_flow"] == "-2500.50"
+    assert day["operation_count"] == 1
+    assert day["cash_total"] == "108499.50"
+    assert day["opening_balance"] == "100000.00"
+    second = _upload(client, company_id, source["id"], content, "ucheb.csv", "board-b")
+    assert second.status_code == 200, second.text
+    assert second.json()["id"] == first.json()["id"]
+    assert _commit(client, second.json()["id"]).status_code == 200
+    again = _board(client, company_id, "2026-10-01", "2026-10-31")["values"]
+    assert again == values
+    assert _tx_count(admin) == 3
+
+
+def test_loaded_turnovers_without_opening_stay_visible(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, datetime(2026, 10, 16, 12, tzinfo=UTC))
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "no-open@example.com")
+    source = _source(client, company_id, wallet_id, namespace="no-open")
+    content = (
+        HEADER
+        + "T-001,main,2026-10-02,in,15000.00,RUB,,Учебный покупатель,Учебное поступление,УЧ-1,,\n"
+        + "T-002,main,2026-10-03,out,4000.00,RUB,,Учебный поставщик,Учебная выплата,УЧ-2,,\n"
+        + "T-003,main,2026-10-06,out,2500.50,RUB,,Учебная комиссия,Учебная комиссия банка,УЧ-3,,\n"
+    ).encode()
+    uploaded = _upload(client, company_id, source["id"], content, "ucheb.csv", "no-open")
+    assert uploaded.status_code == 200, uploaded.text
+    assert _commit(client, uploaded.json()["id"]).status_code == 200
+    board = _board(client, company_id, "2026-10-01", "2026-10-31")
+    values = board["values"]
+    assert values["cash_in"] == "15000.00"
+    assert values["cash_out"] == "6500.50"
+    assert values["net_cash_flow"] == "8499.50"
+    assert values["operation_count"] == 3
+    assert values["opening_balance"] is None
+    assert values["cash_total"] is None
+    assert "missing_opening_balance" in board["quality_flags"]
+    assert "missing_anchor" in board["quality_flags"]
