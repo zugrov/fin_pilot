@@ -197,6 +197,12 @@ export function BillingPage() {
           </Button>
         </div>
       ) : null}
+      <Link
+        className="mt-4 block w-full rounded-md border border-slate-900 px-4 py-2 text-center text-sm"
+        to="/overview"
+      >
+        В основное меню
+      </Link>
       <Link className="mt-4 block text-sm" to="/login">Войти другим аккаунтом</Link>
     </Card>
   );
