@@ -1,4 +1,5 @@
 import { alertsPath, recalculateAlertsPath } from "./lib/alerts";
+import { planFactPath } from "./lib/budget";
 import { forecastPath, groupForecastPath } from "./lib/forecast";
 import { authHeaders, setCsrf, setTenant } from "./session";
 
@@ -308,45 +309,38 @@ export function loadGroupForecast(asOf: string, scenario = "base") {
 }
 
 export type PlanFactLine = {
+  line_id?: string;
+  month?: number;
+  metric_type: string;
   status: string;
   fact: string | null;
   percent: string | null;
+  plan_month?: string | null;
   plan_to_date: string | null;
   delta: string | null;
-  metric_type: string;
+  period_from?: string;
+  period_to?: string;
+};
+
+export type PlanFactBasis = {
+  basis: string;
+  status: string;
+  version_id?: string | null;
+  version_status?: string | null;
+  year?: number;
+  completeness?: string;
+  lines: PlanFactLine[];
 };
 
 export type PlanFact = {
+  company_id: string;
+  report_date: string;
   quality_flags: string[];
-  bases: { basis: string; status: string; lines: PlanFactLine[] }[];
+  bases: PlanFactBasis[];
 };
 
-export type BudgetDraft = { id: string; status: string };
-
-export function loadPlanFact(companyId: string) {
-  return request<PlanFact>(
-    `/api/v1/companies/${companyId}/plan-fact?report_date=2026-10-31`,
-  );
-}
-
-export function createBudget(companyId: string, amount: string) {
-  return request<BudgetDraft>(`/api/v1/companies/${companyId}/budgets`, {
-    method: "POST",
-    headers: { "Idempotency-Key": crypto.randomUUID() },
-    body: JSON.stringify({
-      name: "Год",
-      year: 2026,
-      basis: "cash",
-      lines: [{ month: 10, metric_type: "cash_out", amount }],
-    }),
-  });
-}
-
-export function approveBudget(versionId: string) {
-  return request<BudgetDraft>(`/api/v1/budgets/${versionId}/approve`, {
-    method: "POST",
-    headers: { "Idempotency-Key": crypto.randomUUID() },
-  });
+export function loadPlanFact(companyId: string, reportDate: string) {
+  return request<PlanFact>(planFactPath(companyId, reportDate));
 }
 
 export type AlertItem = {

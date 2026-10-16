@@ -124,6 +124,16 @@ def _count(admin, table: str) -> int:
         return int(connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one())
 
 
+def _company_count(admin, table: str, company_id: str) -> int:
+    with admin.connect() as connection:
+        return int(
+            connection.execute(
+                text(f"SELECT count(*) FROM {table} WHERE company_id = :company"),
+                {"company": company_id},
+            ).scalar_one()
+        )
+
+
 def test_b1_deviation_does_not_cross_the_alert_threshold(
     client, admin, app, fake, tmp_path
 ) -> None:
@@ -602,6 +612,88 @@ def test_alert_foreign_company_is_hidden(client, admin, app, fake, tmp_path) -> 
     )
     assert preview.status_code == 404
     assert _count(admin, "alerts") == 0
+
+
+def test_revenue_cutoff_shows_month_plan_without_writing(
+    client, admin, app, fake, tmp_path
+) -> None:
+    _tenant, company_id = _ready(client, admin, app, fake, tmp_path, "rev-cutoff@example.com")
+    wallet = _wallet(client, company_id, "100000.00")
+    _cash(client, company_id, wallet["id"], "in", "27000.00", "2026-10-15")
+    source = client.post(
+        f"/api/v1/companies/{company_id}/sources",
+        json={
+            "name": "Продажи",
+            "type": "file",
+            "namespace": "sales-cutoff",
+            "format": "csv",
+            "dataset": "revenue",
+        },
+    )
+    assert source.status_code == 200, source.text
+    sale = client.post(
+        f"/api/v1/companies/{company_id}/revenue",
+        json={
+            "recognition_date": "2026-10-15",
+            "amount_ex_vat": "20000.00",
+            "vat_amount": "0.00",
+            "amount_inc_vat": "20000.00",
+            "entry_type": "sale",
+            "vat_basis": "net",
+        },
+        headers={"Idempotency-Key": "sale-cutoff"},
+    )
+    assert sale.status_code == 200, sale.text
+    _budget(client, company_id, "revenue", "revenue", "25000.00")
+    versions = _company_count(admin, "budget_versions", company_id)
+    alerts = _company_count(admin, "alerts", company_id)
+    first = client.get(f"/api/v1/companies/{company_id}/plan-fact?report_date=2026-10-16")
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["report_date"] == "2026-10-16"
+    assert "missing_budget" in body["quality_flags"]
+    cash = next(item for item in body["bases"] if item["basis"] == "cash")
+    revenue = next(item for item in body["bases"] if item["basis"] == "revenue")
+    assert cash["status"] == "unavailable"
+    assert cash["lines"] == []
+    assert revenue["status"] == "ready"
+    assert revenue["version_status"] == "approved"
+    assert revenue["completeness"] == "unknown"
+    assert revenue["year"] == 2026
+    line = revenue["lines"][0]
+    assert line["month"] == 10
+    assert line["metric_type"] == "revenue"
+    assert line["plan_month"] == "25000.00"
+    assert line["plan_to_date"] == "12903.20"
+    assert line["fact"] == "20000.00"
+    assert line["delta"] == "7096.80"
+    assert line["percent"] == "55.00"
+    assert line["period_from"] == "2026-10-01"
+    assert line["period_to"] == "2026-10-16"
+    second = client.get(f"/api/v1/companies/{company_id}/plan-fact?report_date=2026-10-16")
+    assert second.status_code == 200
+    assert _company_count(admin, "budget_versions", company_id) == versions
+    assert _company_count(admin, "alerts", company_id) == alerts
+    full = client.get(f"/api/v1/companies/{company_id}/plan-fact?report_date=2026-10-31")
+    assert full.status_code == 200, full.text
+    full_basis = next(item for item in full.json()["bases"] if item["basis"] == "revenue")
+    full_line = full_basis["lines"][0]
+    assert full_line["plan_month"] == "25000.00"
+    assert full_line["plan_to_date"] == "25000.00"
+    assert full_line["fact"] == "20000.00"
+    assert full_line["delta"] == "-5000.00"
+    assert full_line["percent"] == "-20.00"
+    assert full_basis["completeness"] == "unknown"
+    covered = client.post(
+        f"/api/v1/companies/{company_id}/sources/{source.json()['id']}/coverage",
+        json={"coverage_through": "2026-10-16"},
+    )
+    assert covered.status_code == 200, covered.text
+    known = client.get(f"/api/v1/companies/{company_id}/plan-fact?report_date=2026-10-16")
+    known_basis = next(item for item in known.json()["bases"] if item["basis"] == "revenue")
+    assert known_basis["completeness"] == "known"
+    assert known_basis["lines"][0]["fact"] == "20000.00"
+    assert _company_count(admin, "alerts", company_id) == alerts
 
 
 def _upload(client, company_id: str, connection_id: str, content: bytes, key: str):

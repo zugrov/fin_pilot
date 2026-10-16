@@ -8,6 +8,7 @@ from app.domain.money import money, money_str
 from app.errors import AppError
 from app.models.cash import CashCategory, CashTransaction, TransferGroup
 from app.models.identity import AuditLog, Company, IdempotencyRecord, Membership, User
+from app.models.imports import SourceConnection
 from app.models.revenue import Direction, RevenueEntry
 from app.models.signals import BudgetDailyAllocation, BudgetLine, BudgetVersion
 from app.security.access import BILLING_MANAGER, OPERATOR
@@ -309,11 +310,14 @@ def _basis_block(session: Session, company: Company, report_date: date, basis: s
             BudgetVersion.status == "approved",
         )
     )
+    completeness = _completeness(session, company, basis, report_date)
     empty: dict = {
         "basis": basis,
         "status": "unavailable",
         "version_id": None,
+        "version_status": None,
         "year": report_date.year,
+        "completeness": completeness,
         "lines": [],
     }
     if version is None:
@@ -327,7 +331,9 @@ def _basis_block(session: Session, company: Company, report_date: date, basis: s
         "basis": basis,
         "status": "ready",
         "version_id": str(version.id),
+        "version_status": version.status,
         "year": version.year,
+        "completeness": completeness,
         "lines": rows,
     }
 
@@ -352,6 +358,7 @@ def _line_fact(
         "direction_id": None if line.direction_id is None else str(line.direction_id),
         "period_from": start.isoformat(),
         "period_to": end.isoformat(),
+        "plan_month": money_str(line.amount),
         "plan_to_date": money_str(plan),
     }
     if not comparable or fact is None:
@@ -436,6 +443,25 @@ def _revenue_fact(
         signed = row.amount_ex_vat or Decimal("0.00")
         total += signed if row.entry_type == "sale" else -signed
     return True, money(total)
+
+
+def _completeness(session: Session, company: Company, basis: str, report_date: date) -> str:
+    dataset = "revenue" if basis == "revenue" else "cash"
+    sources = session.scalars(
+        select(SourceConnection).where(
+            SourceConnection.tenant_id == company.tenant_id,
+            SourceConnection.company_id == company.id,
+            SourceConnection.dataset == dataset,
+            SourceConnection.enabled.is_(True),
+        )
+    ).all()
+    if not sources:
+        return "unknown"
+    for source in sources:
+        covered = source.coverage_through
+        if covered is None or covered < report_date:
+            return "unknown"
+    return "known"
 
 
 def _plan_to_date(session: Session, line: BudgetLine, start: date, end: date) -> Decimal:
