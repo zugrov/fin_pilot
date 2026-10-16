@@ -140,6 +140,7 @@ def _company_payload(company: Company) -> dict:
         "inn": company.inn,
         "kind": company.kind,
         "currency": company.currency,
+        "timezone": company.timezone,
         "status": company.status,
         "min_cash_reserve": reserve,
     }

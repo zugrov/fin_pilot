@@ -1,3 +1,4 @@
+import { forecastPath, groupForecastPath } from "./lib/forecast";
 import { authHeaders, setCsrf, setTenant } from "./session";
 
 export type ApiError = {
@@ -105,7 +106,7 @@ export function createQuote(companies: number, interval: "month" | "year") {
   });
 }
 
-export type Company = { id: string; name: string; status?: string };
+export type Company = { id: string; name: string; status?: string; timezone?: string };
 
 export type BillingSubscription = {
   status: string;
@@ -239,17 +240,26 @@ export type PlanEvent = {
 };
 
 export type Forecast = {
+  company_id: string;
+  as_of: string;
   status: string;
   opening: string | null;
   gap_date: string | null;
   gap_amount: string | null;
   points: { date: string; closing: string; inflows: string; outflows: string }[];
+  contributions: { date: string; amount: string; direction: string }[];
 };
 
 export type GroupForecast = {
+  as_of: string;
   status: string;
   group_opening: string | null;
-  company_risks: { company_id: string; gap_amount: string | null; gap_date: string | null; status: string }[];
+  company_risks: {
+    company_id: string;
+    gap_amount: string | null;
+    gap_date: string | null;
+    status: string;
+  }[];
 };
 
 export function loadCalendar(companyId: string) {
@@ -278,12 +288,11 @@ export function moveExpected(eventId: string, version: number, expectedDate: str
   });
 }
 
-export function loadForecast(companyId: string, scenario = "base") {
-  const query = `as_of=2026-10-14&scenario=${scenario}`;
-  return request<Forecast>(`/api/v1/companies/${companyId}/forecast?${query}`);
+export function loadForecast(companyId: string, asOf: string, scenario = "base") {
+  return request<Forecast>(forecastPath(companyId, asOf, scenario));
 }
 
-export function loadGroupForecast(scenario = "base") {
+export function loadGroupForecast(asOf: string, scenario = "base") {
   return request<{ csrf_token: string; memberships: { tenant_id: string }[] }>(
     "/api/v1/auth/me",
   ).then((me) => {
@@ -293,8 +302,7 @@ export function loadGroupForecast(scenario = "base") {
       throw new Error("Нет пространства");
     }
     setTenant(tenant);
-    const query = `as_of=2026-10-14&scenario=${scenario}`;
-    return request<GroupForecast>(`/api/v1/workspaces/${tenant}/forecast?${query}`);
+    return request<GroupForecast>(groupForecastPath(tenant, asOf, scenario));
   });
 }
 

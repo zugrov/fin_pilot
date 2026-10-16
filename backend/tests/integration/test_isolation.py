@@ -88,6 +88,23 @@ def test_s3_tenant_context_does_not_leak_across_transactions(client, admin, app)
     assert role.rolbypassrls is False
 
 
+def test_company_list_returns_stored_timezone(client, admin) -> None:
+    tenant_id, company_id = _owner(client, admin, "zone@example.com", "Зона")
+    listed = client.get(f"/api/v1/workspaces/{tenant_id}/companies")
+    assert listed.status_code == 200, listed.text
+    row = next(item for item in listed.json()["companies"] if item["id"] == company_id)
+    assert row["timezone"] == "Europe/Moscow"
+    with admin.connect() as connection:
+        connection.execute(
+            text("UPDATE companies SET timezone = 'America/Los_Angeles' WHERE id = :id"),
+            {"id": company_id},
+        )
+        connection.commit()
+    again = client.get(f"/api/v1/workspaces/{tenant_id}/companies")
+    stored = next(item for item in again.json()["companies"] if item["id"] == company_id)
+    assert stored["timezone"] == "America/Los_Angeles"
+
+
 def set_context_raw(connection, tenant_id: str) -> None:
     connection.execute(
         text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
