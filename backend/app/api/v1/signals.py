@@ -58,6 +58,17 @@ def _report_date(request: Request) -> date:
     raw = request.query_params.get("report_date")
     if not raw:
         return now().astimezone(MOSCOW).date()
+    return _parse_date(raw)
+
+
+def _required_report_date(request: Request) -> date:
+    raw = request.query_params.get("report_date")
+    if not raw:
+        raise AppError(400, "validation_error", "Нужна дата расчёта")
+    return _parse_date(raw)
+
+
+def _parse_date(raw: str) -> date:
     try:
         return date.fromisoformat(raw)
     except ValueError as exc:
@@ -144,7 +155,19 @@ def get_plan_fact(company_id: UUID, request: Request, session: Session = Depends
 @router.get("/companies/{company_id}/alerts")
 def get_alerts(company_id: UUID, request: Request, session: Session = Depends(get_db)):
     _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
-    return alert_service.evaluate(session, company, _report_date(request), now())
+    return alert_service.list_alerts(session, company)
+
+
+@router.post("/companies/{company_id}/alerts/recalculate")
+def post_recalculate(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+    _user, membership, company = _actor(request, session, company_id, "write", mutate=True)
+    return alert_service.recalculate(session, membership, company, now())
+
+
+@router.get("/companies/{company_id}/alerts/preview")
+def get_alert_preview(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+    _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
+    return alert_service.preview(session, company, _required_report_date(request), now())
 
 
 @router.post("/alerts/{alert_id}/ack")

@@ -1,3 +1,4 @@
+import { alertsPath, recalculateAlertsPath } from "./lib/alerts";
 import { forecastPath, groupForecastPath } from "./lib/forecast";
 import { authHeaders, setCsrf, setTenant } from "./session";
 
@@ -352,13 +353,26 @@ export type AlertItem = {
   id: string;
   type: string;
   status: string;
+  calculated_on: string | null;
   evidence: Record<string, string | number | null>;
 };
 
+export type AlertList = {
+  report_date: string | null;
+  status: string;
+  completeness?: string;
+  quality_flags: string[];
+  alerts: AlertItem[];
+};
+
 export function loadAlerts(companyId: string) {
-  return request<{ status: string; alerts: AlertItem[] }>(
-    `/api/v1/companies/${companyId}/alerts?report_date=2026-10-31`,
-  );
+  return request<AlertList>(alertsPath(companyId));
+}
+
+export function recalculateAlerts(companyId: string) {
+  return request<AlertList>(recalculateAlertsPath(companyId), {
+    method: "POST",
+  });
 }
 
 export function ackAlert(alertId: string) {

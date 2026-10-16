@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -106,8 +107,14 @@ def _fact(client, company_id: str, basis: str) -> dict:
     return next(item for item in response.json()["bases"] if item["basis"] == basis)
 
 
-def _alerts(client, company_id: str, day: str = REPORT) -> dict:
-    response = client.get(f"/api/v1/companies/{company_id}/alerts?report_date={day}")
+def _alerts(client, company_id: str, _day: str = REPORT) -> dict:
+    response = client.post(f"/api/v1/companies/{company_id}/alerts/recalculate")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _preview(client, company_id: str, day: str) -> dict:
+    response = client.get(f"/api/v1/companies/{company_id}/alerts/preview?report_date={day}")
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -133,7 +140,7 @@ def test_b1_deviation_does_not_cross_the_alert_threshold(
     assert line["delta"] == "20000.00"
     assert line["percent"] == "20.00"
     assert line["character"] == "adverse"
-    alerts = _alerts(client, company_id)
+    alerts = _preview(client, company_id, REPORT)
     assert all(item["type"] != "expense_overrun" for item in alerts["alerts"])
     assert "рисков нет" not in json.dumps(alerts, ensure_ascii=False)
 
@@ -200,7 +207,7 @@ def test_b4_revenue_budget_uses_net_not_receipts(client, admin, app, fake, tmp_p
     hidden = _fact(client, company_id, "revenue")["lines"][0]
     assert hidden["status"] == "unavailable"
     assert hidden["fact"] is None
-    alerts = _alerts(client, company_id)
+    alerts = _preview(client, company_id, REPORT)
     assert all(item["type"] != "revenue_shortfall" for item in alerts["alerts"])
 
 
@@ -421,6 +428,180 @@ def test_budget_access_guards(client, admin, app, fake, tmp_path) -> None:
         headers={"Idempotency-Key": "late-budget"},
     )
     assert blocked.status_code == 402
+
+
+def test_alert_read_does_not_change_saved_signals(client, admin, app, fake, tmp_path) -> None:
+    _tenant, company_id = _ready(client, admin, app, fake, tmp_path, "read-alert@example.com")
+    wallet = _wallet(client, company_id, "100000.00")
+    source = client.post(
+        f"/api/v1/companies/{company_id}/sources",
+        json={
+            "name": "Деньги",
+            "type": "file",
+            "namespace": "alert-cash",
+            "format": "csv",
+            "dataset": "cash",
+        },
+    )
+    assert source.status_code == 200, source.text
+    empty = client.get(f"/api/v1/companies/{company_id}/alerts")
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["alerts"] == []
+    assert empty.json()["report_date"] is None
+    assert empty.json()["status"] == "unavailable"
+    assert _count(admin, "alert_rules") == 0
+    assert _count(admin, "alerts") == 0
+    assert _count(admin, "forecast_runs") == 0
+    again = client.get(f"/api/v1/companies/{company_id}/alerts?report_date=2099-01-01")
+    assert again.status_code == 200, again.text
+    assert again.json()["alerts"] == []
+    assert _count(admin, "alert_rules") == 0
+    assert _count(admin, "alerts") == 0
+    assert _count(admin, "forecast_runs") == 0
+    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    due = today + timedelta(days=4)
+    planned = client.post(
+        f"/api/v1/companies/{company_id}/planned-cash",
+        json={
+            "direction": "out",
+            "amount": "150000.00",
+            "due_date": due.isoformat(),
+            "expected_date": due.isoformat(),
+            "wallet_id": wallet["id"],
+        },
+        headers={"Idempotency-Key": "alert-plan"},
+    )
+    assert planned.status_code == 200, planned.text
+    first = _alerts(client, company_id)
+    gap = [item for item in first["alerts"] if item["type"] == "cash_gap"]
+    assert len(gap) == 1
+    assert gap[0]["evidence"]["gap_date"] == due.isoformat()
+    assert gap[0]["evidence"]["gap_amount"] == "50000.00"
+    assert gap[0]["evidence"]["horizon_days"] == 7
+    assert gap[0]["severity"] == "high"
+    assert gap[0]["status"] == "open"
+    assert gap[0]["calculated_on"] == today.isoformat()
+    assert first["quality_flags"] == ["missing_source_coverage"]
+    assert first["status"] == "preliminary"
+    assert "_quality_flags" not in gap[0]["evidence"]
+    second = _alerts(client, company_id)
+    again_gap = next(item for item in second["alerts"] if item["type"] == "cash_gap")
+    assert again_gap["id"] == gap[0]["id"]
+    assert _count(admin, "alerts") == len(second["alerts"])
+    saved = client.get(f"/api/v1/companies/{company_id}/alerts")
+    listed = saved.json()
+    assert listed["report_date"] == today.isoformat()
+    assert listed["status"] == "preliminary"
+    assert listed["completeness"] == "known"
+    assert listed["quality_flags"] == ["missing_source_coverage"]
+    listed_gap = next(item for item in listed["alerts"] if item["id"] == gap[0]["id"])
+    assert listed_gap["status"] == "open"
+    assert listed_gap["first_seen_at"] == gap[0]["first_seen_at"]
+    repeat = client.get(f"/api/v1/companies/{company_id}/alerts")
+    repeat_gap = next(item for item in repeat.json()["alerts"] if item["id"] == gap[0]["id"])
+    assert repeat_gap["last_seen_at"] == listed_gap["last_seen_at"]
+    assert repeat_gap["status"] == "open"
+    assert _count(admin, "alerts") == len(second["alerts"])
+    with admin.connect() as connection:
+        acknowledged = connection.execute(
+            text("SELECT count(*) FROM audit_log WHERE action = 'alert_acknowledged'")
+        ).scalar_one()
+    assert acknowledged == 0
+
+
+def test_alert_preview_keeps_the_saved_signal(client, admin, app, fake, tmp_path) -> None:
+    _tenant, company_id = _ready(client, admin, app, fake, tmp_path, "preview-alert@example.com")
+    wallet = _wallet(client, company_id, "100000.00")
+    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    due = today + timedelta(days=4)
+    later = today + timedelta(days=10)
+    created = client.post(
+        f"/api/v1/companies/{company_id}/planned-cash",
+        json={
+            "direction": "out",
+            "amount": "150000.00",
+            "due_date": due.isoformat(),
+            "expected_date": due.isoformat(),
+            "wallet_id": wallet["id"],
+        },
+        headers={"Idempotency-Key": "preview-plan"},
+    )
+    assert created.status_code == 200, created.text
+    saved = _alerts(client, company_id)
+    gap = next(item for item in saved["alerts"] if item["type"] == "cash_gap")
+    rules_before = _count(admin, "alert_rules")
+    runs_before = _count(admin, "forecast_runs")
+    mail_before = _count(admin, "transactional_email_outbox")
+    preview = client.get(
+        f"/api/v1/companies/{company_id}/alerts/preview?report_date={later.isoformat()}"
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["persisted"] is False
+    assert body["report_date"] == later.isoformat()
+    shown = next(item for item in body["alerts"] if item["type"] == "cash_gap")
+    assert shown["calculated_on"] == later.isoformat()
+    assert "id" not in shown
+    stored = client.get(f"/api/v1/companies/{company_id}/alerts")
+    kept = next(item for item in stored.json()["alerts"] if item["id"] == gap["id"])
+    assert kept["calculated_on"] == today.isoformat()
+    assert kept["evidence"]["gap_date"] == due.isoformat()
+    assert kept["evidence"]["gap_amount"] == "50000.00"
+    assert kept["status"] == "open"
+    assert kept["first_seen_at"] == gap["first_seen_at"]
+    assert _count(admin, "alerts") == len(saved["alerts"])
+    assert _count(admin, "alert_rules") == rules_before
+    assert _count(admin, "forecast_runs") == runs_before
+    assert _count(admin, "transactional_email_outbox") == mail_before
+    assert _count(admin, "notification_outbox") == 0
+
+
+def test_legacy_alert_without_completeness_is_not_final() -> None:
+    from app.models.signals import Alert
+    from app.services.alert_service import _saved_payload
+
+    moment = datetime.now(ZoneInfo("Europe/Moscow"))
+    company_id = uuid4()
+    row = Alert(
+        id=uuid4(),
+        tenant_id=uuid4(),
+        company_id=company_id,
+        rule_type="cash_gap",
+        fingerprint="cash_gap:legacy",
+        severity="high",
+        status="open",
+        first_seen_at=moment,
+        last_seen_at=moment,
+        evidence_json={
+            "as_of": "2026-10-16",
+            "gap_date": "2026-10-20",
+            "gap_amount": "29500.50",
+        },
+        source_refs=[],
+        resolved_at=None,
+    )
+    payload = _saved_payload(type("Firm", (), {"id": company_id})(), [row])
+    assert payload["status"] != "ready"
+    assert payload["completeness"] == "unknown"
+    assert payload["quality_flags"] == []
+    assert payload["report_date"] == "2026-10-16"
+    assert payload["alerts"][0]["status"] == "open"
+    assert payload["alerts"][0]["evidence"]["gap_amount"] == "29500.50"
+
+
+def test_alert_foreign_company_is_hidden(client, admin, app, fake, tmp_path) -> None:
+    _tenant, company_id = _ready(client, admin, app, fake, tmp_path, "owner-alert@example.com")
+    foreign = TestClient(app)
+    _ready(foreign, admin, app, fake, tmp_path, "foreign-alert@example.com")
+    hidden = foreign.get(f"/api/v1/companies/{company_id}/alerts")
+    assert hidden.status_code == 404
+    denied = foreign.post(f"/api/v1/companies/{company_id}/alerts/recalculate")
+    assert denied.status_code == 404
+    preview = foreign.get(
+        f"/api/v1/companies/{company_id}/alerts/preview?report_date=2026-10-16"
+    )
+    assert preview.status_code == 404
+    assert _count(admin, "alerts") == 0
 
 
 def _upload(client, company_id: str, connection_id: str, content: bytes, key: str):

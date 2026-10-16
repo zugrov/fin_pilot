@@ -1,6 +1,8 @@
 import uuid
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.config import Settings
 from app.domain.alerts import (
@@ -27,6 +29,10 @@ from app.services.plan_service import slices_for
 from app.services.wallet_service import open_company
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+CALCULATED_ON = "_calculated_on"
+QUALITY_FLAGS = "_quality_flags"
+PRIVATE_EVIDENCE = {CALCULATED_ON, QUALITY_FLAGS}
 
 DEFAULTS: dict[str, dict] = {
     "cash_gap": {
@@ -69,31 +75,159 @@ class Finding:
         self.refs = refs
 
 
+def company_today(company: Company, at: datetime) -> date:
+    name = company.timezone or "Europe/Moscow"
+    try:
+        zone = ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        zone = MOSCOW
+    return at.astimezone(zone).date()
+
+
+def list_alerts(session: Session, company: Company) -> dict:
+    rows = _stored(session, company)
+    return _saved_payload(company, rows)
+
+
+def recalculate(session: Session, membership: Membership, company: Company, at: datetime) -> dict:
+    _deny(membership)
+    return evaluate(session, company, company_today(company, at), at)
+
+
+def preview(session: Session, company: Company, report_date: date, at: datetime) -> dict:
+    rules = _rule_map(session, company, create=False, at=at)
+    # Прогноз пишет снимок. Для предварительной даты запись откатывается.
+    nested = session.begin_nested()
+    try:
+        findings, skipped, flags = _collect(session, company, report_date, at, rules)
+        _stamp(findings, report_date, flags)
+        payload = {
+            "report_date": report_date.isoformat(),
+            "company_id": str(company.id),
+            "status": "preliminary" if flags else "ready",
+            "quality_flags": flags,
+            "persisted": False,
+            "alerts": [_finding_payload(item) for item in findings],
+            "skipped": skipped,
+        }
+    finally:
+        nested.rollback()
+    return payload
+
+
 def evaluate(session: Session, company: Company, report_date: date, at: datetime) -> dict:
-    rules = _ensure_rules(session, company, at)
-    by_type = {item.rule_type: item for item in rules}
-    findings: list[Finding] = []
-    skipped: list[dict] = []
-    flags: list[str] = []
-    _cash_signals(session, company, report_date, at, by_type, findings, flags)
-    _budget_signals(session, company, report_date, by_type, findings)
-    _payment_signals(session, company, report_date, by_type, findings, skipped)
-    _source_signals(session, company, at, by_type, findings, flags)
-    _overdue_signals(session, company, report_date, by_type, findings)
+    rules = _rule_map(session, company, create=True, at=at)
+    findings, skipped, flags = _collect(session, company, report_date, at, rules)
+    _stamp(findings, report_date, flags)
     _sync(session, company, findings, at)
-    rows = session.scalars(
-        select(Alert)
-        .where(Alert.tenant_id == company.tenant_id, Alert.company_id == company.id)
-        .order_by(Alert.first_seen_at)
-    ).all()
-    status = "preliminary" if flags else "ready"
+    rows = _stored(session, company)
     return {
         "report_date": report_date.isoformat(),
         "company_id": str(company.id),
-        "status": status,
+        "status": "preliminary" if flags else "ready",
         "quality_flags": flags,
+        "persisted": True,
         "alerts": [_alert_payload(item) for item in rows],
         "skipped": skipped,
+    }
+
+
+def _collect(session, company, report_date, at, rules):
+    findings: list[Finding] = []
+    skipped: list[dict] = []
+    flags: list[str] = []
+    _cash_signals(session, company, report_date, at, rules, findings, flags)
+    _budget_signals(session, company, report_date, rules, findings)
+    _payment_signals(session, company, report_date, rules, findings, skipped)
+    _source_signals(session, company, at, rules, findings, flags)
+    _overdue_signals(session, company, report_date, rules, findings)
+    return findings, skipped, flags
+
+
+def _stamp(findings: list[Finding], report_date: date, flags: list[str]) -> None:
+    day = report_date.isoformat()
+    for item in findings:
+        item.evidence[CALCULATED_ON] = day
+        item.evidence[QUALITY_FLAGS] = list(flags)
+
+
+def _stored(session: Session, company: Company) -> list[Alert]:
+    return list(
+        session.scalars(
+            select(Alert)
+            .where(Alert.tenant_id == company.tenant_id, Alert.company_id == company.id)
+            .order_by(Alert.first_seen_at)
+        ).all()
+    )
+
+
+def _saved_payload(company: Company, rows: list[Alert]) -> dict:
+    dates: list[str] = []
+    flags: list[str] = []
+    flags_known = True
+    for row in rows:
+        raw = row.evidence_json if isinstance(row.evidence_json, dict) else {}
+        day = _stored_date(raw)
+        if day is not None:
+            dates.append(day)
+        stored_flags = raw.get(QUALITY_FLAGS)
+        if not isinstance(stored_flags, list):
+            flags_known = False
+            continue
+        for flag in stored_flags:
+            if flag not in flags:
+                flags.append(str(flag))
+    unique = set(dates)
+    report_date = dates[0] if len(unique) == 1 else None
+    if not rows:
+        status = "unavailable"
+        report_date = None
+        flags = []
+        completeness = "unavailable"
+    elif not flags_known:
+        status = "preliminary"
+        completeness = "unknown"
+        flags = []
+    elif flags:
+        status = "preliminary"
+        completeness = "known"
+    else:
+        status = "ready"
+        completeness = "known"
+    return {
+        "report_date": report_date,
+        "company_id": str(company.id),
+        "status": status,
+        "completeness": completeness,
+        "quality_flags": flags,
+        "alerts": [_alert_payload(item) for item in rows],
+        "skipped": [],
+    }
+
+
+def _rule_map(session: Session, company: Company, *, create: bool, at: datetime) -> dict:
+    if create:
+        rows = _ensure_rules(session, company, at)
+        return {item.rule_type: item for item in rows}
+    rows = list(
+        session.scalars(
+            select(AlertRule).where(
+                AlertRule.tenant_id == company.tenant_id,
+                AlertRule.company_id == company.id,
+            )
+        ).all()
+    )
+    if rows:
+        return {item.rule_type: item for item in rows}
+    return {
+        rule_type: SimpleNamespace(
+            rule_type=rule_type,
+            thresholds_json=spec["thresholds"],
+            severity=spec["severity"],
+            enabled=True,
+            cooldown_minutes=DEFAULT_COOLDOWN,
+        )
+        for rule_type, spec in DEFAULTS.items()
     }
 
 
@@ -609,6 +743,7 @@ def _add_flag(flags: list[str], flag: str) -> None:
 
 def _alert_payload(row: Alert) -> dict:
     resolved = None if row.resolved_at is None else row.resolved_at.isoformat()
+    raw = row.evidence_json if isinstance(row.evidence_json, dict) else {}
     return {
         "id": str(row.id),
         "company_id": str(row.company_id),
@@ -619,9 +754,34 @@ def _alert_payload(row: Alert) -> dict:
         "first_seen_at": row.first_seen_at.isoformat(),
         "last_seen_at": row.last_seen_at.isoformat(),
         "resolved_at": resolved,
-        "evidence": row.evidence_json,
+        "calculated_on": _stored_date(raw),
+        "evidence": _public_evidence(raw),
         "source_refs": row.source_refs,
     }
+
+
+def _finding_payload(item: Finding) -> dict:
+    return {
+        "type": item.rule_type,
+        "severity": item.severity,
+        "calculated_on": item.evidence.get(CALCULATED_ON),
+        "evidence": _public_evidence(item.evidence),
+    }
+
+
+def _public_evidence(raw: dict) -> dict:
+    return {key: value for key, value in raw.items() if key not in PRIVATE_EVIDENCE}
+
+
+def _stored_date(raw: dict) -> str | None:
+    stamped = raw.get(CALCULATED_ON)
+    if isinstance(stamped, str) and stamped:
+        return stamped
+    for key in ("as_of", "period_to", "report_date"):
+        value = raw.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 
 def _rule_payload(row: AlertRule) -> dict:
