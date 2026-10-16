@@ -22,6 +22,14 @@ export function groupForecastPath(tenantId: string, asOf: string, scenario: stri
   return `/api/v1/workspaces/${tenantId}/forecast?${query.toString()}`;
 }
 
+export function matchesSelection(
+  data: { company_id: string; as_of: string } | undefined,
+  companyId: string | undefined,
+  asOf: string,
+): boolean {
+  return Boolean(data && companyId && data.company_id === companyId && data.as_of === asOf);
+}
+
 export function forecastCaption(asOf: string): string {
   return `Расчёт на ${asOf}`;
 }

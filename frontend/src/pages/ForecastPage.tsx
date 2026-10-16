@@ -9,6 +9,7 @@ import {
   forecastCaption,
   forecastErrorText,
   gapDisplay,
+  matchesSelection,
   unpaidLabel,
 } from "../lib/forecast";
 
@@ -34,10 +35,7 @@ export function ForecastPage() {
     queryFn: () => loadGroupForecast(asOf, scenario),
     enabled: Boolean(asOf),
   });
-  const current =
-    forecast.data?.company_id === company?.id && forecast.data.as_of === asOf
-      ? forecast.data
-      : null;
+  const current = matchesSelection(forecast.data, company?.id, asOf) ? forecast.data : null;
   const point = current?.points.find((item) => item.date === current.gap_date);
   const outflows = (current?.contributions ?? []).filter((item) => item.direction === "out");
 

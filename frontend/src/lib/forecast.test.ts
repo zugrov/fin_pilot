@@ -7,6 +7,7 @@ import {
   forecastErrorText,
   forecastPath,
   gapDisplay,
+  matchesSelection,
   unpaidLabel,
 } from "./forecast";
 
@@ -41,6 +42,24 @@ describe("дата прогноза", () => {
     expect(first).toContain("/companies/firm-a/");
     expect(second).toContain("/companies/firm-b/");
     expect(first).not.toBe(second);
+  });
+
+  it("не принимает пустой ответ за расчёт выбранной фирмы", () => {
+    expect(matchesSelection(undefined, undefined, "2026-10-16")).toBe(false);
+    expect(
+      matchesSelection(
+        { company_id: "firm-a", as_of: "2026-10-16" },
+        "firm-a",
+        "2026-10-20",
+      ),
+    ).toBe(false);
+    expect(
+      matchesSelection(
+        { company_id: "firm-a", as_of: "2026-10-16" },
+        "firm-a",
+        "2026-10-16",
+      ),
+    ).toBe(true);
   });
 
   it("совпадает с подписью на экране", () => {
