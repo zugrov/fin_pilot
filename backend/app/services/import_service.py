@@ -88,6 +88,15 @@ CONDITION_KEYS = {
 }
 
 
+def _require_balances_import_enabled(settings: Settings, dataset: str) -> None:
+    if dataset == "balances" and not settings.balances_import_enabled:
+        raise AppError(
+            503,
+            "balances_import_disabled",
+            "Импорт остатков временно недоступен",
+        )
+
+
 def create_source(
     session: Session,
     membership: Membership,
@@ -124,6 +133,7 @@ def create_source(
         raise AppError(422, "validation_error", "Бюджет загружается только из CSV")
     if dataset == "balances" and (source_type != "file" or file_format != "csv"):
         raise AppError(422, "validation_error", "Остатки загружаются только из CSV")
+    _require_balances_import_enabled(settings, dataset)
     if source_type == "email" and dataset != "cash":
         raise AppError(422, "validation_error", "Почта принимает только денежную выписку")
     if file_format == "clientbank" and wallet_id is None:
@@ -208,6 +218,7 @@ def receive_import(
     if len(content) > settings.import_max_bytes:
         raise AppError(413, "payload_too_large", "Файл больше лимита")
     connection = _connection(session, company, connection_id)
+    _require_balances_import_enabled(settings, connection.dataset)
     digest = hashlib.sha256(content).hexdigest()
     fingerprint = canonical_hash(f"{connection.id}:{digest}")
     remembered = _idempotent(session, user, idempotency_key, fingerprint)
@@ -353,6 +364,7 @@ def refresh_import_preview(
     connection = _connection(session, company, batch.connection_id)
     if connection.dataset != "balances":
         raise AppError(409, "conflict", "Обновление preview только для остатков")
+    _require_balances_import_enabled(settings, connection.dataset)
     rows = _rows(session, batch)
     refresh_balances_rows(session, company, rows, at=at)
     finalize_balances_batch(session, batch, rows, at=at, increment_revision=True)
@@ -407,6 +419,7 @@ def commit_import(
         raise AppError(404, "not_found", "Фирма не найдена")
     connection = _connection(session, company, batch.connection_id)
     if connection.dataset == "balances":
+        _require_balances_import_enabled(settings, connection.dataset)
         result = commit_balances_batch(
             session,
             membership,

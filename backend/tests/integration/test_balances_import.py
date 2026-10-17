@@ -32,6 +32,11 @@ PERIOD = "date_from=2026-10-01&date_to=2026-10-31"
 def _guard_test_db(migrated_database):
     assert_finpilot_test_database(migrated_database)
 
+
+@pytest.fixture(autouse=True)
+def _balances_import_enabled(app):
+    app.state.settings.balances_import_enabled = True
+
 BAL_HEADER = "wallet_code,as_of,balance,currency\n"
 
 

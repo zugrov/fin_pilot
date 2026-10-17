@@ -858,7 +858,37 @@
       "conclusion": "failure",
       "note": "30 balances-сценариев дошли до выполнения (не setup errors); pytest 242 passed, 1 failed; единственный fail — test_rollback_93428b7_routes_balances_dataset_to_cash_parser: git show 93428b7 — commit отсутствует в shallow checkout CI"
     },
-    "ci_backend_fetch_depth_fix": "подготовлено: fetch-depth 0 только в backend job для rollback compatibility test",
+    "ci_backend_fetch_depth_fix": "применено (53d9493): fetch-depth 0 только в backend job",
+    "ci_run_39054089791": {
+      "sha": "53d94939cfbff5a09e6ed7604b3afc1e3cc9d325",
+      "conclusion": "success",
+      "note": "полная регрессия принята: frontend 83 + build; backend Ruff/Mypy; pytest 243 passed, 0 failed, 0 errors, 0 skipped; rollback git show 93428b7 ok"
+    },
+    "live_migration_lock_timeout_test": {
+      "name": "test_migration_upgrade_lock_timeout_live",
+      "status": "passed_local_2026_10_17",
+      "database": "127.0.0.1:5432/finpilot_test",
+      "failure_kind": "lock timeout (psycopg.errors.LockNotAvailable, SQLSTATE 55P03)",
+      "after_failed_upgrade": "revision 20261014_0009; CHECK без balances; INSERT balances отклоняется",
+      "after_retry_upgrade": "revision 20261017_0010; CHECK с balances"
+    },
+    "recovery_plan_balances": {
+      "documented_in": "docs/roadmap/STAGE_FA-R01.md",
+      "state_a": "до balances-данных — отдельное решение о downgrade схемы/образа",
+      "state_b": "после balances-данных — образ main≥4f66fe8, схема 0010, BALANCES_IMPORT_ENABLED=false",
+      "recovery_gate": "реализован локально: Settings.balances_import_enabled (default false), 503 balances_import_disabled",
+      "recovery_gate_tests": "test_balances_feature_gate.py — 9 passed локально 2026-10-17",
+      "compat_artifact_built": false,
+      "compat_artifact_verified": false
+    },
+    "local_verification_recovery_gate_2026_10_17": {
+      "database": "127.0.0.1:5432/finpilot_test",
+      "feature_gate_tests": "9 passed",
+      "balances_migration_rollback_suite": "40 passed",
+      "ruff": "all passed",
+      "mypy_app": "95 files success",
+      "backend_pytest_full": "252 passed, 1 failed (test_backup_restore pg_dump :5433 refused — backup/restore не подтверждён)"
+    },
     "local_verification_2026_10_17": {
       "database": "finpilot_test@127.0.0.1:5432",
       "balances_integration_tests": "30 passed",

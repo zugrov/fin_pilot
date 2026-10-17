@@ -1,6 +1,9 @@
 import os
+import threading
+import time
 import uuid
 
+import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -92,6 +95,46 @@ def _constraint_allows(engine, dataset: str) -> bool:
             return False
 
 
+def _migration_dsn() -> str:
+    port = os.environ.get("TEST_PG_PORT", "5432")
+    return f"postgresql://127.0.0.1:{port}/finpilot_test"
+
+
+def _constraint_definition(engine) -> str:
+    with engine.connect() as connection:
+        return str(
+            connection.execute(
+                text(
+                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                    "WHERE conrelid = 'source_connections'::regclass "
+                    "AND conname = 'source_connections_dataset_ck'"
+                )
+            ).scalar_one()
+        )
+
+
+def _error_chain(exc: BaseException) -> list[BaseException]:
+    seen: set[int] = set()
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    return chain
+
+
+def _lock_timeout_from_upgrade(exc: BaseException) -> tuple[bool, str | None]:
+    for item in _error_chain(exc):
+        sqlstate = getattr(item, "sqlstate", None)
+        if sqlstate == "55P03":
+            return True, sqlstate
+        message = str(item).lower()
+        if "lock timeout" in message:
+            return True, sqlstate
+    return False, None
+
+
 def _run_alembic(action: str, revision: str) -> None:
     config = _alembic_config()
     previous = os.getcwd()
@@ -139,6 +182,7 @@ def test_downgrade_without_balances_rows(migrated_database, restore_head) -> Non
 def test_downgrade_blocked_when_balances_source_exists(
     client, admin, app, fake, tmp_path, migrated_database, restore_head
 ) -> None:
+    app.state.settings.balances_import_enabled = True
     company_id, _ = _ready(client, admin, app, fake, tmp_path, "mig-bal@example.com")
     _balances_source(client, company_id)
     with pytest.raises(Exception) as exc:
@@ -151,6 +195,66 @@ def test_downgrade_blocked_when_balances_source_exists(
             text("SELECT count(*) FROM source_connections WHERE dataset = 'balances'")
         ).scalar_one()
     assert int(count) >= 1
+
+
+def test_migration_upgrade_lock_timeout_live(migrated_database, restore_head) -> None:
+    """Live: upgrade 0010 при удержанной ACCESS EXCLUSIVE на source_connections → lock timeout."""
+    assert_finpilot_test_database(migrated_database)
+
+    _run_alembic("downgrade", PREV)
+    assert _current_revision(migrated_database) == PREV
+    assert not _constraint_allows(migrated_database, "balances")
+
+    conn_a = psycopg.connect(_migration_dsn(), autocommit=False)
+    upgrade_outcome: dict[str, object] = {"exc": None, "elapsed": 0.0}
+
+    def _upgrade_in_thread() -> None:
+        started = time.monotonic()
+        try:
+            _run_alembic("upgrade", REVISION)
+        except Exception as exc:
+            upgrade_outcome["exc"] = exc
+        finally:
+            upgrade_outcome["elapsed"] = time.monotonic() - started
+
+    try:
+        with conn_a.cursor() as cursor:
+            cursor.execute("LOCK TABLE source_connections IN ACCESS EXCLUSIVE MODE")
+
+        worker = threading.Thread(target=_upgrade_in_thread, name="alembic-upgrade-0010")
+        worker.start()
+        worker.join(timeout=90.0)
+        assert not worker.is_alive(), "upgrade не завершился за 90s"
+
+        exc = upgrade_outcome["exc"]
+        assert exc is not None, "upgrade должен упасть из-за lock timeout"
+        is_lock_timeout, sqlstate = _lock_timeout_from_upgrade(exc)
+        assert is_lock_timeout, f"ожидали lock timeout, получили: {exc!r}"
+        assert sqlstate == "55P03" or sqlstate is None
+
+        elapsed = float(upgrade_outcome["elapsed"])
+        assert 3.0 <= elapsed <= 20.0, f"ожидали ~5s lock_timeout, elapsed={elapsed:.2f}s"
+        messages = " ".join(str(item).lower() for item in _error_chain(exc))
+        assert "lock timeout" in messages
+        assert "due to statement timeout" not in messages
+
+        assert _current_revision(migrated_database) == PREV
+
+    finally:
+        try:
+            conn_a.rollback()
+        finally:
+            conn_a.close()
+
+    assert not _constraint_allows(migrated_database, "balances")
+    definition = _constraint_definition(migrated_database)
+    assert "balances" not in definition
+    assert "'budget'" in definition
+
+    _run_alembic("upgrade", REVISION)
+    assert _current_revision(migrated_database) == REVISION
+    assert _constraint_allows(migrated_database, "balances")
+    assert "balances" in _constraint_definition(migrated_database)
 
 
 def test_migration_sql_timeouts_lock_and_downgrade_guard(migrated_database, restore_head) -> None:

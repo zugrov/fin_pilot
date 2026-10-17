@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     import_max_bytes: int = 20 * 1024 * 1024
     import_max_rows: int = 100_000
     import_max_uncompressed_bytes: int = 50 * 1024 * 1024
+    balances_import_enabled: bool = False
 
     @field_validator("app_env")
     @classmethod

@@ -202,6 +202,51 @@ wallet/opening на существующей таблице `idempotency_records
 
 **Rollback образа `93428b7`:** при уже существующих `source_connections.dataset=balances` или batch balances **небезопасен** — старый `import_service` направляет upload в cash `_parse` (`ImportFormatError` на balances.csv), ветки `commit_balances_batch` нет. Требуется не откатывать образ без плана по миграции и данным (без DELETE/UPDATE ради CHECK).
 
+### План восстановления (recovery) при инциденте deploy
+
+**Статус:** recovery **gate** в коде (`balances_import_enabled` / `BALANCES_IMPORT_ENABLED`, default `false`); **recovery-образ не собран и не проверен** — не использовать на staging/production до сборки, конфигурации процесса и CI.
+
+Переключение `BALANCES_IMPORT_ENABLED` — **не** runtime toggle: значение читается из конфигурации процесса при старте api (и worker при будущем deploy); смена требует перезапуска/пересоздания контейнера с обновлённым env. Worker/beat для balances jobs **не добавлялись** — расширять deploy на worker/beat автоматически не требуется.
+
+#### Состояние A · до появления balances-данных (источников/batches/opening)
+
+**Отдельное решение владельца:** допустим координированный откат **схемы и/или образа** (не путать с состоянием B).
+
+**Признаки:** `alembic_version = 20261017_0010`; CHECK допускает `balances`; в `source_connections` нет строк `dataset = 'balances'`; нет completed import batches с balances preview/commit.
+
+**Допустимые действия (координированно, с окном обслуживания):**
+
+1. Остановить api/worker/beat (нет новых import/commit).
+2. Убедиться guard downgrade: `SELECT count(*) FROM source_connections WHERE dataset = 'balances'` → **0**.
+3. Выполнить **штатный** Alembic downgrade `20261017_0010 → 20261014_0009` (SQL guard не сработает).
+4. Откатить **образ приложения** на последний принятый SHA **до** пакета 2 (пакет 1 `93428b7` допустим).
+5. Поднять сервисы; smoke: wallets/opening пакета 1, cash/revenue import без balances.
+
+**Запрещено:** DELETE/UPDATE строк ради обхода CHECK; force-downgrade при ненулевом count balances sources.
+
+**Проверки:** integration `test_downgrade_without_balances_rows`; после downgrade balances INSERT в CHECK → fail (как до 0010).
+
+#### Состояние B · после появления balances-источников, batches и/или проведённых opening
+
+**Признаки:** строки `source_connections.dataset = 'balances'` и/или `import_batches` + `opening_balances` / audit от balances commit; downgrade guard **заблокирует** DROP CHECK (`downgrade_blocked`).
+
+**Запрещено:** откат образа на **`93428b7`**, Alembic downgrade `0010` «ради старого образа», удаление balances-истории.
+
+**Совместимый проверенный образ (целевой):**
+
+- Код **≥ `4f66fe8`**, схема **`0010`**, данные **без изменений**.
+- Конфигурация процесса: **`BALANCES_IMPORT_ENABLED=false`** (default в Settings).
+- Gate в `import_service` (локально: `test_balances_feature_gate.py`):
+  - **503** `balances_import_disabled` — create balances source, upload, refresh-preview, commit (включая POST replay).
+  - **GET** preview/sources/errors — разрешены; ручной opening; cash/revenue/plan/budget — без регрессии.
+- **Не** направлять balances upload в cash `_parse`.
+
+**Сборка recovery-образа (не выполнена — не объявлять built/verified):**
+
+1. Образ api от `main` с gate; env `BALANCES_IMPORT_ENABLED=false`; перезапуск процесса для применения.
+2. Полный CI pytest; staging smoke read + wallets (balances write off).
+3. Отдельная приёмка compat — **не** замена accepted `93428b7`. Worker/beat для balances не расширять автоматически.
+
 **Критерии приёмки пакета 2.**
 
 - Контракт в import-formats; staging smoke balances — отдельное разрешение.
