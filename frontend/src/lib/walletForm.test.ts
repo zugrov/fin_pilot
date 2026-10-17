@@ -17,6 +17,7 @@ import {
   parseAmountInput,
   pendingOpeningFromAttempt,
   resolveOpeningConfirmAttempt,
+  shouldRestoreOpeningFromAttempt,
   resolveWalletCreateSubmit,
   walletCreatePayloadKey,
 } from "./walletForm";
@@ -148,13 +149,59 @@ describe("walletForm", () => {
     expect(pending.amount).toBe("100.00");
   });
 
-  it("opening: cancel не уничтожает draft-попытку", () => {
+  it("opening: cancel draft до HTTP сбрасывает попытку", () => {
     const draft = resolveOpeningConfirmAttempt(null, openingPayload, openingMeta, () => "key-1");
     expect(draft.kind).toBe("submit");
     if (draft.kind !== "submit") {
       return;
     }
-    expect(openingAttemptAfterCancel(draft.attempt)?.key).toBe("key-1");
+    expect(openingAttemptAfterCancel(draft.attempt)).toBeNull();
+    expect(shouldRestoreOpeningFromAttempt(null)).toBe(false);
+  });
+
+  it("draft cancel → новые поля → confirm: modal B/2000/D2, новый ключ", () => {
+    const payloadA = {
+      companyId: "c1",
+      walletId: "wallet-a",
+      amount: "1000.00",
+      effectiveAt: "2026-10-01T00:00:00+03:00",
+    };
+    const metaA = { walletLabel: "Счёт A", offsetUsed: "+03:00", currency: "RUB" };
+    const first = resolveOpeningConfirmAttempt(null, payloadA, metaA, () => "key-a");
+    expect(first.kind).toBe("submit");
+    if (first.kind !== "submit") {
+      return;
+    }
+    const afterCancel = openingAttemptAfterCancel(first.attempt);
+    expect(afterCancel).toBeNull();
+
+    const payloadB = {
+      companyId: "c1",
+      walletId: "wallet-b",
+      amount: "2000.00",
+      effectiveAt: "2026-11-15T12:00:00+03:00",
+    };
+    const metaB = { walletLabel: "Счёт B", offsetUsed: "+03:00", currency: "RUB" };
+    const second = resolveOpeningConfirmAttempt(afterCancel, payloadB, metaB, () => "key-b");
+    expect(second.kind).toBe("submit");
+    if (second.kind !== "submit") {
+      return;
+    }
+    expect(second.attempt.key).toBe("key-b");
+    expect(second.attempt.phase).toBe("draft");
+    const pending = pendingOpeningFromAttempt(second.attempt);
+    expect(pending.walletId).toBe("wallet-b");
+    expect(pending.amount).toBe("2000.00");
+    expect(pending.effectiveAt).toBe("2026-11-15T12:00:00+03:00");
+    expect(pending.walletLabel).toBe("Счёт B");
+  });
+
+  it("пустая дата opening — ошибка без автоподстановки", () => {
+    const built = buildOpeningEffectiveAt("", "00:00", "Europe/Moscow", undefined);
+    expect(built.ok).toBe(false);
+    if (!built.ok) {
+      expect(built.message).toContain("дату");
+    }
   });
 
   it("timeout → смена фирмы заблокирована, attempt сохранён", () => {

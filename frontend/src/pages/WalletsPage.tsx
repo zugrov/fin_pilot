@@ -32,6 +32,7 @@ import {
   resolveWalletCreateSubmit,
   shouldBlockOpeningFieldEdit,
   shouldBlockWalletCreateFieldEdit,
+  shouldRestoreOpeningFromAttempt,
   type IdempotentAttempt,
   type OpeningSubmitPayload,
   type WalletCreatePayload,
@@ -66,7 +67,7 @@ export function WalletsPage() {
   const [createCode, setCreateCode] = useState("");
   const [createType, setCreateType] = useState("bank");
   const [openingWalletId, setOpeningWalletId] = useState("");
-  const [openingDate, setOpeningDate] = useState("2026-10-01");
+  const [openingDate, setOpeningDate] = useState("");
   const [openingTime, setOpeningTime] = useState("00:00");
   const [openingAmount, setOpeningAmount] = useState("0.00");
   const [manualOffset, setManualOffset] = useState("");
@@ -84,7 +85,7 @@ export function WalletsPage() {
     setCreateCode("");
     setCreateType("bank");
     setOpeningWalletId("");
-    setOpeningDate("2026-10-01");
+    setOpeningDate("");
     setOpeningTime("00:00");
     setOpeningAmount("0.00");
     setManualOffset("");
@@ -244,11 +245,8 @@ export function WalletsPage() {
 
   function requestOpeningConfirm() {
     setFormError("");
-    if (
-      openingAttempt &&
-      (openingAttempt.phase === "unknown" || openingAttempt.phase === "draft")
-    ) {
-      setPendingOpening(pendingOpeningFromAttempt(openingAttempt));
+    if (shouldRestoreOpeningFromAttempt(openingAttempt)) {
+      setPendingOpening(pendingOpeningFromAttempt(openingAttempt!));
       return;
     }
     if (!companyId || !openingWalletId) {

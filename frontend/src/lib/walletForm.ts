@@ -118,6 +118,9 @@ export function buildOpeningEffectiveAt(
   companyTimeZone: string | undefined,
   manualOffset: string | undefined,
 ): EffectiveAtResult {
+  if (!date.trim()) {
+    return { ok: false, message: "Выберите дату начального остатка" };
+  }
   if (!DATE_RE.test(date)) {
     return { ok: false, message: "Дата в формате ГГГГ-ММ-ДД" };
   }
@@ -328,11 +331,23 @@ export function markOpeningSubmitExecuting(
   return { ...attempt, phase: "executing" };
 }
 
-/** Закрытие модалки не сбрасывает попытку — можно восстановить подтверждение. */
+/** Draft до HTTP: отмена сбрасывает попытку. Unknown/executing — сохраняем для повтора. */
 export function openingAttemptAfterCancel(
   prior: IdempotentAttempt<OpeningSubmitPayload> | null,
 ): IdempotentAttempt<OpeningSubmitPayload> | null {
+  if (!prior) {
+    return null;
+  }
+  if (prior.phase === "draft") {
+    return null;
+  }
   return prior;
+}
+
+export function shouldRestoreOpeningFromAttempt(
+  attempt: IdempotentAttempt<OpeningSubmitPayload> | null,
+): boolean {
+  return attempt?.phase === "unknown";
 }
 
 export function completeOpeningAttempt(): null {

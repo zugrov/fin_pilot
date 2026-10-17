@@ -19,7 +19,7 @@
   "current_stage": "FA-R01",
   "current_task": "FA-R01.2",
   "status": "in_progress",
-  "allowed_next_action": "FA-R01.2 in_progress: пакет 1 закоммичен; CI для SHA; browser lifecycle pending; balances.csv открыт; deploy/приёмка пакета не выполнены.",
+  "allowed_next_action": "FA-R01.2 in_progress: пакет 1 + opening UI fix в репозитории; локальный browser A–F на mock (не staging/backend); balances.csv открыт; deploy/приёмка не выполнены.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -123,14 +123,16 @@
           "title": "Счета и начальные остатки",
           "status": "in_progress",
           "evidence": [
-            "локальный пакет 1: POST wallet/opening с Idempotency-Key (IdempotencyRecord, scopes wallet_create/wallet_opening)",
+            "локальный пакет 1 (d8a229a): POST wallet/opening с Idempotency-Key (IdempotencyRecord, scopes wallet_create/wallet_opening)",
             "active_opening в GET wallets; duplicate_wallet_code 409",
             "WalletsPage: создание счёта, opening с подтверждением, TZ фирмы или ручной offset; lifecycle unknown-result",
-            "17 backend idempotency tests; frontend 81 tests + build локально",
-            "browser lifecycle Wallets — pending",
+            "17 backend idempotency tests; CI d8a229a: frontend 81 + build; backend pytest PostgreSQL 203",
+            "fix opening UI: cancel черновика opening, пустая дата, unknown create/opening; frontend 83 tests + build локально",
+            "браузерные сценарии A–F на loopback mock wallets-lifecycle-mock (127.0.0.1:8000) — не live backend/staging",
+            "A: пустая дата; B: cancel draft до POST; C/D: drop ответа + idempotency replay; E: 422 разблокирует; F: смена фирмы без переноса attempt",
             "balances.csv — открыто, отдельный следующий пакет",
-            "deploy и приёмка пакета 1 не выполнены",
-            "полный локальный pytest/backup-restore не подтверждён; ожидается CI PostgreSQL"
+            "deploy и приёмка FA-R01.2 не выполнены",
+            "staging browser lifecycle Wallets — pending"
           ]
         },
         {
@@ -778,7 +780,7 @@
       "basis": "product SHA e70612d; CI; local two-firm browser; staging frontend deploy and authorized smoke on 8 screens"
     }
   ],
-  "note": "FA-R01.1 accepted (product e70612d). FA-R01.2 in_progress: пакет 1 в репозитории; browser pending; balances.csv open; deploy/acceptance not done.",
+  "note": "FA-R01.1 accepted (product e70612d). FA-R01.2 in_progress: d8a229a + opening UI fix; локальный browser A–F на mock; не staging/backend; balances.csv open; deploy/acceptance not done.",
   "updated_at": "2026-10-17",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
