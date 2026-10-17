@@ -17,9 +17,9 @@
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
   "current_stage": "FA-R01",
-  "current_task": "FA-R01.1",
-  "status": "local_verified",
-  "allowed_next_action": "FA-R01.1 local_verified; not deployed or accepted. Commit/push/deploy require separate approval.",
+  "current_task": "FA-R01.2",
+  "status": "ready",
+  "allowed_next_action": "FA-R01.1 accepted at product SHA e70612d. FA-R01.2 planned; product code requires explicit approval for FA-R01.2 only.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -105,14 +105,17 @@
         {
           "id": "FA-R01.1",
           "title": "Контекст фирмы",
-          "status": "local_verified",
+          "status": "accepted",
+          "accepted_product_sha": "e70612da585c4718881b2ab30acc9bbf74702e2a",
           "evidence": [
             "docs/roadmap/STAGE_FA-R01.md",
-            "CI e842e04: frontend 60, backend 186 passed",
-            "дефект fp_company_id до загрузки списка: исправлен (фазы loading/empty/ready, sync storage только после isSuccess)",
-            "локально frontend 66 tests + build OK до push fix-коммита",
-            "браузерная проверка двух фирм не выполнена",
-            "deploy и accepted FA-R01.1 не выполнены; FA-R01.2 не начат"
+            "CI e842e04: frontend 60 + build; backend 186 pytest PostgreSQL, ruff, mypy",
+            "CI e70612d: frontend 66 + build; backend 186 pytest PostgreSQL, ruff, mypy",
+            "backend/API/зависимости в FA-R01.1 не менялись",
+            "дефект fp_company_id до загрузки списка: исправлен в e70612d",
+            "локальная браузерная проверка двух фирм (loopback mock, без staging данных)",
+            "staging: deploy только frontend finpilot-staging, образ index-8IQw3EMk.js",
+            "авторизованный staging smoke: 8 экранов, reload сохраняет fp_company_id"
           ]
         },
         {
@@ -644,23 +647,29 @@
   ],
   "last_handoff": {
     "at": "2026-10-17",
-    "from_stage": "FA-R00",
+    "from_stage": "FA-R01",
     "to_stage": "FA-R01",
-    "from_task": "FA-R00.4",
-    "to_task": "FA-R01.1",
+    "from_task": "FA-R01.1",
+    "to_task": "FA-R01.2",
     "fa_r00": "accepted",
     "g0": "accepted",
-    "fa_r01_1": "local_verified_fix_pushed_not_accepted"
+    "fa_r01_1": "accepted"
   },
-  "fa_r01_1_local_verification": {
-    "frontend_tests_passed": 66,
-    "frontend_build": "ok",
-    "backend_unit_tests_passed_ignore_integration": 74,
-    "backend_integration_local": "not_verified_no_postgres",
-    "browser_two_companies": "not_done",
-    "defect_fp_company_id_clear_before_load": "fixed",
-    "deploy": false,
-    "accepted": false,
+  "fa_r01_1_acceptance": {
+    "accepted_product_sha": "e70612da585c4718881b2ab30acc9bbf74702e2a",
+    "ci_e70612d": {
+      "frontend_tests": 66,
+      "frontend_build": "ok",
+      "backend_pytest_postgresql": 186,
+      "ruff": "ok",
+      "mypy": "ok"
+    },
+    "backend_api_deps_changed": false,
+    "local_browser_two_companies_mock": true,
+    "staging_frontend_deploy": true,
+    "staging_frontend_asset": "index-8IQw3EMk.js",
+    "staging_authorized_smoke_eight_screens": true,
+    "staging_reload_preserves_company": true,
     "fa_r01_2_started": false
   },
   "blocked_items": [],
@@ -751,9 +760,16 @@
       "status": "accepted",
       "by": "owner",
       "basis": "architecture package docs/roadmap"
+    },
+    {
+      "at": "2026-10-17",
+      "task": "FA-R01.1",
+      "status": "accepted",
+      "by": "owner",
+      "basis": "product SHA e70612d; CI; local two-firm browser; staging frontend deploy and authorized smoke on 8 screens"
     }
   ],
-  "note": "FA-R01.1 local_verified; дефект загрузки списка firm исправлен; не accepted, не deployed. FA-R01.2 не начат.",
+  "note": "FA-R01.1 accepted (product e70612d). FA-R01 in_progress. FA-R01.2 planned, not started.",
   "updated_at": "2026-10-17",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
