@@ -1,7 +1,6 @@
 # FA-R01 · Безопасный сквозной пользовательский путь
 
-Статус пакета: **planned** (очередь FA-R00.4). Код не разрешён до G0 и отдельного
-разрешения на FA-R01.
+Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; FA-R01.2 in_progress).
 
 Зависимость: этап **FA-R00** принят (G0) — контракты и ADR, без обязательной
 реализации delivery.
@@ -71,7 +70,28 @@ FA-R00 (G0)
 
 ---
 
-## FA-R01.2 · Счета и начальный остаток (пакет 1, in_progress)
+## FA-R01.2 · Счета и начальный остаток
+
+Задача **in_progress** (принята не целиком): **пакет 1** принят владельцем; **balances.csv** — следующий пакет.
+
+### Пакет 1 · принят (product SHA `93428b758fc581c35b8da933423b11e731a15b90`)
+
+**Приёмка владельцем:** 2026-10-17.
+
+**CI (93428b7):** frontend 83 tests + build; backend 203 pytest PostgreSQL, Ruff, Mypy; run 39038691269.
+
+**Локально:** browser mock wallets-lifecycle A–F (127.0.0.1:8000).
+
+**Staging:** deploy api+frontend finpilot-staging (`127.0.0.1:8090`); read-only smoke Wallets + 7 экранов; write-smoke ООО «Топ»:
+create/opening через UI; replay create/opening вернули исходные ID; T-BANK и dashboard (2026-10-01…2026-10-31) без отличий от baseline.
+
+**Приёмочный артефакт на staging (не удалять):** wallet `6337cbaf-5800-4273-8dcd-3c064caaf822` (code `fa-r01-2-smoke-93428b7`); opening `b429046a-7741-40bd-865e-bc2e26e3b22f`; Idempotency-Key create `905d9e37-24bb-4ccf-8821-3d13b8301f66`; opening `f205b4d0-46ff-43b7-bf56-dc8ef2648e25`. Контроль T-BANK `dd1295af-f861-4389-b654-75bdf79aaab0` не изменялся.
+
+Worker/beat на staging при deploy 93428b7 не пересоздавались (образ api c7ff510) — вне доказательств пакета 1.
+
+---
+
+### Пакет 1 · спецификация (историческая)
 
 **Цель (пакет 1).** Безопасное создание счёта и установка active opening из UI; идемпотентность POST
 wallet/opening на существующей таблице `idempotency_records`; аддитивное поле `active_opening` в ответе
