@@ -68,3 +68,29 @@ FA-R00 (G0)
 | R01.4 | R01.1–R01.3 | FA-R02 (сквозной UX) |
 
 **Порядок реализации:** строго R01.1 → R01.2 → R01.3 → R01.4.
+
+---
+
+## FA-R01.2 · Счета и начальный остаток (пакет 1, in_progress)
+
+**Цель (пакет 1).** Безопасное создание счёта и установка active opening из UI; идемпотентность POST
+wallet/opening на существующей таблице `idempotency_records`; аддитивное поле `active_opening` в ответе
+списка кошельков.
+
+**В scope пакета 1.**
+
+- **Изменение API-контракта (пакет 1):** `POST .../wallets` и `POST .../opening-balance` **требуют**
+  заголовок `Idempotency-Key`. Это не обратно совместимо со старыми клиентами без ключа.
+  `GET .../wallets` — аддитивно поле `active_opening`.
+- Backend: scopes
+  `wallet_create`, `wallet_opening`; replay без повторного audit; `duplicate_wallet_code` → 409.
+- Frontend: `WalletsPage` — список, создание, opening с подтверждением; TZ фирмы или явный offset;
+  сохранение ключа при повторе одного действия.
+- Тесты: `test_wallets_idempotency.py`, правки helpers; vitest `walletForm.test.ts`.
+
+**Вне пакета 1 (остаётся в FA-R01.2).**
+
+- `balances.csv` (импорт opening), история `replaced` в UI, wallet access UI, ImportPage wallet picker.
+- Приёмка всей FA-R01.2 (`accepted`) — после отдельных пакетов и smoke.
+
+**Миграции.** Нет (IdempotencyRecord уже есть).

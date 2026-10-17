@@ -42,11 +42,13 @@ def _wallet(client, company_id: str, amount: str, code: str = "main") -> dict:
     created = client.post(
         f"/api/v1/companies/{company_id}/wallets",
         json={"name": "Расчётный", "type": "bank", "code": code},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert created.status_code == 200, created.text
     opened = client.post(
         f"/api/v1/wallets/{created.json()['id']}/opening-balance",
         json={"effective_at": "2026-10-01T00:00:00+00:00", "amount": amount},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert opened.status_code == 200, opened.text
     return created.json()

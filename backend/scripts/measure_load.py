@@ -62,11 +62,13 @@ def _ready(client: TestClient, admin, app, fake) -> tuple[str, str, str]:
     wallet = client.post(
         f"/api/v1/companies/{company_id}/wallets",
         json={"name": "Расчётный", "type": "bank", "code": "main"},
+        headers={"Idempotency-Key": "measure-load-wallet"},
     )
     assert wallet.status_code == 200, wallet.text
     opened = client.post(
         f"/api/v1/wallets/{wallet.json()['id']}/opening-balance",
         json={"effective_at": "2026-10-01T00:00:00+00:00", "amount": "0.00"},
+        headers={"Idempotency-Key": "measure-load-opening"},
     )
     assert opened.status_code == 200, opened.text
     me = client.get("/api/v1/auth/me")

@@ -39,11 +39,13 @@ def _wallet(client, company_id: str) -> dict:
     created = client.post(
         f"/api/v1/companies/{company_id}/wallets",
         json={"name": "Расчётный", "type": "bank", "code": "main"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert created.status_code == 200, created.text
     opened = client.post(
         f"/api/v1/wallets/{created.json()['id']}/opening-balance",
         json={"effective_at": "2026-10-01T00:00:00+00:00", "amount": "0.00"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert opened.status_code == 200, opened.text
     return created.json()
@@ -168,11 +170,13 @@ def test_financing_and_transfer_do_not_create_sales(client, admin, app, fake, tm
     right = client.post(
         f"/api/v1/companies/{company_id}/wallets",
         json={"name": "Касса", "type": "cash", "code": "till"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert right.status_code == 200, right.text
     opened = client.post(
         f"/api/v1/wallets/{right.json()['id']}/opening-balance",
         json={"effective_at": "2026-10-01T00:00:00+00:00", "amount": "0.00"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert opened.status_code == 200, opened.text
     with admin.connect() as connection:

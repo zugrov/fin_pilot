@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.integrations.imap_client import FakeMailbox, MailAttachment
 from app.models.identity import User
@@ -40,6 +40,7 @@ def _ready(client, admin, app, fake, tmp_path, email: str) -> tuple[str, str, st
     wallet = client.post(
         f"/api/v1/companies/{company_id}/wallets",
         json={"name": "Расчётный", "type": "bank", "code": "main"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert wallet.status_code == 200, wallet.text
     return tenant_id, company_id, logged["user"]["id"]

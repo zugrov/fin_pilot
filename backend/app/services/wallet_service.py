@@ -1,3 +1,4 @@
+import time
 import uuid
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -6,7 +7,7 @@ from app.config import Settings
 from app.domain.money import money
 from app.errors import AppError
 from app.models.cash import OpeningBalance, Wallet, WalletAccess
-from app.models.identity import AuditLog, Company, Membership, User
+from app.models.identity import AuditLog, Company, IdempotencyRecord, Membership, User
 from app.security.access import (
     OPERATOR,
     assert_company_paid,
@@ -15,9 +16,13 @@ from app.security.access import (
 )
 from app.security.context import set_context
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 WALLET_TYPES = {"bank", "cash", "business_owner_card", "deposit", "other"}
+WALLET_CREATE_SCOPE = "wallet_create"
+WALLET_OPENING_SCOPE = "wallet_opening"
 
 
 def parse_amount(raw: str, *, positive: bool) -> Decimal:
@@ -119,7 +124,12 @@ def create_wallet(
         created_at=moment,
     )
     session.add(wallet)
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise AppError(
+            409, "duplicate_wallet_code", "Код кошелька уже занят в этой фирме"
+        ) from exc
     _audit(session, user, company.tenant_id, "wallet_created", wallet.id, None, moment)
     return wallet
 
@@ -250,3 +260,232 @@ def _audit(session, user: User, tenant_id, action: str, entity_id, before, momen
             created_at=moment,
         )
     )
+
+
+def _idempotent_row(session, user: User, scope: str, key: str) -> IdempotencyRecord | None:
+    return session.scalar(
+        select(IdempotencyRecord).where(
+            IdempotencyRecord.user_id == user.id,
+            IdempotencyRecord.scope == scope,
+            IdempotencyRecord.idempotency_key == key,
+        )
+    )
+
+
+def _wait_idempotent_body(
+    session, user: User, scope: str, key: str, fingerprint: str
+) -> dict | None:
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        session.expire_all()
+        row = _idempotent_row(session, user, scope, key)
+        if row is None:
+            return None
+        if row.request_hash != fingerprint:
+            raise AppError(409, "idempotency_conflict", "Другой payload для того же ключа")
+        body = row.response_body
+        if not body.get("pending"):
+            return body
+        time.sleep(0.05)
+    raise AppError(409, "conflict", "Запрос с этим ключом уже выполняется")
+
+
+def _begin_idempotency(
+    session,
+    user: User,
+    tenant_id: uuid.UUID,
+    scope: str,
+    key: str,
+    fingerprint: str,
+    at: datetime,
+) -> IdempotencyRecord | dict | None:
+    existing = _idempotent_row(session, user, scope, key)
+    if existing is not None:
+        if existing.request_hash != fingerprint:
+            raise AppError(409, "idempotency_conflict", "Другой payload для того же ключа")
+        body = existing.response_body
+        if body.get("pending"):
+            ready = _wait_idempotent_body(session, user, scope, key, fingerprint)
+            if ready is not None:
+                return ready
+        if body.get("aborted"):
+            if existing.request_hash != fingerprint:
+                raise AppError(409, "idempotency_conflict", "Другой payload для того же ключа")
+            existing.response_body = {"pending": True}
+            existing.status_code = 200
+            flag_modified(existing, "response_body")
+            session.flush()
+            return existing
+        if body:
+            return body
+    record = IdempotencyRecord(
+        tenant_id=tenant_id,
+        user_id=user.id,
+        scope=scope,
+        idempotency_key=key,
+        request_hash=fingerprint,
+        status_code=200,
+        response_body={"pending": True},
+        created_at=at,
+    )
+    try:
+        with session.begin_nested():
+            session.add(record)
+            session.flush()
+    except IntegrityError:
+        ready = _wait_idempotent_body(session, user, scope, key, fingerprint)
+        if ready is not None:
+            return ready
+        raise
+    return record
+
+
+def _finalize_idempotency(record: IdempotencyRecord, payload: dict) -> None:
+    record.response_body = payload
+    record.status_code = 200
+    flag_modified(record, "response_body")
+
+
+def _abort_idempotency(record: IdempotencyRecord) -> None:
+    record.response_body = {"aborted": True}
+    record.status_code = 500
+    flag_modified(record, "response_body")
+
+
+def _validate_wallet_replay(
+    session: Session,
+    user: User,
+    settings: Settings,
+    company: Company,
+    payload: dict,
+) -> None:
+    if payload.get("company_id") != str(company.id):
+        raise AppError(409, "idempotency_conflict", "Другой payload для того же ключа")
+    open_company(session, user, company.id, settings, "write")
+
+
+def _validate_opening_replay(
+    session: Session,
+    user: User,
+    settings: Settings,
+    wallet: Wallet,
+    payload: dict,
+) -> None:
+    if payload.get("wallet_id") != str(wallet.id):
+        raise AppError(409, "idempotency_conflict", "Другой payload для того же ключа")
+    membership, _company = open_company(session, user, wallet.company_id, settings, "write")
+    _ensure_wallet(session, membership, wallet, "write")
+
+
+def create_wallet_idempotent(
+    session: Session,
+    membership: Membership,
+    company: Company,
+    user: User,
+    settings: Settings,
+    *,
+    name: str,
+    wallet_type: str,
+    availability_type: str,
+    available_from: datetime | None,
+    minimum_reserve: Decimal,
+    masked_identifier: str | None,
+    code: str | None,
+    idempotency_key: str,
+    fingerprint: str,
+    at: datetime,
+) -> dict:
+    begun = _begin_idempotency(
+        session,
+        user,
+        company.tenant_id,
+        WALLET_CREATE_SCOPE,
+        idempotency_key,
+        fingerprint,
+        at,
+    )
+    if isinstance(begun, dict):
+        _validate_wallet_replay(session, user, settings, company, begun)
+        return begun
+    record = begun if isinstance(begun, IdempotencyRecord) else None
+    try:
+        wallet = create_wallet(
+            session,
+            membership,
+            company,
+            user,
+            name=name,
+            wallet_type=wallet_type,
+            availability_type=availability_type,
+            available_from=available_from,
+            minimum_reserve=minimum_reserve,
+            masked_identifier=masked_identifier,
+            code=code,
+        )
+        from app.services import cash_service
+
+        payload = cash_service.wallet_view(session, wallet, at)
+        if record is not None:
+            _finalize_idempotency(record, payload)
+        return payload
+    except Exception:
+        if record is not None:
+            _abort_idempotency(record)
+            session.flush()
+        raise
+
+
+def opening_payload(opening: OpeningBalance) -> dict:
+    return {
+        "id": str(opening.id),
+        "wallet_id": str(opening.wallet_id),
+        "effective_at": opening.effective_at.isoformat(),
+        "amount": f"{opening.amount:.2f}",
+        "status": opening.status,
+    }
+
+
+def set_opening_balance_idempotent(
+    session: Session,
+    membership: Membership,
+    wallet: Wallet,
+    user: User,
+    settings: Settings,
+    *,
+    effective_at: datetime,
+    amount: Decimal,
+    idempotency_key: str,
+    fingerprint: str,
+    at: datetime,
+) -> dict:
+    begun = _begin_idempotency(
+        session,
+        user,
+        wallet.tenant_id,
+        WALLET_OPENING_SCOPE,
+        idempotency_key,
+        fingerprint,
+        at,
+    )
+    if isinstance(begun, dict):
+        _validate_opening_replay(session, user, settings, wallet, begun)
+        return begun
+    record = begun if isinstance(begun, IdempotencyRecord) else None
+    try:
+        opening = set_opening_balance(
+            session,
+            membership,
+            wallet,
+            user,
+            effective_at=effective_at,
+            amount=amount,
+        )
+        payload = opening_payload(opening)
+        if record is not None:
+            _finalize_idempotency(record, payload)
+        return payload
+    except Exception:
+        if record is not None:
+            _abort_idempotency(record)
+            session.flush()
+        raise

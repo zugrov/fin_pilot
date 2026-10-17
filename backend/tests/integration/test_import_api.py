@@ -1,6 +1,7 @@
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 import psycopg
 from fastapi.testclient import TestClient
@@ -39,6 +40,7 @@ def _ready(client, admin, app, fake, tmp_path, email: str) -> tuple[str, str]:
     wallet = client.post(
         f"/api/v1/companies/{company_id}/wallets",
         json={"name": "Расчётный", "type": "bank", "code": "main"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert wallet.status_code == 200, wallet.text
     return company_id, wallet.json()["id"]
@@ -365,6 +367,7 @@ def test_dashboard_splits_balance_and_period_receipts(client, admin, app, fake, 
     opened = client.post(
         f"/api/v1/wallets/{wallet_id}/opening-balance",
         json={"effective_at": "2026-10-01T00:00:00+03:00", "amount": "100000.00"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert opened.status_code == 200, opened.text
     source = _source(client, company_id, wallet_id, namespace="ucheb")

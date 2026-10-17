@@ -18,8 +18,8 @@
   },
   "current_stage": "FA-R01",
   "current_task": "FA-R01.2",
-  "status": "ready",
-  "allowed_next_action": "FA-R01.1 accepted at product SHA e70612d. FA-R01.2 planned; product code requires explicit approval for FA-R01.2 only.",
+  "status": "in_progress",
+  "allowed_next_action": "FA-R01.2 in_progress: пакет 1 закоммичен; CI для SHA; browser lifecycle pending; balances.csv открыт; deploy/приёмка пакета не выполнены.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -121,8 +121,17 @@
         {
           "id": "FA-R01.2",
           "title": "Счета и начальные остатки",
-          "status": "planned",
-          "evidence": []
+          "status": "in_progress",
+          "evidence": [
+            "локальный пакет 1: POST wallet/opening с Idempotency-Key (IdempotencyRecord, scopes wallet_create/wallet_opening)",
+            "active_opening в GET wallets; duplicate_wallet_code 409",
+            "WalletsPage: создание счёта, opening с подтверждением, TZ фирмы или ручной offset; lifecycle unknown-result",
+            "17 backend idempotency tests; frontend 81 tests + build локально",
+            "browser lifecycle Wallets — pending",
+            "balances.csv — открыто, отдельный следующий пакет",
+            "deploy и приёмка пакета 1 не выполнены",
+            "полный локальный pytest/backup-restore не подтверждён; ожидается CI PostgreSQL"
+          ]
         },
         {
           "id": "FA-R01.3",
@@ -769,7 +778,7 @@
       "basis": "product SHA e70612d; CI; local two-firm browser; staging frontend deploy and authorized smoke on 8 screens"
     }
   ],
-  "note": "FA-R01.1 accepted (product e70612d). FA-R01 in_progress. FA-R01.2 planned, not started.",
+  "note": "FA-R01.1 accepted (product e70612d). FA-R01.2 in_progress: пакет 1 в репозитории; browser pending; balances.csv open; deploy/acceptance not done.",
   "updated_at": "2026-10-17",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",

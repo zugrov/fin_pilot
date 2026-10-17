@@ -300,6 +300,21 @@ def summary_payload(summary: CashSummary) -> dict:
     }
 
 
+def _active_opening(session: Session, wallet: Wallet) -> dict | None:
+    opening = session.scalar(
+        select(OpeningBalance).where(
+            OpeningBalance.wallet_id == wallet.id,
+            OpeningBalance.status == "active",
+        )
+    )
+    if opening is None:
+        return None
+    return {
+        "amount": money_str(opening.amount),
+        "effective_at": opening.effective_at.isoformat(),
+    }
+
+
 def wallet_view(session: Session, wallet: Wallet, at: datetime) -> dict:
     from app.domain.cash.balance import wallet_balance
 
@@ -319,6 +334,7 @@ def wallet_view(session: Session, wallet: Wallet, at: datetime) -> dict:
         "is_active": wallet.is_active,
         "balance": None if view.amount is None else money_str(view.amount),
         "quality_flags": list(view.quality_flags),
+        "active_opening": _active_opening(session, wallet),
     }
 
 

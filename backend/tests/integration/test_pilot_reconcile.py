@@ -23,12 +23,14 @@ def _wallet(client, company_id: str) -> str:
     created = client.post(
         f"/api/v1/companies/{company_id}/wallets",
         json={"name": "Расчётный", "type": "bank", "code": "main"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert created.status_code == 200, created.text
     wallet_id = created.json()["id"]
     opened = client.post(
         f"/api/v1/wallets/{wallet_id}/opening-balance",
         json={"effective_at": "2026-10-01T00:00:00+00:00", "amount": "0.00"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert opened.status_code == 200, opened.text
     return wallet_id

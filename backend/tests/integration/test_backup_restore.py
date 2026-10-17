@@ -36,11 +36,13 @@ def test_restore_keeps_amount_and_attachment(
     wallet = client.post(
         f"/api/v1/companies/{company_id}/wallets",
         json={"name": "Расчётный", "type": "bank", "code": "main"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert wallet.status_code == 200, wallet.text
     opened = client.post(
         f"/api/v1/wallets/{wallet.json()['id']}/opening-balance",
         json={"effective_at": "2026-10-01T00:00:00+00:00", "amount": "0.00"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert opened.status_code == 200, opened.text
     created = client.post(

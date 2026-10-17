@@ -8,6 +8,35 @@ export type ApiError = {
   message: string;
 };
 
+export class WalletRequestError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(message: string, status: number, code: string) {
+    super(message);
+    this.name = "WalletRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+async function walletRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set("Content-Type", "application/json");
+  const extra = authHeaders();
+  Object.entries(extra).forEach(([key, value]) => headers.set(key, value));
+  const response = await fetch(path, { ...init, headers, credentials: "include" });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as ApiError | null;
+    throw new WalletRequestError(
+      body?.message ?? "Запрос не выполнен",
+      response.status,
+      body?.code ?? "",
+    );
+  }
+  return (await response.json()) as T;
+}
+
 export type TariffExample = {
   companies: number;
   monthly: string;
@@ -147,7 +176,27 @@ export type Dashboard = {
   drilldown_refs: { revenue_entry_ids: string[] };
 };
 
-export type Wallet = { id: string; name: string; code: string | null; type: string };
+export type WalletActiveOpening = { amount: string; effective_at: string };
+
+export type Wallet = {
+  id: string;
+  company_id?: string;
+  name: string;
+  code: string | null;
+  type: string;
+  currency?: string;
+  balance?: string | null;
+  quality_flags?: string[];
+  active_opening?: WalletActiveOpening | null;
+};
+
+export type OpeningBalanceResult = {
+  id: string;
+  wallet_id: string;
+  effective_at: string;
+  amount: string;
+  status: string;
+};
 
 export type RevenueEntry = {
   id: string;
@@ -204,6 +253,40 @@ export function loadDashboard(companyId: string) {
 
 export function loadWallets(companyId: string) {
   return request<{ wallets: Wallet[] }>(`/api/v1/companies/${companyId}/wallets`);
+}
+
+export function createWallet(
+  companyId: string,
+  body: {
+    name: string;
+    type: string;
+    code: string;
+    availability_type?: string;
+  },
+  idempotencyKey: string,
+) {
+  return walletRequest<Wallet>(`/api/v1/companies/${companyId}/wallets`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({
+      availability_type: "spendable",
+      minimum_reserve: "0.00",
+      ...body,
+    }),
+  });
+}
+
+export function setWalletOpeningBalance(
+  walletId: string,
+  effectiveAt: string,
+  amount: string,
+  idempotencyKey: string,
+) {
+  return walletRequest<OpeningBalanceResult>(`/api/v1/wallets/${walletId}/opening-balance`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ effective_at: effectiveAt, amount }),
+  });
 }
 
 export function loadRevenue(companyId: string) {

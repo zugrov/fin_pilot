@@ -34,16 +34,23 @@ def _ready(client, admin, app, fake, email: str = "cash@example.com") -> tuple[s
 
 def _wallet(client, company_id: str, name: str = "Расчётный", **extra) -> dict:
     payload = {"name": name, "type": "bank", "availability_type": "spendable"}
+    key = extra.pop("idempotency_key", None)
     payload.update(extra)
-    created = client.post(f"/api/v1/companies/{company_id}/wallets", json=payload)
+    headers = {"Idempotency-Key": key or uuid4().hex}
+    created = client.post(
+        f"/api/v1/companies/{company_id}/wallets",
+        json=payload,
+        headers=headers,
+    )
     assert created.status_code == 200, created.text
     return created.json()
 
 
-def _anchor(client, wallet_id: str, amount: str = "100000.00") -> None:
+def _anchor(client, wallet_id: str, amount: str = "100000.00", *, key: str | None = None) -> None:
     opened = client.post(
         f"/api/v1/wallets/{wallet_id}/opening-balance",
         json={"effective_at": "2026-10-01T00:00:00+00:00", "amount": amount},
+        headers={"Idempotency-Key": key or uuid4().hex},
     )
     assert opened.status_code == 200, opened.text
 
@@ -245,6 +252,7 @@ def test_foreign_wallet_is_hidden(client, admin, app, fake) -> None:
     missing = client.post(
         f"/api/v1/wallets/{wallet['id']}/opening-balance",
         json={"effective_at": "2026-10-01T00:00:00+00:00", "amount": "1.00"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert missing.status_code == 404
 
@@ -281,6 +289,7 @@ def test_operator_wallet_access_and_no_analytics(client, admin, app, fake) -> No
     created = guest.post(
         f"/api/v1/companies/{company_id}/wallets",
         json={"name": "Нет", "type": "cash"},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert created.status_code == 403
     access = client.post(

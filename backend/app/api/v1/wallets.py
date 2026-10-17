@@ -69,17 +69,25 @@ def post_wallet(
     company_id: UUID, payload: WalletIn, request: Request, session: Session = Depends(get_db)
 ):
     user, membership, company = _company(request, session, company_id, "write", mutate=True)
+    key = request.headers.get("idempotency-key")
+    if not key:
+        raise AppError(400, "validation_error", "Нужен заголовок Idempotency-Key")
     reserve = wallet_service.parse_amount(payload.minimum_reserve, positive=False)
     if reserve < 0:
         raise AppError(422, "validation_error", "Резерв не может быть отрицательным")
     available_from = None
     if payload.available_from:
         available_from = wallet_service.parse_moment(payload.available_from)
-    wallet = wallet_service.create_wallet(
+    body = payload.model_dump(mode="json")
+    body["company_id"] = str(company_id)
+    fingerprint = cash_service.request_hash(body)
+    at = now()
+    return wallet_service.create_wallet_idempotent(
         session,
         membership,
         company,
         user,
+        settings_of(request),
         name=payload.name,
         wallet_type=payload.type,
         availability_type=payload.availability_type,
@@ -87,8 +95,10 @@ def post_wallet(
         minimum_reserve=reserve,
         masked_identifier=payload.masked_identifier,
         code=payload.code,
+        idempotency_key=key,
+        fingerprint=fingerprint,
+        at=at,
     )
-    return cash_service.wallet_view(session, wallet, now())
 
 
 @router.post("/wallets/{wallet_id}/opening-balance")
@@ -96,21 +106,31 @@ def post_opening(
     wallet_id: UUID, payload: OpeningIn, request: Request, session: Session = Depends(get_db)
 ):
     user, membership, wallet = _wallet(request, session, wallet_id, mutate=True)
-    opening = wallet_service.set_opening_balance(
+    key = request.headers.get("idempotency-key")
+    if not key:
+        raise AppError(400, "validation_error", "Нужен заголовок Idempotency-Key")
+    effective_at = wallet_service.parse_moment(payload.effective_at)
+    amount = wallet_service.parse_amount(payload.amount, positive=False)
+    fingerprint = cash_service.request_hash(
+        {
+            "wallet_id": str(wallet_id),
+            "effective_at": payload.effective_at,
+            "amount": payload.amount,
+        }
+    )
+    at = now()
+    return wallet_service.set_opening_balance_idempotent(
         session,
         membership,
         wallet,
         user,
-        effective_at=wallet_service.parse_moment(payload.effective_at),
-        amount=wallet_service.parse_amount(payload.amount, positive=False),
+        settings_of(request),
+        effective_at=effective_at,
+        amount=amount,
+        idempotency_key=key,
+        fingerprint=fingerprint,
+        at=at,
     )
-    return {
-        "id": str(opening.id),
-        "wallet_id": str(opening.wallet_id),
-        "effective_at": opening.effective_at.isoformat(),
-        "amount": f"{opening.amount:.2f}",
-        "status": opening.status,
-    }
 
 
 @router.post("/wallets/{wallet_id}/access")
