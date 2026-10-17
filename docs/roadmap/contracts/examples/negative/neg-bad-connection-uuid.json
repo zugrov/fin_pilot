@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0-proposed",
+  "delivery_key": "demo-cash-2026-09-ui-001",
+  "client_package_id": "bank-export-sep-2026",
+  "connection_id": "not-a-uuid",
+  "channel": "ui",
+  "mode": "snapshot",
+  "period_from": "2026-09-01",
+  "period_to": "2026-09-30",
+  "timezone": "Europe/Moscow",
+  "generated_at": "2026-10-01T08:00:00+03:00",
+  "chunk_index": 1,
+  "chunk_count": 1,
+  "completeness_claim": {
+    "dataset": "cash",
+    "through": "2026-09-30",
+    "scope": "explicit-dataset"
+  },
+  "control_totals": {
+    "record_count": 1,
+    "cash_in": "1500.00",
+    "cash_out": "0.00"
+  },
+  "parts": [
+    {
+      "part_index": 1,
+      "dataset": "cash",
+      "format": "json_records",
+      "content_sha256": "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+      "filename": "cash_transactions.csv",
+      "encoding": "utf-8",
+      "records": [
+        {
+          "external_id": "PAY-001",
+          "wallet_code": "MAIN",
+          "business_date": "2026-09-15",
+          "direction": "in",
+          "amount": "1500.00",
+          "currency": "RUB",
+          "counterparty_inn": "7700000000",
+          "counterparty_name": "Клиент А",
+          "description": "Оплата услуг",
+          "document_number": "47",
+          "category_code": "",
+          "direction_code": ""
+        }
+      ]
+    }
+  ]
+}

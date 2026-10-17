@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0-proposed",
+  "delivery_key": "demo-revenue-2026-09-api-001",
+  "connection_id": "22222222-2222-4222-8222-222222222222",
+  "channel": "api",
+  "mode": "delta",
+  "period_from": "2026-09-01",
+  "period_to": "2026-09-30",
+  "timezone": "Europe/Moscow",
+  "generated_at": "2026-10-02T10:30:00+03:00",
+  "chunk_index": 1,
+  "chunk_count": 1,
+  "completeness_claim": {
+    "dataset": "revenue",
+    "through": "2026-09-30",
+    "scope": "explicit-period"
+  },
+  "control_totals": {
+    "record_count": 1,
+    "revenue_net": "100000.00"
+  },
+  "parts": [
+    {
+      "part_index": 1,
+      "dataset": "revenue",
+      "format": "csv",
+      "content_sha256": "3a6eb0790f39ac87caa822416c84baba1444f084d622a4cda8a9dcfb3a0a3d65",
+      "filename": "revenue.csv",
+      "encoding": "utf-8"
+    }
+  ]
+}

@@ -1,0 +1,757 @@
+{
+  "schema_version": "1.0",
+  "product": "Финансовый автопилот",
+  "plan": "vNext 3.0",
+  "plan_revision": "1.0",
+  "created_at": "2026-10-17",
+  "is_execution_authorization": false,
+  "baseline": {
+    "application_sha_last_reported": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
+    "checkpoint_docs_sha": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
+    "migration_last_reported": "20261014_0009",
+    "synthetic_company_only": true,
+    "restore_current_cluster_verified_by_report": true,
+    "offsite_copy_verified_by_report": true,
+    "restore_new_server_verified": false,
+    "live_repository_and_server_must_be_rechecked": false,
+    "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
+  },
+  "current_stage": "FA-R01",
+  "current_task": "FA-R01.1",
+  "status": "ready",
+  "allowed_next_action": "FA-R01.1 is ready; product code, migrations, and server changes require explicit owner approval for that task only. FA-R01.1 must not start without it.",
+  "permission_policy": {
+    "product_code": "requires approved stage/task",
+    "commit_push": "requires separate approval with exact scope",
+    "deployment": "requires separate approval and green CI for exact SHA",
+    "migrations": "review and target-specific approval",
+    "real_data": "requires isolation and explicit approval",
+    "external_integrations": "requires exact purpose/target approval",
+    "payment_or_slot_changes": "requires explicit approval; never SQL bypass"
+  },
+  "decisions_needed": [
+    "first_1c_configuration_platform_and_hosting",
+    "real_pilot_isolation_method_before_launch",
+    "source_precedence_for_target_pnl_and_balance",
+    "period_close_authority",
+    "incoming_mail_provider_and_identity_boundary",
+    "ocr_llm_data_processing_boundary",
+    "ops_scripts_repository_policy"
+  ],
+  "stages": [
+    {
+      "id": "FA-R00",
+      "title": "Архитектура vNext и границы первого профиля",
+      "depends_on": [],
+      "status": "accepted",
+      "tasks": [
+        {
+          "id": "FA-R00.1",
+          "title": "Зафиксировать факт",
+          "status": "local_verified",
+          "evidence": [
+            "docs/roadmap/FA-R00.1-inventory.md"
+          ]
+        },
+        {
+          "id": "FA-R00.2",
+          "title": "Принять решения",
+          "status": "local_verified",
+          "evidence": [
+            "docs/roadmap/DECISIONS.md"
+          ]
+        },
+        {
+          "id": "FA-R00.3",
+          "title": "Спроектировать слои",
+          "status": "local_verified",
+          "evidence": [
+            "docs/roadmap/ADR-001-unified-ingestion.md",
+            "docs/roadmap/DECISIONS.md"
+          ]
+        },
+        {
+          "id": "FA-R00.4",
+          "title": "Подготовить контракты и очередь",
+          "status": "local_verified",
+          "evidence": [
+            "docs/roadmap/FA-R00.4-contracts.md",
+            "docs/roadmap/contracts/validate_contracts.py --mode full"
+          ]
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": [
+        "docs/roadmap/README.md",
+        "docs/roadmap/MASTER_PLAN.md",
+        "docs/roadmap/FA-R00.1-inventory.md",
+        "docs/roadmap/DECISIONS.md",
+        "docs/roadmap/ADR-001-unified-ingestion.md",
+        "docs/roadmap/FA-R00.4-contracts.md",
+        "docs/roadmap/contracts/",
+        "docs/roadmap/STAGE_FA-R01.md",
+        "docs/roadmap/STAGE_FA-R02-bootstrap.md",
+        "full contract validation 2026-10-17"
+      ]
+    },
+    {
+      "id": "FA-R01",
+      "title": "Безопасный сквозной пользовательский путь",
+      "depends_on": [
+        "FA-R00"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R01.1",
+          "title": "Контекст фирмы",
+          "status": "ready",
+          "evidence": [
+            "docs/roadmap/STAGE_FA-R01.md"
+          ]
+        },
+        {
+          "id": "FA-R01.2",
+          "title": "Счета и начальные остатки",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R01.3",
+          "title": "Формы и сопоставления",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R01.4",
+          "title": "Приёмка пути",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R02",
+      "title": "Единый приём пакетов и ревизий для всех каналов",
+      "depends_on": [
+        "FA-R01"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R02.1",
+          "title": "Оболочка и адаптация старого",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R02.2",
+          "title": "Идентичность и изменения",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R02.3",
+          "title": "Права и технический API",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R02.4",
+          "title": "Проведение и полнота",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R03",
+      "title": "Один профиль файлов 1С и контрольные пакеты",
+      "depends_on": [
+        "FA-R02"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R03.1",
+          "title": "Матрица образцов",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R03.2",
+          "title": "Парсеры профиля",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R03.3",
+          "title": "Сверки и provenance",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R03.4",
+          "title": "Коррекции",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R04",
+      "title": "Защищённый email-канал",
+      "depends_on": [
+        "FA-R03"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R04.1",
+          "title": "Правила идентификации",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R04.2",
+          "title": "Получение и карантин",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R04.3",
+          "title": "Пакет и статусы",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R04.4",
+          "title": "Испытания и включение",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R05",
+      "title": "Excel/PDF/Word и рабочее место проверки",
+      "depends_on": [
+        "FA-R04"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R05.1",
+          "title": "Безопасное хранилище",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R05.2",
+          "title": "Два ограниченных профиля",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R05.3",
+          "title": "Кандидаты и подтверждение",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R05.4",
+          "title": "Точность и инъекции",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R06",
+      "title": "Модель управленческого учёта и закрытия",
+      "depends_on": [
+        "FA-R05"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R06.1",
+          "title": "Правила учёта",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R06.2",
+          "title": "Состав данных",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R06.3",
+          "title": "Эволюция ядра",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R06.4",
+          "title": "Закрытие и исправления",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R07",
+      "title": "ОПиУ, ОДДС, баланс и полноценные бюджеты",
+      "depends_on": [
+        "FA-R06"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R07.1",
+          "title": "Отчёты",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R07.2",
+          "title": "Контрольные равенства",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R07.3",
+          "title": "Бюджеты",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R07.4",
+          "title": "Закрытый пакет",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R08",
+      "title": "Дашборды уровней 1–3 и объяснимость",
+      "depends_on": [
+        "FA-R07"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R08.1",
+          "title": "Уровень 1",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R08.2",
+          "title": "Уровень 2",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R08.3",
+          "title": "Уровень 3",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R08.4",
+          "title": "Доверие",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R09",
+      "title": "Ежедневный Telegram-дайджест и безопасная автоматизация сигналов",
+      "depends_on": [
+        "FA-R08"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R09.1",
+          "title": "Разделить расчёт и отправку",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R09.2",
+          "title": "Привязка и права",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R09.3",
+          "title": "Содержание",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R09.4",
+          "title": "Доставка",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R10",
+      "title": "Первый реальный файловый/почтовый пилот",
+      "depends_on": [
+        "FA-R09"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R10.1",
+          "title": "Организовать контур",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R10.2",
+          "title": "Загрузить и сверить",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R10.3",
+          "title": "Рабочий цикл",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R10.4",
+          "title": "Пилотное решение",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R11",
+      "title": "Первый прямой коннектор 1С: ручная кнопка",
+      "depends_on": [
+        "FA-R10"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R11.1",
+          "title": "Совместимость и упаковка",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R11.2",
+          "title": "Привязка",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R11.3",
+          "title": "Ручная передача",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R11.4",
+          "title": "Приёмка контракта",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R12",
+      "title": "Расписание, инкременты и эксплуатация коннектора",
+      "depends_on": [
+        "FA-R11"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R12.1",
+          "title": "Планировщик клиента",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R12.2",
+          "title": "Надёжность",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R12.3",
+          "title": "Изменения прошлого",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R12.4",
+          "title": "Наблюдаемость",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R13",
+      "title": "Четвёртый уровень: нефинансовые метрики",
+      "depends_on": [
+        "FA-R12"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R13.1",
+          "title": "Словарь KPI",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R13.2",
+          "title": "Источники",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R13.3",
+          "title": "Расчёты и UI",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R13.4",
+          "title": "Приёмка",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R14",
+      "title": "Сквозная приёмка целевого продукта и расширение совместимости",
+      "depends_on": [
+        "FA-R13"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R14.1",
+          "title": "E2E и изоляция",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R14.2",
+          "title": "Корректировки",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R14.3",
+          "title": "Нагрузка и отказ",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R14.4",
+          "title": "Другие профили",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    },
+    {
+      "id": "FA-R15",
+      "title": "Коммерческий запуск и эксплуатационная готовность",
+      "depends_on": [
+        "FA-R14"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "FA-R15.1",
+          "title": "Продакшен-контур",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R15.2",
+          "title": "Биллинг и документы",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R15.3",
+          "title": "Доступ и данные",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "FA-R15.4",
+          "title": "Пуск и сопровождение",
+          "status": "planned",
+          "evidence": []
+        }
+      ],
+      "accepted_sha": null,
+      "acceptance_evidence": []
+    }
+  ],
+  "last_handoff": {
+    "at": "2026-10-17",
+    "from_stage": "FA-R00",
+    "to_stage": "FA-R01",
+    "from_task": "FA-R00.4",
+    "to_task": "FA-R01.1",
+    "fa_r00": "accepted",
+    "g0": "accepted",
+    "fa_r01_1": "ready_not_started"
+  },
+  "blocked_items": [],
+  "decisions": [
+    {
+      "id": "D1",
+      "date": "2026-10-17",
+      "topic": "first_1c_configuration_platform_and_hosting",
+      "status": "open",
+      "summary": "Неизвестно. БП 3.0 не выбирать автоматически."
+    },
+    {
+      "id": "D2",
+      "date": "2026-10-17",
+      "topic": "working_business_profile",
+      "status": "accepted",
+      "summary": "Услуги без склада и производства. Для проектирования и синтетических примеров."
+    },
+    {
+      "id": "D3",
+      "date": "2026-10-17",
+      "topic": "near_verification_scope",
+      "status": "accepted",
+      "summary": "Деньги, выручка, планы и прогноз. Не равно приёмке FA-R10."
+    },
+    {
+      "id": "D4",
+      "date": "2026-10-17",
+      "topic": "target_product_scope",
+      "status": "accepted",
+      "summary": "Полный ОПиУ, баланс и четыре уровня дашбордов остаются в целевом продукте."
+    },
+    {
+      "id": "D5",
+      "date": "2026-10-17",
+      "topic": "real_data_policy",
+      "status": "accepted",
+      "summary": "Вариант C: реальные данные не загружать; слот, платёж, пространство и БД не создавать."
+    },
+    {
+      "id": "D6",
+      "date": "2026-10-17",
+      "topic": "real_pilot_isolation_method",
+      "status": "deferred",
+      "summary": "Выбрать отдельно перед запуском реального пилота."
+    },
+    {
+      "id": "ADR-candidate-import-storage",
+      "date": "2026-10-17",
+      "topic": "additive_import_entities",
+      "status": "candidate",
+      "summary": "Аддитивные поля ImportBatch, RawImportRow, SourceIdentity. Не утверждено до FA-R00.3."
+    },
+    {
+      "id": "ADR-001-B",
+      "date": "2026-10-17",
+      "topic": "unified_ingestion_architecture",
+      "status": "accepted_direction",
+      "summary": "IngestionDelivery (проект) + ImportBatch + финансовое ядро. Не DDL, не реализация."
+    }
+  ],
+  "approvals_record": [
+    {
+      "at": "2026-10-17",
+      "task": "FA-R00.2",
+      "status": "local_verified",
+      "by": "owner",
+      "basis": "DECISIONS.md closeout sections D1-D6 and FA-R10 boundary"
+    },
+    {
+      "at": "2026-10-17",
+      "task": "FA-R00.3",
+      "status": "local_verified",
+      "by": "owner",
+      "basis": "accepted ADR-001 variant B architectural direction"
+    },
+    {
+      "at": "2026-10-17",
+      "task": "FA-R00.4",
+      "status": "local_verified",
+      "by": "owner",
+      "basis": "full contract validation report"
+    },
+    {
+      "at": "2026-10-17",
+      "stage": "FA-R00",
+      "gate": "G0",
+      "status": "accepted",
+      "by": "owner",
+      "basis": "architecture package docs/roadmap"
+    }
+  ],
+  "note": "FA-R00 accepted, G0 accepted. FA-R01.1 ready; code not authorized. FA-R00.accepted_sha = git commit SHA of this roadmap package (see git log).",
+  "updated_at": "2026-10-17",
+  "sha": {
+    "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
+    "documentation": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
+    "note": "application — коммит приложения на стенде; documentation — main, отличие только docs/readiness-live.md и docs/runbook-staging.md. Сервер в задаче переноса документов не проверялся."
+  },
+  "fa_r00_3_must_not_guess": [
+    "1c_configuration_specific_fields",
+    "real_pilot_isolation_choice",
+    "source_precedence_for_target_statements",
+    "period_close_role",
+    "import_storage_schema_before_adr"
+  ],
+  "g0_accepted": true,
+  "g0_accepted_at": "2026-10-17",
+  "architecture_package_commit_note": "SHA коммита архитектурного пакета — HEAD после push docs/roadmap (см. git log)"
+}

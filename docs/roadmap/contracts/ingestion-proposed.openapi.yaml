@@ -1,0 +1,259 @@
+openapi: 3.0.3
+info:
+  title: FinPilot Ingestion API (proposed)
+  version: 0.0-proposed
+  description: |
+    Черновик FA-R00.4. Эти маршруты **отсутствуют** в приложении на SHA 0449e8d.
+    Существующий провод остаётся `/api/v1/imports/{batch_id}/commit`.
+servers:
+  - url: /api/v1
+    description: Staging tunnel (proposed paths marked)
+tags:
+  - name: ingestion-proposed
+    description: Transport layer (IngestionDelivery project)
+  - name: imports-existing
+    description: Уже реализовано
+paths:
+  /companies/{company_id}/ingestions:
+    post:
+      tags: [ingestion-proposed]
+      summary: "[PROPOSED] Принять доставку"
+      operationId: proposedPostIngestion
+      parameters:
+        - $ref: '#/components/parameters/CompanyId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestionDeliveryEnvelope'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [envelope, connection_id]
+              properties:
+                envelope:
+                  type: string
+                  description: JSON IngestionDeliveryEnvelope
+                parts:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '201':
+          description: Delivery принят, части поставлены в очередь разбора
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestionDeliveryResponse'
+        '200':
+          description: Повтор delivery_key (duplicate_transport)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestionDeliveryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: content_conflict (client_package_id)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '413':
+          description: payload_too_large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '422':
+          description: unsupported_format / validation_error envelope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+        - machineTokenProposed: []
+  /ingestions/{delivery_id}:
+    get:
+      tags: [ingestion-proposed]
+      summary: "[PROPOSED] Статус доставки и частей"
+      operationId: proposedGetIngestion
+      parameters:
+        - $ref: '#/components/parameters/DeliveryId'
+      responses:
+        '200':
+          description: Текущий статус доставки и связанных part/batch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestionDeliveryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      security:
+        - sessionCookie: []
+        - machineTokenProposed: []
+  /ingestions/{delivery_id}/parts/{part_index}/errors:
+    get:
+      tags: [ingestion-proposed]
+      summary: "[PROPOSED] Ошибки разбора части"
+      operationId: proposedGetPartErrors
+      parameters:
+        - $ref: '#/components/parameters/DeliveryId'
+        - name: part_index
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: CSV ошибок разбора части (как /imports/{batch_id}/errors)
+          content:
+            text/csv:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+      security:
+        - sessionCookie: []
+        - machineTokenProposed: []
+  /imports/{batch_id}/preview:
+    get:
+      tags: [imports-existing]
+      summary: "[EXISTING] Preview партии"
+      description: Реализовано в `backend/app/api/v1/imports.py`.
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+      responses:
+        '200':
+          description: Preview batch
+  /imports/{batch_id}/commit:
+    post:
+      tags: [imports-existing]
+      summary: "[EXISTING] Проведение партии"
+      description: |
+        Реализовано. В модели B commit остаётся на уровне ImportBatch;
+        delivery не проводит финансы сам.
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+      responses:
+        '200':
+          description: completed / completed_with_errors
+        '409':
+          description: conflict (не preview_ready)
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+    csrfHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+    machineTokenProposed:
+      type: http
+      scheme: bearer
+      description: "[PROPOSED] Scoped token FA-R11; не cookie и не email-пароль."
+  parameters:
+    CompanyId:
+      name: company_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DeliveryId:
+      name: delivery_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    BatchId:
+      name: batch_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        maxLength: 128
+  schemas:
+    IngestionDeliveryEnvelope:
+      description: См. ingestion-delivery.schema.json
+      type: object
+    IngestionDeliveryResponse:
+      type: object
+      required: [delivery_id, transport_status, parts]
+      properties:
+        delivery_id:
+          type: string
+          format: uuid
+        transport_status:
+          type: string
+          enum:
+            - received
+            - partially_received
+            - transport_complete
+            - transport_rejected
+            - content_conflict
+            - duplicate_transport
+        financial_status:
+          type: string
+          enum: [none, partial, complete]
+          description: "[PROPOSED] агрегат по batch commit; partial если есть completed_with_errors."
+        parts:
+          type: array
+          items:
+            type: object
+            properties:
+              part_index:
+                type: integer
+              batch_id:
+                type: string
+                format: uuid
+                nullable: true
+              batch_status:
+                type: string
+                nullable: true
+              transport_error:
+                type: string
+                nullable: true
+        quality_flags:
+          type: array
+          items:
+            type: string
+    ErrorBody:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+  responses:
+    Unauthorized:
+      description: Нет сессии или токена
+    Forbidden:
+      description: Нет доступа к firm / entitlement / роль operator
+    NotFound:
+      description: delivery или batch не найден
