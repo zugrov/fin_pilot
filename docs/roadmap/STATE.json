@@ -847,6 +847,12 @@
       "note": "lock_timeout 5s, statement_timeout 60s, ACCESS EXCLUSIVE; downgrade guard до DROP; только finpilot_test локально через pytest fixture"
     },
     "mandatory_tests_pending": false,
+    "ci_run_39051787255": {
+      "sha": "4f66fe83d7efa9eec482f93b1a9da6565d70c873",
+      "conclusion": "failure",
+      "note": "30 balances/migration/rollback — ERROR на setup (guard требовал TEST_PG_PORT=5432); не результаты выполнения сценариев; frontend ok; Ruff/Mypy ok; pytest 203 passed + 30 errors"
+    },
+    "test_db_guard_fix": "подготовлено: guard допускает 5432/5433 при совпадении engine и env URLs",
     "local_verification_2026_10_17": {
       "database": "finpilot_test@127.0.0.1:5432",
       "balances_integration_tests": "30 passed",
