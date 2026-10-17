@@ -108,11 +108,11 @@
           "status": "local_verified",
           "evidence": [
             "docs/roadmap/STAGE_FA-R01.md",
-            "frontend: npm test 60 passed, npm run build OK (локально до commit)",
-            "backend: 74 unit pytest passed with --ignore=tests/integration (локально, без изменений backend)",
-            "backend integration: локально не проверен успешно — нет PostgreSQL на 127.0.0.1:5433",
-            "ручная браузерная проверка двух фирм не выполнена",
-            "CI на commit SHA — ожидается полный pytest с PostgreSQL service"
+            "CI e842e04: frontend 60, backend 186 passed",
+            "дефект fp_company_id до загрузки списка: исправлен (фазы loading/empty/ready, sync storage только после isSuccess)",
+            "локально frontend 66 tests + build OK до push fix-коммита",
+            "браузерная проверка двух фирм не выполнена",
+            "deploy и accepted FA-R01.1 не выполнены; FA-R01.2 не начат"
           ]
         },
         {
@@ -650,14 +650,18 @@
     "to_task": "FA-R01.1",
     "fa_r00": "accepted",
     "g0": "accepted",
-    "fa_r01_1": "local_verified_pushed_for_ci_not_accepted"
+    "fa_r01_1": "local_verified_fix_pushed_not_accepted"
   },
   "fa_r01_1_local_verification": {
-    "frontend_tests_passed": 60,
+    "frontend_tests_passed": 66,
     "frontend_build": "ok",
     "backend_unit_tests_passed_ignore_integration": 74,
     "backend_integration_local": "not_verified_no_postgres",
-    "browser_two_companies": "not_done"
+    "browser_two_companies": "not_done",
+    "defect_fp_company_id_clear_before_load": "fixed",
+    "deploy": false,
+    "accepted": false,
+    "fa_r01_2_started": false
   },
   "blocked_items": [],
   "decisions": [
@@ -749,7 +753,7 @@
       "basis": "architecture package docs/roadmap"
     }
   ],
-  "note": "FA-R01.1 local_verified, не accepted, не deployed. FA-R01.2 не начат. FA-R00.accepted_sha=982eb37.",
+  "note": "FA-R01.1 local_verified; дефект загрузки списка firm исправлен; не accepted, не deployed. FA-R01.2 не начат.",
   "updated_at": "2026-10-17",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",

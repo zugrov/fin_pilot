@@ -1,6 +1,7 @@
-import type { CompanyRef } from "../lib/companySelection";
+import type { CompanyListPhase, CompanyRef } from "../lib/companySelection";
 
 type Props = {
+  listPhase: CompanyListPhase | "error";
   list: CompanyRef[];
   value: string;
   needsPlaceholder: boolean;
@@ -9,13 +10,20 @@ type Props = {
 };
 
 export function CompanyWritePicker({
+  listPhase,
   list,
   value,
   needsPlaceholder,
   disabled,
   onSelect,
 }: Props) {
-  if (list.length === 0) {
+  if (listPhase === "loading") {
+    return <p className="mb-4 text-sm text-slate-600">Загрузка списка фирм…</p>;
+  }
+  if (listPhase === "error") {
+    return <p className="mb-4 text-sm text-slate-600">Не удалось загрузить список фирм.</p>;
+  }
+  if (listPhase === "empty") {
     return <p className="mb-4 text-sm text-slate-600">Нет доступной фирмы.</p>;
   }
 

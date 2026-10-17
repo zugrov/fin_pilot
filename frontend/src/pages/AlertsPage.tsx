@@ -10,7 +10,7 @@ import { alertEmpty } from "../lib/budget";
 export function AlertsPage() {
   const client = useQueryClient();
   const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
-  const selection = useWritableCompanySelection(companies.data?.companies);
+  const selection = useWritableCompanySelection(companies);
   const { companyId } = selection;
   const alerts = useQuery({
     queryKey: ["alerts", companyId],
@@ -49,10 +49,11 @@ export function AlertsPage() {
     <Shell>
       <h1 className="mb-4 text-xl font-semibold">Алерты</h1>
       <CompanyWritePicker
+        listPhase={selection.listPhase}
         list={selection.list}
         value={selection.selectValue}
         needsPlaceholder={selection.needsPlaceholder}
-        disabled={writeLocked}
+        disabled={selection.pickerDisabled || writeLocked}
         onSelect={selection.onSelect}
       />
       <div className="mb-4 flex flex-wrap items-center gap-3">

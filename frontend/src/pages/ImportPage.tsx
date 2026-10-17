@@ -58,7 +58,7 @@ export function ImportPage() {
     [resetDependent],
   );
 
-  const selection = useWritableCompanySelection(companies.data?.companies, {
+  const selection = useWritableCompanySelection(companies, {
     onCompanyChanged,
   });
   const { companyId } = selection;
@@ -178,10 +178,11 @@ export function ImportPage() {
     <Shell>
       <h1 className="mb-4 text-xl font-semibold">Импорт</h1>
       <CompanyWritePicker
+        listPhase={selection.listPhase}
         list={selection.list}
         value={selection.selectValue}
         needsPlaceholder={selection.needsPlaceholder}
-        disabled={writeLocked}
+        disabled={selection.pickerDisabled || writeLocked}
         onSelect={selection.onSelect}
       />
       {companyId && sources.isLoading ? <p>Загрузка</p> : null}

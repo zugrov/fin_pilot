@@ -14,6 +14,15 @@ export type WritableCompanyContext = {
   company: CompanyRef | null;
 };
 
+/** Список firm с сервера: ещё не получен / пустой успешный ответ / есть firm. */
+export type CompanyListPhase = "loading" | "empty" | "ready";
+
+export type CompaniesQuerySlice = {
+  data?: { companies?: CompanyRef[] };
+  isSuccess: boolean;
+  isError: boolean;
+};
+
 export type ImportDependentState = {
   previewId: string;
   error: string;
@@ -45,6 +54,35 @@ export function clearStoredCompanyIdIfInvalid(
   }
 }
 
+/** После успешной загрузки списка: убрать устаревший ID, автосохранить единственную firm. */
+export function syncStorageAfterCompaniesLoaded(
+  companies: readonly CompanyRef[],
+  storage: Storage = sessionStorage,
+): void {
+  clearStoredCompanyIdIfInvalid(companies, storage);
+  if (companies.length === 1) {
+    persistCompanyChoice(companies[0].id, companies, storage);
+  }
+}
+
+export function companyListPhase(query: CompaniesQuerySlice): CompanyListPhase | "error" {
+  if (query.isError) {
+    return "error";
+  }
+  if (!query.isSuccess) {
+    return "loading";
+  }
+  const list = query.data?.companies ?? [];
+  return list.length === 0 ? "empty" : "ready";
+}
+
+export function loadedCompaniesFromQuery(query: CompaniesQuerySlice): CompanyRef[] {
+  if (!query.isSuccess) {
+    return [];
+  }
+  return query.data?.companies ?? [];
+}
+
 /** Выбор фирмы для записывающих экранов: без silent companies[0] при нескольких firm. */
 export function resolveWritableCompany(
   companies: readonly CompanyRef[],
@@ -63,6 +101,54 @@ export function resolveWritableCompany(
   const chosen = validPick ?? validStored ?? null;
   const company = chosen ? (companies.find((item) => item.id === chosen) ?? null) : null;
   return { companyId: chosen, company };
+}
+
+export type DerivedWritableSelection = WritableCompanyContext & {
+  listPhase: CompanyListPhase | "error";
+  list: CompanyRef[];
+  canWrite: boolean;
+  selectValue: string;
+  needsPlaceholder: boolean;
+};
+
+export function deriveWritableCompanySelection(
+  listPhase: CompanyListPhase | "error",
+  companies: readonly CompanyRef[],
+  userPickId: string | null,
+  storage: Storage = sessionStorage,
+): DerivedWritableSelection {
+  if (listPhase === "loading" || listPhase === "error") {
+    return {
+      companyId: null,
+      company: null,
+      listPhase,
+      list: [],
+      canWrite: false,
+      selectValue: "",
+      needsPlaceholder: false,
+    };
+  }
+  if (listPhase === "empty") {
+    return {
+      companyId: null,
+      company: null,
+      listPhase: "empty",
+      list: [],
+      canWrite: false,
+      selectValue: "",
+      needsPlaceholder: false,
+    };
+  }
+  const stored = readStoredCompanyId(storage);
+  const resolved = resolveWritableCompany(companies, stored, userPickId);
+  return {
+    ...resolved,
+    listPhase: "ready",
+    list: [...companies],
+    canWrite: Boolean(resolved.companyId),
+    selectValue: resolved.companyId ?? "",
+    needsPlaceholder: companyPickerNeedsPlaceholder(companies),
+  };
 }
 
 export function canWriteWithCompany(companyId: string | null): boolean {
@@ -146,29 +232,27 @@ export function alertsRecalcTarget(companyId: string | null): WriteRequestGuard 
 type UseWritableCompanyOptions = {
   writePending?: boolean;
   onCompanyChanged?: (prevId: string | null, nextId: string | null) => void;
+  storage?: Storage;
 };
 
 export function useWritableCompanySelection(
-  companies: CompanyRef[] | undefined,
+  query: CompaniesQuerySlice,
   options: UseWritableCompanyOptions = {},
 ) {
-  const { writePending = false, onCompanyChanged } = options;
+  const { writePending = false, onCompanyChanged, storage = sessionStorage } = options;
   const [userPickId, setUserPickId] = useState<string | null>(null);
-  const list = companies ?? [];
   const prevCompanyId = useRef<string | null>(null);
+  const phase = companyListPhase(query);
+  const loadedList = loadedCompaniesFromQuery(query);
 
   useEffect(() => {
-    clearStoredCompanyIdIfInvalid(list);
-  }, [list]);
-
-  const stored = readStoredCompanyId();
-  const { companyId, company } = resolveWritableCompany(list, stored, userPickId);
-
-  useEffect(() => {
-    if (list.length === 1) {
-      persistCompanyChoice(list[0].id, list);
+    if (phase === "ready" || phase === "empty") {
+      syncStorageAfterCompaniesLoaded(loadedList, storage);
     }
-  }, [list]);
+  }, [phase, loadedList, storage]);
+
+  const derived = deriveWritableCompanySelection(phase, loadedList, userPickId, storage);
+  const { companyId, company, list, listPhase, canWrite, selectValue, needsPlaceholder } = derived;
 
   useEffect(() => {
     if (prevCompanyId.current !== companyId) {
@@ -179,30 +263,31 @@ export function useWritableCompanySelection(
 
   const onSelect = useCallback(
     (nextRaw: string) => {
-      if (writePending) {
+      if (writePending || listPhase !== "ready") {
         return;
       }
       if (!nextRaw) {
         setUserPickId("");
-        clearPersistedCompanyChoice();
+        clearPersistedCompanyChoice(storage);
         return;
       }
       if (list.some((item) => item.id === nextRaw)) {
         setUserPickId(nextRaw);
-        persistCompanyChoice(nextRaw, list);
+        persistCompanyChoice(nextRaw, list, storage);
       }
     },
-    [list, writePending],
+    [list, listPhase, storage, writePending],
   );
 
   return {
     list,
+    listPhase,
     companyId,
     company,
-    selectValue: companyId ?? "",
+    selectValue,
     onSelect,
-    canWrite: canWriteWithCompany(companyId),
-    pickerDisabled: writePending,
-    needsPlaceholder: companyPickerNeedsPlaceholder(list),
+    canWrite,
+    pickerDisabled: writePending || listPhase !== "ready",
+    needsPlaceholder,
   };
 }

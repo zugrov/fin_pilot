@@ -2,16 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   FP_COMPANY_ID_KEY,
+  type CompanyRef,
   alertsRecalcTarget,
   calendarMutationTarget,
   clearStoredCompanyIdIfInvalid,
+  companyListPhase,
   companyScopedData,
+  deriveWritableCompanySelection,
   guardWriteRequest,
   importUploadTarget,
   resetImportDependentState,
   resolveWritableCompany,
   salesMutationTarget,
   sanitizeStoredCompanyId,
+  syncStorageAfterCompaniesLoaded,
 } from "./companySelection";
 
 const firmA = { id: "firm-a", name: "Alpha" };
@@ -176,5 +180,121 @@ describe("screen binding helpers", () => {
 
   it("sanitize drops unknown preferred id before resolve", () => {
     expect(sanitizeStoredCompanyId("firm-z", [firmA, firmB])).toBeNull();
+  });
+});
+
+function simulateSelectionLifecycle(
+  steps: Array<{ isSuccess: boolean; isError: boolean; companies?: CompanyRef[] }>,
+  storage: Storage,
+) {
+  let userPickId: string | null = null;
+  const snapshots: Array<{
+    storageId: string | null;
+    companyId: string | null;
+    canWrite: boolean;
+    listPhase: string;
+    selectValue: string;
+  }> = [];
+
+  for (const step of steps) {
+    const query = {
+      isSuccess: step.isSuccess,
+      isError: step.isError,
+      data: step.companies !== undefined ? { companies: step.companies } : undefined,
+    };
+    const phase = companyListPhase(query);
+    const loaded = step.isSuccess ? (step.companies ?? []) : [];
+    if (phase === "ready" || phase === "empty") {
+      syncStorageAfterCompaniesLoaded(loaded, storage);
+    }
+    const derived = deriveWritableCompanySelection(phase, loaded, userPickId, storage);
+    snapshots.push({
+      storageId: storage.getItem(FP_COMPANY_ID_KEY),
+      companyId: derived.companyId,
+      canWrite: derived.canWrite,
+      listPhase: derived.listPhase,
+      selectValue: derived.selectValue,
+    });
+  }
+  return snapshots;
+}
+
+describe("company list load phases", () => {
+  it("keeps storage B while list is still loading", () => {
+    const storage = memoryStorage();
+    storage.setItem(FP_COMPANY_ID_KEY, "firm-b");
+    const query = { isSuccess: false, isError: false, data: undefined };
+    expect(companyListPhase(query)).toBe("loading");
+    const derived = deriveWritableCompanySelection("loading", [], null, storage);
+    expect(storage.getItem(FP_COMPANY_ID_KEY)).toBe("firm-b");
+    expect(derived.companyId).toBeNull();
+    expect(derived.canWrite).toBe(false);
+  });
+
+  it("restores B after loading then [A, B]", () => {
+    const storage = memoryStorage();
+    storage.setItem(FP_COMPANY_ID_KEY, "firm-b");
+    const steps = simulateSelectionLifecycle(
+      [
+        { isSuccess: false, isError: false },
+        { isSuccess: true, isError: false, companies: [firmA, firmB] },
+      ],
+      storage,
+    );
+    expect(steps[0].storageId).toBe("firm-b");
+    expect(steps[0].companyId).toBeNull();
+    expect(steps[0].canWrite).toBe(false);
+    expect(steps[1].storageId).toBe("firm-b");
+    expect(steps[1].companyId).toBe("firm-b");
+    expect(steps[1].canWrite).toBe(true);
+    expect(steps[1].selectValue).toBe("firm-b");
+  });
+
+  it("clears storage when success returns empty list", () => {
+    const storage = memoryStorage();
+    storage.setItem(FP_COMPANY_ID_KEY, "firm-b");
+    const steps = simulateSelectionLifecycle(
+      [
+        { isSuccess: false, isError: false },
+        { isSuccess: true, isError: false, companies: [] },
+      ],
+      storage,
+    );
+    expect(steps[1].storageId).toBeNull();
+    expect(steps[1].listPhase).toBe("empty");
+    expect(steps[1].companyId).toBeNull();
+  });
+
+  it("drops stale B and auto-selects sole A", () => {
+    const storage = memoryStorage();
+    storage.setItem(FP_COMPANY_ID_KEY, "firm-b");
+    const steps = simulateSelectionLifecycle(
+      [{ isSuccess: true, isError: false, companies: [firmA] }],
+      storage,
+    );
+    expect(steps[0].storageId).toBe("firm-a");
+    expect(steps[0].companyId).toBe("firm-a");
+    expect(steps[0].selectValue).toBe("firm-a");
+    expect(steps[0].canWrite).toBe(true);
+  });
+
+  it("does not clear storage on load error", () => {
+    const storage = memoryStorage();
+    storage.setItem(FP_COMPANY_ID_KEY, "firm-b");
+    const query = { isSuccess: false, isError: true, data: undefined };
+    expect(companyListPhase(query)).toBe("error");
+    const derived = deriveWritableCompanySelection("error", [], null, storage);
+    expect(storage.getItem(FP_COMPANY_ID_KEY)).toBe("firm-b");
+    expect(derived.canWrite).toBe(false);
+    expect(derived.companyId).toBeNull();
+  });
+
+  it("treats undefined companies on success as empty, not loading", () => {
+    const storage = memoryStorage();
+    storage.setItem(FP_COMPANY_ID_KEY, "firm-b");
+    const query = { isSuccess: true, isError: false, data: undefined };
+    expect(companyListPhase(query)).toBe("empty");
+    syncStorageAfterCompaniesLoaded([], storage);
+    expect(storage.getItem(FP_COMPANY_ID_KEY)).toBeNull();
   });
 });

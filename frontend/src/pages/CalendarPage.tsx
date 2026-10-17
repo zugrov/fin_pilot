@@ -20,7 +20,7 @@ export function CalendarPage() {
   const onCompanyChanged = useCallback(() => {
     setError("");
   }, []);
-  const selection = useWritableCompanySelection(companies.data?.companies, {
+  const selection = useWritableCompanySelection(companies, {
     onCompanyChanged,
   });
   const { companyId } = selection;
@@ -63,10 +63,11 @@ export function CalendarPage() {
       <h1 className="mb-2 text-xl font-semibold">Календарь</h1>
       <p className="mb-4 text-sm text-slate-600">Это план платежей, не движение денег.</p>
       <CompanyWritePicker
+        listPhase={selection.listPhase}
         list={selection.list}
         value={selection.selectValue}
         needsPlaceholder={selection.needsPlaceholder}
-        disabled={anyWritePending}
+        disabled={selection.pickerDisabled || anyWritePending}
         onSelect={selection.onSelect}
       />
       {companyId && calendar.isLoading ? <p>Загрузка</p> : null}

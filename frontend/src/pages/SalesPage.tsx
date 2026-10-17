@@ -20,7 +20,7 @@ export function SalesPage() {
   const onCompanyChanged = useCallback(() => {
     setError("");
   }, []);
-  const selection = useWritableCompanySelection(companies.data?.companies, {
+  const selection = useWritableCompanySelection(companies, {
     onCompanyChanged,
   });
   const { companyId } = selection;
@@ -52,6 +52,7 @@ export function SalesPage() {
       <h1 className="mb-2 text-xl font-semibold">Продажи</h1>
       <p className="mb-4 text-sm text-slate-600">Это не таблица поступлений.</p>
       <CompanyWritePicker
+        listPhase={selection.listPhase}
         list={selection.list}
         value={selection.selectValue}
         needsPlaceholder={selection.needsPlaceholder}

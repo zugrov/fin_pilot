@@ -7,7 +7,7 @@ import { companyScopedData, useWritableCompanySelection } from "../lib/companySe
 
 export function WalletsPage() {
   const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
-  const selection = useWritableCompanySelection(companies.data?.companies);
+  const selection = useWritableCompanySelection(companies);
   const { companyId } = selection;
   const wallets = useQuery({
     queryKey: ["wallets", companyId],
@@ -20,9 +20,11 @@ export function WalletsPage() {
     <Shell>
       <h1 className="mb-4 text-xl font-semibold">Кошельки</h1>
       <CompanyWritePicker
+        listPhase={selection.listPhase}
         list={selection.list}
         value={selection.selectValue}
         needsPlaceholder={selection.needsPlaceholder}
+        disabled={selection.pickerDisabled}
         onSelect={selection.onSelect}
       />
       {companyId && wallets.isLoading ? <p>Загрузка</p> : null}
