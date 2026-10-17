@@ -1,0 +1,189 @@
+name: recovery-image-smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ff96bc5e9a01fd6a9f0f4b106403f8517a2b9624
+  IMAGE_TAG: finpilot-api:recovery-ff96bc5
+  BUILD_PLATFORM: linux/amd64
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Confirm checkout HEAD
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "${{ env.SOURCE_SHA }}" ]; then
+            echo "HEAD mismatch: expected ${{ env.SOURCE_SHA }}, got $actual"
+            exit 1
+          fi
+          echo "source_head=$actual"
+
+      - name: Prepare backend build context
+        run: |
+          ctx="${{ runner.temp }}/recovery-build"
+          rm -rf "$ctx"
+          mkdir -p "$ctx"
+          git archive "${{ env.SOURCE_SHA }}" backend | tar -x -C "$ctx"
+          if [ ! -f "$ctx/backend/Dockerfile" ]; then
+            echo "Dockerfile missing in archive context"
+            exit 1
+          fi
+          if find "$ctx/backend" \( -name .env -o -name .venv \) | grep -q .; then
+            echo "forbidden .env or .venv in build context"
+            find "$ctx/backend" \( -name .env -o -name .venv \)
+            exit 1
+          fi
+          echo "BUILD_DIR=$ctx/backend" >> "$GITHUB_ENV"
+
+      - name: Source file checksums
+        run: |
+          cd "$BUILD_DIR"
+          sha256sum \
+            app/config.py \
+            app/services/import_service.py \
+            alembic/sql/0010_balances_dataset.sql \
+            alembic/sql/0010_balances_dataset_downgrade.sql \
+            > "${{ runner.temp }}/source-checksums.txt"
+          cat "${{ runner.temp }}/source-checksums.txt"
+
+      - name: Build recovery image
+        run: |
+          docker build \
+            --platform "${{ env.BUILD_PLATFORM }}" \
+            --label "org.opencontainers.image.revision=${{ env.SOURCE_SHA }}" \
+            -t "${{ env.IMAGE_TAG }}" \
+            "$BUILD_DIR"
+
+      - name: Offline image smoke
+        run: |
+          run_py() {
+            docker run --rm -i --network none "$@" "${{ env.IMAGE_TAG }}" uv run python -
+          }
+
+          run_py <<'PY'
+          import importlib
+          for name in ("app.config", "app.services.import_service", "app.errors"):
+              importlib.import_module(name)
+          print("runtime_imports_ok")
+          PY
+
+          run_py <<'PY'
+          from app.config import Settings
+          s = Settings()
+          assert s.balances_import_enabled is False, s.balances_import_enabled
+          print("settings_default_false_ok")
+          PY
+
+          run_py -e BALANCES_IMPORT_ENABLED=false <<'PY'
+          from app.config import Settings
+          s = Settings()
+          assert s.balances_import_enabled is False
+          print("settings_explicit_false_ok")
+          PY
+
+          run_py -e BALANCES_IMPORT_ENABLED=true <<'PY'
+          from app.config import Settings
+          s = Settings()
+          assert s.balances_import_enabled is True
+          print("settings_explicit_true_ok")
+          PY
+
+          run_py <<'PY'
+          from app.config import Settings
+          from app.errors import AppError
+          from app.services.import_service import _require_balances_import_enabled
+
+          off = Settings(balances_import_enabled=False)
+          on = Settings(balances_import_enabled=True)
+
+          try:
+              _require_balances_import_enabled(off, "balances")
+          except AppError as exc:
+              assert exc.status_code == 503
+              assert exc.code == "balances_import_disabled"
+          else:
+              raise AssertionError("expected AppError for balances+disabled")
+
+          _require_balances_import_enabled(on, "balances")
+          for dataset in ("cash", "revenue", "plan", "budget"):
+              _require_balances_import_enabled(off, dataset)
+          print("recovery_gate_ok")
+          PY
+
+          run_py <<'PY' > "${{ runner.temp }}/image-checksums.txt"
+          import hashlib
+          from pathlib import Path
+
+          files = (
+              "app/config.py",
+              "app/services/import_service.py",
+              "alembic/sql/0010_balances_dataset.sql",
+              "alembic/sql/0010_balances_dataset_downgrade.sql",
+          )
+          for rel in files:
+              digest = hashlib.sha256(Path("/app", rel).read_bytes()).hexdigest()
+              print(f"{digest}  {rel}")
+          PY
+
+          sort "${{ runner.temp }}/source-checksums.txt" > "${{ runner.temp }}/source-sorted.txt"
+          sort "${{ runner.temp }}/image-checksums.txt" > "${{ runner.temp }}/image-sorted.txt"
+          if ! diff -u "${{ runner.temp }}/source-sorted.txt" "${{ runner.temp }}/image-sorted.txt"; then
+            echo "checksum mismatch between source context and image"
+            exit 1
+          fi
+          echo "checksums_match_ok"
+
+      - name: Capture image metadata
+        run: |
+          image_id="$(docker image inspect "${{ env.IMAGE_TAG }}" --format '{{.Id}}')"
+          arch="$(docker image inspect "${{ env.IMAGE_TAG }}" --format '{{.Architecture}}')"
+          os="$(docker image inspect "${{ env.IMAGE_TAG }}" --format '{{.Os}}')"
+          revision="$(docker image inspect "${{ env.IMAGE_TAG }}" \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+          if [ "$revision" != "${{ env.SOURCE_SHA }}" ]; then
+            echo "revision label mismatch: $revision"
+            exit 1
+          fi
+          {
+            echo "source_sha=${{ env.SOURCE_SHA }}"
+            echo "tag=${{ env.IMAGE_TAG }}"
+            echo "image_id=$image_id"
+            echo "os=$os"
+            echo "architecture=$arch"
+            echo "revision_label=$revision"
+            echo "smoke=passed"
+            echo "note=offline image smoke only; not HTTP/DB E2E"
+          } > "${{ runner.temp }}/recovery-manifest.txt"
+          cat "${{ runner.temp }}/recovery-manifest.txt"
+
+      - name: Export image artifact
+        run: |
+          out="${{ runner.temp }}/finpilot-api-recovery-ff96bc5-linux-amd64.tar.gz"
+          docker save "${{ env.IMAGE_TAG }}" | gzip -9 > "$out"
+          sha256sum "$out" | tee "${{ runner.temp }}/recovery-image.sha256"
+          ls -lh "$out"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: finpilot-api-recovery-ff96bc5-linux-amd64
+          path: |
+            ${{ runner.temp }}/finpilot-api-recovery-ff96bc5-linux-amd64.tar.gz
+            ${{ runner.temp }}/recovery-image.sha256
+            ${{ runner.temp }}/recovery-manifest.txt
+            ${{ runner.temp }}/source-checksums.txt
+            ${{ runner.temp }}/image-checksums.txt
+          retention-days: 7

@@ -879,7 +879,28 @@
       "recovery_gate": "реализован локально: Settings.balances_import_enabled (default false), 503 balances_import_disabled",
       "recovery_gate_tests": "test_balances_feature_gate.py — 9 passed локально 2026-10-17",
       "compat_artifact_built": false,
-      "compat_artifact_verified": false
+      "compat_artifact_verified": false,
+      "recovery_image_github_workflow": {
+        "workflow": ".github/workflows/recovery-image-smoke.yml",
+        "trigger": "workflow_dispatch",
+        "source_sha": "ff96bc5e9a01fd6a9f0f4b106403f8517a2b9624",
+        "artifact_name": "finpilot-api-recovery-ff96bc5-linux-amd64",
+        "platform": "linux/amd64",
+        "note": "offline image smoke + docker save; не registry; CI integration отдельно"
+      },
+      "recovery_image_local_build_2026_10_17": {
+        "source_sha": "ff96bc5e9a01fd6a9f0f4b106403f8517a2b9624",
+        "intended_tag": "finpilot-api:recovery-ff96bc5",
+        "intended_platform": "linux/amd64",
+        "status": "blocked",
+        "blocker": "локальный Docker CLI/daemon недоступен (docker not in PATH); сборка на VPS не выполнялась",
+        "image_level_smoke": "не выполнялся",
+        "ci_integration_ff96bc5": {
+          "run": "39056569658",
+          "pytest": "253 passed, 0 failed, 0 errors, 0 skipped",
+          "note": "recovery gate + live lock-timeout + backup/restore — отдельно от image smoke"
+        }
+      }
     },
     "local_verification_recovery_gate_2026_10_17": {
       "database": "127.0.0.1:5432/finpilot_test",

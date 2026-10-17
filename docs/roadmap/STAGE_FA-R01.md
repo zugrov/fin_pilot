@@ -243,8 +243,21 @@ wallet/opening на существующей таблице `idempotency_records
 
 **Сборка recovery-образа (не выполнена — не объявлять built/verified):**
 
-1. Образ api от `main` с gate; env `BALANCES_IMPORT_ENABLED=false`; перезапуск процесса для применения.
-2. Полный CI pytest; staging smoke read + wallets (balances write off).
+**Попытка локальной сборки 2026-10-17 (SHA `ff96bc5`):** **заблокирована** — локальный Docker недоступен. Перенос на VPS и registry push **не** выполнялись.
+
+**GitHub Actions `recovery-image-smoke` (workflow_dispatch):** сборка `linux/amd64` из `git archive ff96bc5`, offline image smoke без БD/registry, artifact `finpilot-api-recovery-ff96bc5-linux-amd64` (7 дней). **Не** HTTP/DB E2E; integration — CI `39056569658`.
+
+**Целевой артеfact (локально, когда Docker доступен):**
+
+- Context: `git archive ff96bc5 -- backend/` (без `.env`, `.venv`, uncommitted).
+- `docker build --platform linux/amd64` → tag `finpilot-api:recovery-ff96bc5`, OCI label revision = полный SHA.
+- Offline smoke в контейнере (`--rm --network none`): Settings/gate без БД; checksum `config.py`, `import_service.py`, migration SQL.
+- **Отдельно от CI:** HTTP/DB integration (253 pytest на run `39056569658`).
+
+**Deploy-путь (не в этом документе):**
+
+1. Образ api от `ff96bc5`+; env `BALANCES_IMPORT_ENABLED=false`; перезапуск процесса для применения.
+2. Staging smoke read + wallets (balances write off).
 3. Отдельная приёмка compat — **не** замена accepted `93428b7`. Worker/beat для balances не расширять автоматически.
 
 **Критерии приёмки пакета 2.**
