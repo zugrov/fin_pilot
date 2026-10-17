@@ -886,7 +886,11 @@
         "source_sha": "ff96bc5e9a01fd6a9f0f4b106403f8517a2b9624",
         "artifact_name": "finpilot-api-recovery-ff96bc5-linux-amd64",
         "platform": "linux/amd64",
-        "note": "offline image smoke + docker save; не registry; CI integration отдельно"
+        "note": "offline image smoke + docker save; не registry; CI integration отдельно",
+        "run_39057432611": {
+          "conclusion": "failure",
+          "reason": "uv run в --network none пытался fetch dev deps; исправлено на /app/.venv/bin/python"
+        }
       },
       "recovery_image_local_build_2026_10_17": {
         "source_sha": "ff96bc5e9a01fd6a9f0f4b106403f8517a2b9624",

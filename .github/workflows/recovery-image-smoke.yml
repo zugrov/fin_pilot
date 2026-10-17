@@ -70,7 +70,9 @@ jobs:
       - name: Offline image smoke
         run: |
           run_py() {
-            docker run --rm -i --network none "$@" "${{ env.IMAGE_TAG }}" uv run python -
+            docker run --rm -i --network none -w /app "$@" \
+              --entrypoint /app/.venv/bin/python \
+              "${{ env.IMAGE_TAG }}" -
           }
 
           run_py <<'PY'
