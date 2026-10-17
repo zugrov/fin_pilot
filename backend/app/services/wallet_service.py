@@ -155,6 +155,22 @@ def list_wallets(session: Session, membership: Membership, company: Company) -> 
     return [row for row in rows if row.id in allowed]
 
 
+def lock_wallets_for_opening(
+    session: Session, tenant_id: uuid.UUID, wallet_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, Wallet]:
+    locked: dict[uuid.UUID, Wallet] = {}
+    for wallet_id in sorted(set(wallet_ids)):
+        query = select(Wallet).where(
+            Wallet.id == wallet_id,
+            Wallet.tenant_id == tenant_id,
+        ).with_for_update()
+        wallet = session.scalar(query)
+        if wallet is None:
+            raise AppError(404, "not_found", "Кошелёк не найден")
+        locked[wallet_id] = wallet
+    return locked
+
+
 def set_opening_balance(
     session: Session,
     membership: Membership,
@@ -165,6 +181,7 @@ def set_opening_balance(
     amount: Decimal,
 ) -> OpeningBalance:
     _ensure_wallet(session, membership, wallet, "write")
+    lock_wallets_for_opening(session, wallet.tenant_id, [wallet.id])
     current = session.scalar(
         select(OpeningBalance).where(
             OpeningBalance.wallet_id == wallet.id,

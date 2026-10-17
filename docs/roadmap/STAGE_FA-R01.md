@@ -110,7 +110,101 @@ wallet/opening на существующей таблице `idempotency_records
 
 **Вне пакета 1 (остаётся в FA-R01.2).**
 
-- `balances.csv` (импорт opening), история `replaced` в UI, wallet access UI, ImportPage wallet picker.
-- Приёмка всей FA-R01.2 (`accepted`) — после отдельных пакетов и smoke.
+- история `replaced` в UI, wallet access UI, ImportPage wallet picker (не обязательный объём пакета 2).
+- Приёмка всей FA-R01.2 (`accepted`) — после пакета `balances.csv` и smoke.
 
-**Миграции.** Нет (IdempotencyRecord уже есть).
+**Миграции пакета 1.** Нет (IdempotencyRecord уже есть).
+
+---
+
+### Пакет 2 · balances.csv (in_progress, спецификация зафиксирована 2026-10-17)
+
+**Статус:** контракт согласован; **локальная реализация и verification 2026-10-17** (preview / refresh / atomic commit; миграция `20261017_0010`); **не выложено, не принято**, FA-R01.2 `in_progress`. Пакет 1 остаётся accepted на `93428b7`.
+
+**Цель.** Импорт начальных остатков из `balances.csv` через существующий pipeline `ImportBatch` / preview / commit, с вызовом **`wallet_service.set_opening_balance`** (тот же механизм replaced/active, что Wallets UI). Второй import/opening framework не строить.
+
+**Решения владельца (нормативно).**
+
+| Тема | Решение |
+| --- | --- |
+| `as_of` | Только `YYYY-MM-DD`; момент = начало дня в `companies.timezone` |
+| `balance` | Opening anchor; `0.00` допустим |
+| Счета | Только существующие в выбранной firm |
+| Дубликаты `wallet_code` в файле | Блокируют commit всего batch |
+| Валюта | Строго совпадает с валютой счёта |
+| Preview | Без изменения финансов; create / replace / unchanged + до/после |
+| Commit | All-or-nothing |
+| Completed batch | Replay commit без повторного применения |
+| Stale | 409; refresh preview + новое подтверждение |
+| Побочные эффекты | Без автоматических alerts / внешних действий |
+
+**Документ контракта:** `docs/import-formats.md` (секция balances.csv; явно «не реализован»).
+
+**Хранение preview / stale (без предположения «миграции нет»).**
+
+- **`raw_import_rows.normalized_payload` (JSONB, уже есть):** `values` (исходные поля), `wallet_id`, `effective_at` (ISO), `intent` (`create` \| `replace` \| `unchanged`), `before` (snapshot active opening: `opening_id`, `amount`, `effective_at` или null), `after` (целевые `amount`, `effective_at`), `stale_guard` (копия `before` на момент preview).
+- **`raw_import_rows`:** `validation_errors`, `duplicate_status`, `proposed_action` — как у других datasets; для balances `proposed_action` commit только у valid строк; batch-level duplicate → все строки invalid или batch flag (см. код).
+- **`import_batches`:** `file_hash`, `status`, `rows_*`, `quality_flags` — dedup файла и completed replay; опционально **`quality_flags`** вроде `duplicate_wallet_in_file`, `balances_commit_blocked`.
+- **Опциональная миграция (если без неё неудобно API):** аддитивный `import_batches.preview_context JSONB` (revision, `prepared_at`, hash снимка opening по wallet_ids) — **не создавать до оценки в коде**; при реализации выбрать row-only vs batch-level guard.
+
+**Commit guard:** перед записью сравнить текущий active opening с `stale_guard`; несовпадение → **409** `stale_preview`. Блокировка кошельков: `SELECT … FOR UPDATE` по wallet_id в **отсортированном** порядке в одной транзакции commit (общая защита от гонок с другим batch и с ручным opening).
+
+**API (ожидаемо, без нового финансового ядра).**
+
+- `create_source`: разрешить `dataset=balances` только вместе с реализацией; до релиза — 422 как сейчас для unknown.
+- `POST …/imports` — upload + prepare (как сейчас).
+- **`POST …/imports/{batch_id}/refresh-preview`** (новый) — пересчитать prepare по сохранённым `raw_payload`, обновить `normalized_payload` и snapshots; **не** обходить dedup по `file_hash` (тот же batch_id).
+- `GET …/preview` — расширить ответ rows: `intent`, `before`, `after` (из normalized, без лишних секретов).
+- `POST …/commit` — ветка `dataset==balances`: all-or-nothing, без `completed_with_errors` partial opening.
+
+**Файлы кода (план).**
+
+| Область | Файлы |
+| --- | --- |
+| Reader | `backend/app/domain/imports/balances_reader.py` (новый) или рядом с plan/revenue readers |
+| Prepare/commit | `backend/app/services/balances_import.py` (новый): `prepare_balances`, `commit_balances_row`; интеграция в `import_service.py` |
+| TZ / moment | reuse `Company.timezone` + helper (как Wallets UI / `buildOpeningEffectiveAt` на frontend); backend: явная функция start_of_day_in_tz |
+| Opening | `wallet_service.set_opening_balance` (+ audit); unchanged — skip write |
+| API | `backend/app/api/v1/imports.py` — refresh-preview route |
+| Frontend | `ImportPage.tsx`, `api.ts` — dataset `balances`, отображение до/после, обработка 409 stale → refresh |
+| Docs | `docs/import-formats.md` — снять пометку «не реализован» только после релиза |
+| Fixtures | `backend/tests/fixtures/imports/balances_*.csv` |
+
+**Тест-план (integration + регрессия).**
+
+- Preview не создаёт/не меняет `opening_balances` и audit opening.
+- `0.00`; unchanged (active уже совпадает); create; replace.
+- Invalid amount / date / currency; unknown `wallet_code`; duplicate `wallet_code` in file → batch blocked.
+- Две firm / tenant isolation; права write / replay после revoke (как wallet idempotency).
+- Откат всего batch при ошибке на средней строке.
+- Concurrent commit **одного** batch (два запроса) — один успех, второй 409/conflict.
+- Два batch с пересечением wallet_id — сериализация через lock, без corrupt active.
+- Гонка commit import vs ручной `POST opening-balance` — stale 409 на import или корректная сериализация.
+- Stale для create / replace / unchanged после смены opening между preview и commit; refresh preview восстанавливает commit без нового file_hash.
+- Completed batch replay commit после ручной замены opening — без повторного import-side replace.
+- Повтор байтов файла — тот же batch (dedup).
+- Timezone firm → точный `effective_at` (Europe/Moscow и минимум один другой TZ в тесте).
+- Регрессия: cash / revenue / plan / budget datasets; пакет 1 wallet/opening idempotency.
+
+**Локальная verification (2026-10-17, `finpilot_test@127.0.0.1:5432`).**
+
+| Команда | Результат |
+| --- | --- |
+| `uv run pytest tests/integration/test_balances_*.py` | **30 passed** |
+| `uv run ruff check .` | all passed |
+| `uv run mypy app` | Success, 95 files |
+| `npm test -- --run` (frontend) | **83 passed** |
+| `npm run build` (frontend) | ok |
+| `uv run pytest -ra` (backend полный) | **232 passed, 1 failed** — `test_backup_restore` (pg_dump port 5433); **backup/restore локально не подтверждён** |
+| Staging | Пакет 2 **не** выложен, миграция **0010 не** применена; `balances.csv` на staging **недоступен** |
+
+Миграция `20261017_0010`: `SET LOCAL lock_timeout/statement_timeout`, `LOCK source_connections`, DROP/ADD CHECK; downgrade — guard `downgrade_blocked` до DROP при строках `dataset=balances`.
+
+**Rollback образа `93428b7`:** при уже существующих `source_connections.dataset=balances` или batch balances **небезопасен** — старый `import_service` направляет upload в cash `_parse` (`ImportFormatError` на balances.csv), ветки `commit_balances_batch` нет. Требуется не откатывать образ без плана по миграции и данным (без DELETE/UPDATE ради CHECK).
+
+**Критерии приёмки пакета 2.**
+
+- Контракт в import-formats; staging smoke balances — отдельное разрешение.
+- FA-R01.2 `accepted` — только после пакета 2 и владельца (не в этом документе).
+
+**Вне обязательного объёма пакета 2:** UI истории `replaced`, wallet access UI, расширенный wallet picker на ImportPage.

@@ -166,6 +166,23 @@ def post_commit(batch_id: UUID, request: Request, session: Session = Depends(get
     row, user = current_session(request, session)
     require_csrf(request, row)
     membership = tenant_of(request, session, user)
+    preview_token = request.headers.get("preview-token") or request.headers.get("Preview-Token")
     return import_service.commit_import(
+        session,
+        membership,
+        user,
+        settings_of(request),
+        batch_id,
+        now(),
+        preview_token=preview_token,
+    )
+
+
+@router.post("/imports/{batch_id}/refresh-preview")
+def post_refresh_preview(batch_id: UUID, request: Request, session: Session = Depends(get_db)):
+    row, user = current_session(request, session)
+    require_csrf(request, row)
+    membership = tenant_of(request, session, user)
+    return import_service.refresh_import_preview(
         session, membership, user, settings_of(request), batch_id, now()
     )

@@ -7,6 +7,7 @@ from io import StringIO
 from pathlib import Path
 
 from app.config import Settings
+from app.domain.imports.balances_reader import duplicate_wallet_codes, read_balances_csv
 from app.domain.imports.budget_reader import read_budget_csv
 from app.domain.imports.clientbank import read_clientbank, statement_period_end
 from app.domain.imports.contracts import ImportFormatError, ImportLine
@@ -33,6 +34,14 @@ from app.models.imports import (
 from app.security.access import BILLING_MANAGER, OPERATOR
 from app.security.context import set_context
 from app.security.tokens import canonical_hash
+from app.services.balances_import import (
+    batch_preview_public,
+    commit_balances_batch,
+    finalize_balances_batch,
+    prepare_balances,
+    refresh_balances_rows,
+    row_preview_public,
+)
 from app.services.budget_import import (
     create_imported as create_budget_row,
 )
@@ -60,7 +69,7 @@ from app.services.revenue_import import (
 )
 from app.services.wallet_service import open_company
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 SCOPE = "import-upload"
@@ -104,7 +113,7 @@ def create_source(
     known_encoding = encoding in {"utf-8", "utf-8-sig", "cp1251"}
     if allowed is None or file_format not in allowed or not known_encoding:
         raise AppError(422, "validation_error", "Неизвестный тип источника")
-    known = {"cash", "revenue", "plan", "budget"}
+    known = {"cash", "revenue", "plan", "budget", "balances"}
     if dataset not in known or vat_basis not in {"net", "unknown"}:
         raise AppError(422, "validation_error", "Неизвестный набор данных")
     if dataset == "revenue" and (source_type != "file" or file_format != "csv"):
@@ -113,6 +122,8 @@ def create_source(
         raise AppError(422, "validation_error", "План загружается только из CSV")
     if dataset == "budget" and (source_type != "file" or file_format != "csv"):
         raise AppError(422, "validation_error", "Бюджет загружается только из CSV")
+    if dataset == "balances" and (source_type != "file" or file_format != "csv"):
+        raise AppError(422, "validation_error", "Остатки загружаются только из CSV")
     if source_type == "email" and dataset != "cash":
         raise AppError(422, "validation_error", "Почта принимает только денежную выписку")
     if file_format == "clientbank" and wallet_id is None:
@@ -222,6 +233,8 @@ def receive_import(
             lines = _parse_plan(content, connection, settings)
         elif connection.dataset == "budget":
             lines = _parse_budget(content, connection, settings)
+        elif connection.dataset == "balances":
+            lines = _parse_balances(content, connection, settings)
         else:
             lines = _parse(content, connection, wallet_code, settings)
     except ImportFormatError as exc:
@@ -259,7 +272,11 @@ def receive_import(
         if found is None:
             raise AppError(409, "conflict", "Файл уже импортируется") from exc
         return _payload(session, found)
+    file_dupes: set[str] = set()
+    if connection.dataset == "balances":
+        file_dupes = duplicate_wallet_codes(lines)
     invalid = 0
+    created_rows: list[RawImportRow] = []
     for line in lines:
         if connection.dataset == "revenue":
             prepared = prepare_revenue(session, company, connection, line)
@@ -267,26 +284,37 @@ def receive_import(
             prepared = prepare_plan(session, company, connection, line)
         elif connection.dataset == "budget":
             prepared = prepare_budget(session, company, connection, line)
+        elif connection.dataset == "balances":
+            prepared = prepare_balances(
+                session, company, line, file_duplicate_codes=file_dupes
+            )
         else:
             prepared = _prepare(session, company, connection, line, rules)
         if prepared["duplicate_status"] == "invalid":
             invalid += 1
-        session.add(
-            RawImportRow(
-                tenant_id=company.tenant_id,
-                batch_id=batch.id,
-                row_number=line.row_number,
-                raw_payload=line.raw,
-                normalized_payload=prepared["normalized"],
-                validation_errors=prepared["errors"],
-                duplicate_status=prepared["duplicate_status"],
-                proposed_action=prepared["proposed_action"],
-                payload_hash=prepared["payload_hash"],
-                external_id=line.external_id or None,
-            )
+        row = RawImportRow(
+            tenant_id=company.tenant_id,
+            batch_id=batch.id,
+            row_number=line.row_number,
+            raw_payload=line.raw,
+            normalized_payload=prepared["normalized"],
+            validation_errors=prepared["errors"],
+            duplicate_status=prepared["duplicate_status"],
+            proposed_action=prepared["proposed_action"],
+            payload_hash=prepared["payload_hash"],
+            external_id=getattr(line, "external_id", None) or None,
         )
-    batch.rows_invalid = invalid
-    batch.rows_valid = batch.rows_total - invalid
+        session.add(row)
+        created_rows.append(row)
+    if connection.dataset == "balances":
+        session.flush()
+        finalize_balances_batch(
+            session, batch, created_rows, at=at, increment_revision=False
+        )
+        invalid = batch.rows_invalid
+    else:
+        batch.rows_invalid = invalid
+        batch.rows_valid = batch.rows_total - invalid
     batch.status = "preview_ready"
     session.flush()
     payload = _payload(session, batch)
@@ -303,6 +331,32 @@ def preview_import(
     batch_id: uuid.UUID,
 ) -> dict:
     batch = _locked_batch(session, membership, user, settings, batch_id, "read")
+    return _payload(session, batch)
+
+
+def refresh_import_preview(
+    session: Session,
+    membership: Membership,
+    user: User,
+    settings: Settings,
+    batch_id: uuid.UUID,
+    at: datetime,
+) -> dict:
+    batch = _locked_batch(session, membership, user, settings, batch_id, "write", lock=True)
+    if batch.status == "completed":
+        raise AppError(409, "conflict", "Пакет уже проведён")
+    if batch.status != "preview_ready":
+        raise AppError(409, "conflict", "Preview нельзя обновить")
+    company = session.get(Company, batch.company_id)
+    if company is None:
+        raise AppError(404, "not_found", "Фирма не найдена")
+    connection = _connection(session, company, batch.connection_id)
+    if connection.dataset != "balances":
+        raise AppError(409, "conflict", "Обновление preview только для остатков")
+    rows = _rows(session, batch)
+    refresh_balances_rows(session, company, rows, at=at)
+    finalize_balances_batch(session, batch, rows, at=at, increment_revision=True)
+    session.flush()
     return _payload(session, batch)
 
 
@@ -337,16 +391,38 @@ def commit_import(
     settings: Settings,
     batch_id: uuid.UUID,
     at: datetime,
+    *,
+    preview_token: str | None = None,
 ) -> dict:
-    batch = _locked_batch(session, membership, company_user, settings, batch_id, "write", lock=True)
-    if batch.status in {"completed", "completed_with_errors"}:
-        return _payload(session, batch)
-    if batch.status != "preview_ready":
-        raise AppError(409, "conflict", "Импорт нельзя провести")
+    try:
+        batch = _locked_batch(
+            session, membership, company_user, settings, batch_id, "write", lock=True, nowait=True
+        )
+    except OperationalError as exc:
+        if getattr(getattr(exc, "orig", None), "sqlstate", None) == "55P03":
+            raise AppError(409, "conflict", "Импорт уже проводится") from exc
+        raise
     company = session.get(Company, batch.company_id)
     if company is None:
         raise AppError(404, "not_found", "Фирма не найдена")
     connection = _connection(session, company, batch.connection_id)
+    if connection.dataset == "balances":
+        result = commit_balances_batch(
+            session,
+            membership,
+            company,
+            company_user,
+            batch,
+            preview_token=preview_token or "",
+            at=at,
+            payload_builder=_payload,
+        )
+        _batch_audit(session, company_user, company.tenant_id, "import_committed", batch.id, at)
+        return result
+    if batch.status in {"completed", "completed_with_errors"}:
+        return _payload(session, batch)
+    if batch.status != "preview_ready":
+        raise AppError(409, "conflict", "Импорт нельзя провести")
     batch.status = "committing"
     committed = 0
     pending = False
@@ -699,6 +775,16 @@ def _identity(session, company, connection, row: RawImportRow, tx_id, at: dateti
     session.flush()
 
 
+def _parse_balances(content: bytes, connection: SourceConnection, settings: Settings):
+    if connection.format != "csv":
+        raise ImportFormatError("unsupported_format", "Остатки загружаются только из CSV")
+    return read_balances_csv(
+        content,
+        encoding=connection.encoding,
+        max_rows=settings.import_max_rows,
+    )
+
+
 def _parse_budget(content: bytes, connection: SourceConnection, settings: Settings):
     return read_budget_csv(content, encoding=connection.encoding, max_rows=settings.import_max_rows)
 
@@ -743,7 +829,9 @@ def _parse(content: bytes, connection: SourceConnection, wallet_code: str, setti
 def _payload(session: Session, batch: ImportBatch) -> dict:
     rows = _rows(session, batch)
     counts: Counter[str] = Counter(item.duplicate_status for item in rows)
-    return {
+    connection = session.get(SourceConnection, batch.connection_id)
+    balances = connection is not None and connection.dataset == "balances"
+    payload = {
         "id": str(batch.id),
         "status": batch.status,
         "connection_id": str(batch.connection_id),
@@ -759,15 +847,22 @@ def _payload(session: Session, batch: ImportBatch) -> dict:
             "linked": counts["linked"],
         },
         "rows": [
-            {
-                "row_number": item.row_number,
-                "external_id": item.external_id,
-                "duplicate_status": item.duplicate_status,
-                "proposed_action": item.proposed_action,
-                "errors": list(item.validation_errors or []),
-            }
+            row_preview_public(item) if balances else _row_preview_default(item)
             for item in rows
         ],
+    }
+    if balances:
+        payload.update(batch_preview_public(batch, rows))
+    return payload
+
+
+def _row_preview_default(item: RawImportRow) -> dict:
+    return {
+        "row_number": item.row_number,
+        "external_id": item.external_id,
+        "duplicate_status": item.duplicate_status,
+        "proposed_action": item.proposed_action,
+        "errors": list(item.validation_errors or []),
     }
 
 
@@ -781,11 +876,21 @@ def _rows(session: Session, batch: ImportBatch) -> list[RawImportRow]:
     )
 
 
-def _locked_batch(session, membership, user, settings, batch_id, mode: str, *, lock: bool = False):
+def _locked_batch(
+    session,
+    membership,
+    user,
+    settings,
+    batch_id,
+    mode: str,
+    *,
+    lock: bool = False,
+    nowait: bool = False,
+):
     set_context(session, tenant_id=membership.tenant_id, user_id=user.id)
     query = select(ImportBatch).where(ImportBatch.id == batch_id)
     if lock:
-        query = query.with_for_update()
+        query = query.with_for_update(nowait=nowait)
     batch = session.scalar(query)
     if batch is None or batch.tenant_id != membership.tenant_id:
         raise AppError(404, "not_found", "Импорт не найден")

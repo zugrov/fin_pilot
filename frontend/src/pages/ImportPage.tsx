@@ -5,6 +5,7 @@ import {
   commitImport,
   createMailbox,
   createSource,
+  refreshImportPreview,
   listCompanies,
   loadSources,
   loadWallets,
@@ -23,7 +24,10 @@ import {
 } from "../lib/companySelection";
 
 export function ImportPage() {
-  const [dataset, setDataset] = useState<"cash" | "revenue" | "plan" | "budget">("budget");
+  const [dataset, setDataset] = useState<"cash" | "revenue" | "plan" | "budget" | "balances">(
+    "budget",
+  );
+  const [previewToken, setPreviewToken] = useState("");
   const [error, setError] = useState("");
   const [previewId, setPreviewId] = useState("");
   const [uploadPreview, setUploadPreview] = useState<Awaited<ReturnType<typeof uploadImport>> | null>(
@@ -46,6 +50,7 @@ export function ImportPage() {
     setMailError(cleared.mailError);
     setMailNote(cleared.mailNote);
     setUploadPreview(null);
+    setPreviewToken("");
     setPassword("");
   }, []);
 
@@ -109,6 +114,7 @@ export function ImportPage() {
       setError("");
       setPreviewId(preview.id);
       setUploadPreview(preview);
+      setPreviewToken(preview.preview_token ?? "");
     },
     onError: (exc: Error) => setError(exc.message),
   });
@@ -156,20 +162,40 @@ export function ImportPage() {
     },
   });
 
+  const refreshPreview = useMutation({
+    mutationFn: () => {
+      if (!previewId) {
+        throw new Error("Нет пакета для обновления");
+      }
+      return refreshImportPreview(previewId);
+    },
+    onSuccess: (preview) => {
+      setError("");
+      setUploadPreview(preview);
+      setPreviewToken(preview.preview_token ?? "");
+    },
+    onError: (exc: Error) => setError(exc.message),
+  });
+
   const commit = useMutation({
     mutationFn: () => {
       if (!previewId) {
         throw new Error("Нет пакета для проведения");
       }
-      return commitImport(previewId);
+      return commitImport(previewId, previewToken || undefined);
     },
-    onSuccess: () => setError(""),
+    onSuccess: (preview) => {
+      setError("");
+      setUploadPreview(preview);
+      setPreviewToken(preview.preview_token ?? previewToken);
+    },
     onError: (exc: Error) => setError(exc.message),
   });
 
   const writeLocked =
     ensure.isPending ||
     upload.isPending ||
+    refreshPreview.isPending ||
     commit.isPending ||
     saveMailbox.isPending ||
     checkMailbox.isPending;
@@ -199,6 +225,9 @@ export function ImportPage() {
         </button>
         <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("budget")}>
           Бюджет
+        </button>
+        <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("balances")}>
+          Остатки
         </button>
       </div>
       {companyId && sources.isSuccess && chosen ? (
@@ -232,16 +261,48 @@ export function ImportPage() {
         }}
       />
       {uploadPreview ? (
-        <p className="mb-3 text-sm">
-          Новых {uploadPreview.counts.new}, повтор {uploadPreview.counts.repeated}, ошибок{" "}
-          {uploadPreview.counts.invalid}
-        </p>
+        <div className="mb-3 text-sm">
+          <p>
+            Новых {uploadPreview.counts.new}, повтор {uploadPreview.counts.repeated}, ошибок{" "}
+            {uploadPreview.counts.invalid}
+          </p>
+          {dataset === "balances" && uploadPreview.rows.length > 0 ? (
+            <ul className="mt-2 list-disc pl-5">
+              {uploadPreview.rows.map((row) => (
+                <li key={row.row_number}>
+                  Строка {row.row_number}: {row.intent ?? "—"}
+                  {row.before || row.after
+                    ? ` · было ${row.before?.amount ?? "—"} → ${row.after?.amount ?? "—"}`
+                    : null}
+                  {row.errors.length ? ` · ${row.errors.join(", ")}` : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {uploadPreview.commit_blocked ? (
+            <p className="text-red-700">Проведение заблокировано: исправьте файл и загрузите снова.</p>
+          ) : null}
+        </div>
+      ) : null}
+      {dataset === "balances" && previewId && uploadPreview?.status === "preview_ready" ? (
+        <button
+          type="button"
+          className="mb-3 mr-3 rounded border px-3 py-2 disabled:opacity-50"
+          disabled={refreshPreview.isPending}
+          onClick={() => refreshPreview.mutate()}
+        >
+          Обновить preview
+        </button>
       ) : null}
       {error ? <p className="mb-3 text-sm text-red-700">{error}</p> : null}
       <button
         type="button"
         className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
-        disabled={!previewId || commit.isPending}
+        disabled={
+          !previewId ||
+          commit.isPending ||
+          (dataset === "balances" && (uploadPreview?.commit_blocked || !previewToken))
+        }
         onClick={() => {
           if (previewId) {
             commit.mutate();

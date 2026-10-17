@@ -225,11 +225,22 @@ export type Source = {
   username?: string | null;
 };
 
+export type ImportPreviewRow = {
+  row_number: number;
+  errors: string[];
+  intent?: string;
+  before?: { opening_id?: string; amount?: string; effective_at?: string } | null;
+  after?: { amount?: string; effective_at?: string } | null;
+};
+
 export type ImportPreview = {
   id: string;
   status: string;
   counts: { new: number; repeated: number; changed: number; invalid: number };
-  rows: { row_number: number; errors: string[] }[];
+  rows: ImportPreviewRow[];
+  preview_token?: string;
+  preview_revision?: number;
+  commit_blocked?: boolean;
 };
 
 export function listCompanies() {
@@ -488,10 +499,16 @@ export function testMailbox(companyId: string, sourceId: string) {
 
 export function createSource(
   companyId: string,
-  dataset: "cash" | "revenue" | "plan" | "budget",
+  dataset: "cash" | "revenue" | "plan" | "budget" | "balances",
   namespace: string,
 ) {
-  const names = { revenue: "Продажи", plan: "План", budget: "Бюджет", cash: "Деньги" };
+  const names = {
+    revenue: "Продажи",
+    plan: "План",
+    budget: "Бюджет",
+    cash: "Деньги",
+    balances: "Остатки",
+  };
   return request<Source>(`/api/v1/companies/${companyId}/sources`, {
     method: "POST",
     body: JSON.stringify({
@@ -523,8 +540,16 @@ export async function uploadImport(companyId: string, connectionId: string, file
   return (await response.json()) as ImportPreview;
 }
 
-export function commitImport(batchId: string) {
-  return request<ImportPreview>(`/api/v1/imports/${batchId}/commit`, { method: "POST" });
+export function commitImport(batchId: string, previewToken?: string) {
+  const headers = new Headers(authHeaders());
+  if (previewToken) {
+    headers.set("Preview-Token", previewToken);
+  }
+  return request<ImportPreview>(`/api/v1/imports/${batchId}/commit`, { method: "POST", headers });
+}
+
+export function refreshImportPreview(batchId: string) {
+  return request<ImportPreview>(`/api/v1/imports/${batchId}/refresh-preview`, { method: "POST" });
 }
 
 export type TelegramBinding = {

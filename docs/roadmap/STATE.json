@@ -19,7 +19,7 @@
   "current_stage": "FA-R01",
   "current_task": "FA-R01.2",
   "status": "in_progress",
-  "allowed_next_action": "FA-R01.2 in_progress: пакет 1 принят (93428b7); следующий пакет balances.csv — проект/решения владельца; задача FA-R01.2 accepted не переводить до закрытия balances.csv.",
+  "allowed_next_action": "FA-R01.2 in_progress: пакет 1 accepted (93428b7); пакет 2 balances в репозитории после push; deploy/staging DDL/приёмка пакета 2 — отдельно; на staging пакет 2 не выложен, 0010 не применена; balances на staging недоступен.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -130,7 +130,8 @@
             "fix opening UI: cancel черновика opening, пустая дата, unknown create/opening; frontend 83 tests + build локально",
             "браузерные сценарии A–F на loopback mock wallets-lifecycle-mock (127.0.0.1:8000) — не live backend/staging",
             "A: пустая дата; B: cancel draft до POST; C/D: drop ответа + idempotency replay; E: 422 разблокирует; F: смена фирмы без переноса attempt",
-            "balances.csv — открыто, отдельный следующий пакет",
+            "balances.csv — пакет 2: миграция 20261017_0010 согласована (CHECK balances; downgrade guard); 30 integration tests (migration+balances+rollback) на finpilot_test@127.0.0.1:5432; backend pytest 232 passed / 1 failed backup_restore (pg_dump 5433); Ruff/Mypy green; frontend 83 + build",
+            "rollback 93428b7: balances upload шёл бы в cash _parse (ImportFormatError); commit_balances_batch отсутствует — откат образа при balances в БД небезопасен без координации миграции/кода",
             "staging deploy 2026-10-17: api+frontend только, SHA 93428b7, CI 39038691269; worker/beat не пересоздавались (образ api c7ff510)",
             "staging smoke read-only: Wallets ООО Топ, баланс/opening раздельно, пустая дата, cancel opening modal; 7 экранов + reload фирмы; POST записей нет",
             "staging write-smoke 2026-10-17 (93428b7, ООО Топ): UI create+opening 0.00 @ 2026-10-01T00:00:00+03:00; replay create/opening 200; wallet 6337cbaf-5800-4273-8dcd-3c064caaf822; opening b429046a-7741-40bd-865e-bc2e26e3b22f; T-BANK и dashboard 2026-10-01..31 без отличий от baseline; артефакт не удалять",
@@ -140,6 +141,11 @@
           "package_1_accepted_at": "2026-10-17",
           "open_packages": [
             "balances.csv"
+          ],
+          "balances_csv_contract_fixed_at": "2026-10-17",
+          "balances_csv_contract_docs": [
+            "docs/import-formats.md",
+            "docs/roadmap/STAGE_FA-R01.md#пакет-2--balancescsv"
           ]
         },
         {
@@ -825,7 +831,49 @@
     "fa_r01_2_task_still_in_progress": true,
     "open_next_package": "balances.csv"
   },
-  "note": "FA-R01.1 accepted (e70612d). FA-R01.2 in_progress: пакет 1 принят (93428b7); balances.csv открыт; полная accepted задачи FA-R01.2 — после balances.csv.",
+  "fa_r01_2_balances_csv_contract": {
+    "fixed_at": "2026-10-17",
+    "implementation_status": "in_repository_not_deployed_not_accepted",
+    "implemented_locally_at": "2026-10-17",
+    "accepted": false,
+    "deployed_to_staging": false,
+    "staging_migration_0010_applied": false,
+    "dataset_balances_supported_in_product": false,
+    "dataset_balances_available_on_staging": false,
+    "migration_20261017_0010": {
+      "status": "agreed_local_only",
+      "apply_to_staging": false,
+      "down_revision": "20261014_0009",
+      "note": "lock_timeout 5s, statement_timeout 60s, ACCESS EXCLUSIVE; downgrade guard до DROP; только finpilot_test локально через pytest fixture"
+    },
+    "mandatory_tests_pending": false,
+    "local_verification_2026_10_17": {
+      "database": "finpilot_test@127.0.0.1:5432",
+      "balances_integration_tests": "30 passed",
+      "backend_pytest": "232 passed, 1 failed (test_backup_restore pg_dump 127.0.0.1:5433 connection refused)",
+      "backup_restore_locally_verified": false,
+      "ruff": "all passed",
+      "mypy_app": "95 files success",
+      "frontend": "83 passed, build ok"
+    },
+    "rollback_93428b7": {
+      "safe_with_balances_rows_in_db": false,
+      "reason": "старый import_service не знает dataset=balances; upload → cash parser; commit без commit_balances_batch"
+    },
+    "as_of": "YYYY-MM-DD start of day in company.timezone",
+    "balance_semantics": "opening_anchor_zero_allowed",
+    "wallets": "existing_only_selected_company",
+    "duplicate_wallet_code_in_file": "blocks_entire_batch_commit",
+    "currency": "must_match_wallet",
+    "preview": "no_financial_writes_create_replace_unchanged_with_before_after",
+    "commit": "all_or_nothing",
+    "completed_replay": "no_reapply",
+    "stale_preview": "409_then_refresh_preview_and_reconfirm",
+    "side_effects": "no_automatic_alerts_or_external_actions",
+    "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
+    "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
+  },
+  "note": "FA-R01.1 accepted (e70612d). FA-R01.2 in_progress: пакет 1 accepted (93428b7); пакет 2 balances в репо, не deployed/accepted; staging без пакета 2 и 0010; backup/restore локально не подтверждён.",
   "updated_at": "2026-10-17",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
