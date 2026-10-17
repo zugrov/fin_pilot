@@ -1,8 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { createPlanEvent, listCompanies, loadCalendar, moveExpected } from "../api";
+import { CompanyWritePicker } from "../components/CompanyWritePicker";
 import { Shell } from "../components/Shell";
+import {
+  calendarMutationTarget,
+  companyScopedData,
+  useWritableCompanySelection,
+} from "../lib/companySelection";
 
 export function CalendarPage() {
   const [amount, setAmount] = useState("150000.00");
@@ -11,17 +17,32 @@ export function CalendarPage() {
   const [error, setError] = useState("");
   const client = useQueryClient();
   const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
-  const companyId = companies.data?.companies[0]?.id;
+  const onCompanyChanged = useCallback(() => {
+    setError("");
+  }, []);
+  const selection = useWritableCompanySelection(companies.data?.companies, {
+    onCompanyChanged,
+  });
+  const { companyId } = selection;
   const calendar = useQuery({
     queryKey: ["calendar", companyId],
     queryFn: () => loadCalendar(companyId ?? ""),
     enabled: Boolean(companyId),
   });
+  const events = companyScopedData(companyId, companyId ?? undefined, calendar.data?.events);
   const save = useMutation({
-    mutationFn: () => createPlanEvent(companyId ?? "", amount, day),
+    mutationFn: () => {
+      const target = calendarMutationTarget(companyId);
+      if (!target.allowed) {
+        throw new Error("Выберите фирму");
+      }
+      return createPlanEvent(target.companyId, amount, day);
+    },
     onSuccess: async () => {
       setError("");
-      await client.invalidateQueries({ queryKey: ["calendar", companyId] });
+      if (companyId) {
+        await client.invalidateQueries({ queryKey: ["calendar", companyId] });
+      }
     },
     onError: (exc: Error) => setError(exc.message),
   });
@@ -29,20 +50,30 @@ export function CalendarPage() {
     mutationFn: (event: { id: string; version: number }) => moveExpected(event.id, event.version, moveTo),
     onSuccess: async () => {
       setError("");
-      await client.invalidateQueries({ queryKey: ["calendar", companyId] });
+      if (companyId) {
+        await client.invalidateQueries({ queryKey: ["calendar", companyId] });
+      }
     },
     onError: (exc: Error) => setError(exc.message),
   });
+  const anyWritePending = save.isPending || shift.isPending;
 
   return (
     <Shell>
       <h1 className="mb-2 text-xl font-semibold">Календарь</h1>
       <p className="mb-4 text-sm text-slate-600">Это план платежей, не движение денег.</p>
-      {calendar.isLoading ? <p>Загрузка</p> : null}
-      {calendar.isError ? <p className="text-red-700">Не удалось загрузить календарь.</p> : null}
-      {calendar.data?.events.length === 0 ? <p className="mb-4">Плановых событий нет.</p> : null}
+      <CompanyWritePicker
+        list={selection.list}
+        value={selection.selectValue}
+        needsPlaceholder={selection.needsPlaceholder}
+        disabled={anyWritePending}
+        onSelect={selection.onSelect}
+      />
+      {companyId && calendar.isLoading ? <p>Загрузка</p> : null}
+      {companyId && calendar.isError ? <p className="text-red-700">Не удалось загрузить календарь.</p> : null}
+      {events?.length === 0 ? <p className="mb-4">Плановых событий нет.</p> : null}
       <ul className="mb-6 space-y-2">
-        {calendar.data?.events.map((event) => (
+        {events?.map((event) => (
           <li key={event.id} className="rounded-xl border bg-white p-4 text-sm">
             <p>
               {event.expected_date}: остаток {event.remaining}, срок {event.due_date}
@@ -50,7 +81,8 @@ export function CalendarPage() {
             </p>
             <button
               type="button"
-              className="mt-2 rounded border px-3 py-1"
+              className="mt-2 rounded border px-3 py-1 disabled:opacity-50"
+              disabled={!selection.canWrite || shift.isPending}
               onClick={() => shift.mutate(event)}
             >
               Перенести ожидание
@@ -62,6 +94,9 @@ export function CalendarPage() {
         className="max-w-md space-y-3"
         onSubmit={(event) => {
           event.preventDefault();
+          if (!calendarMutationTarget(companyId).allowed) {
+            return;
+          }
           save.mutate();
         }}
       >
@@ -78,7 +113,11 @@ export function CalendarPage() {
           <input className="mt-1 w-full rounded border px-3 py-2" value={moveTo} onChange={(event) => setMoveTo(event.target.value)} />
         </label>
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
-        <button className="rounded bg-slate-900 px-4 py-2 text-white" type="submit" disabled={!companyId || save.isPending}>
+        <button
+          className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+          type="submit"
+          disabled={!selection.canWrite || save.isPending}
+        >
           Добавить платёж
         </button>
       </form>

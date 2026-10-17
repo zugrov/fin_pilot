@@ -1,8 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { createRevenue, listCompanies, loadRevenue } from "../api";
+import { CompanyWritePicker } from "../components/CompanyWritePicker";
 import { Shell } from "../components/Shell";
+import {
+  companyScopedData,
+  salesMutationTarget,
+  useWritableCompanySelection,
+} from "../lib/companySelection";
 
 export function SalesPage() {
   const [inc, setInc] = useState("120000.00");
@@ -11,17 +17,32 @@ export function SalesPage() {
   const [error, setError] = useState("");
   const client = useQueryClient();
   const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
-  const companyId = companies.data?.companies[0]?.id;
+  const onCompanyChanged = useCallback(() => {
+    setError("");
+  }, []);
+  const selection = useWritableCompanySelection(companies.data?.companies, {
+    onCompanyChanged,
+  });
+  const { companyId } = selection;
   const sales = useQuery({
     queryKey: ["sales", companyId],
     queryFn: () => loadRevenue(companyId ?? ""),
     enabled: Boolean(companyId),
   });
+  const entries = companyScopedData(companyId, companyId ?? undefined, sales.data?.entries);
   const save = useMutation({
-    mutationFn: () => createRevenue(companyId ?? "", inc, ex, vat),
+    mutationFn: () => {
+      const target = salesMutationTarget(companyId);
+      if (!target.allowed) {
+        throw new Error("Выберите фирму");
+      }
+      return createRevenue(target.companyId, inc, ex, vat);
+    },
     onSuccess: async () => {
       setError("");
-      await client.invalidateQueries({ queryKey: ["sales", companyId] });
+      if (companyId) {
+        await client.invalidateQueries({ queryKey: ["sales", companyId] });
+      }
     },
     onError: (exc: Error) => setError(exc.message),
   });
@@ -30,11 +51,18 @@ export function SalesPage() {
     <Shell>
       <h1 className="mb-2 text-xl font-semibold">Продажи</h1>
       <p className="mb-4 text-sm text-slate-600">Это не таблица поступлений.</p>
-      {sales.isLoading ? <p>Загрузка</p> : null}
-      {sales.isError ? <p className="text-red-700">Не удалось загрузить продажи.</p> : null}
-      {sales.data?.entries.length === 0 ? <p className="mb-4">Продаж нет.</p> : null}
+      <CompanyWritePicker
+        list={selection.list}
+        value={selection.selectValue}
+        needsPlaceholder={selection.needsPlaceholder}
+        disabled={selection.pickerDisabled || save.isPending}
+        onSelect={selection.onSelect}
+      />
+      {companyId && sales.isLoading ? <p>Загрузка</p> : null}
+      {companyId && sales.isError ? <p className="text-red-700">Не удалось загрузить продажи.</p> : null}
+      {entries?.length === 0 ? <p className="mb-4">Продаж нет.</p> : null}
       <ul className="mb-6 space-y-2">
-        {sales.data?.entries.map((entry) => (
+        {entries?.map((entry) => (
           <li key={entry.id} className="rounded-xl border bg-white p-4">
             {entry.recognition_date}: {entry.amount_ex_vat ?? entry.amount_inc_vat} без НДС,{" "}
             {entry.entry_type === "return" ? "возврат" : "продажа"}
@@ -45,6 +73,9 @@ export function SalesPage() {
         className="max-w-md space-y-3"
         onSubmit={(event) => {
           event.preventDefault();
+          if (!salesMutationTarget(companyId).allowed) {
+            return;
+          }
           save.mutate();
         }}
       >
@@ -61,7 +92,11 @@ export function SalesPage() {
           <input className="mt-1 w-full rounded border px-3 py-2" value={vat} onChange={(event) => setVat(event.target.value)} />
         </label>
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
-        <button className="rounded bg-slate-900 px-4 py-2 text-white" type="submit" disabled={!companyId || save.isPending}>
+        <button
+          className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+          type="submit"
+          disabled={!selection.canWrite || save.isPending}
+        >
           Добавить продажу
         </button>
       </form>

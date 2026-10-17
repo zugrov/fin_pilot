@@ -1,59 +1,86 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ackAlert, listCompanies, loadAlerts, recalculateAlerts } from "../api";
+import { CompanyWritePicker } from "../components/CompanyWritePicker";
 import { Shell } from "../components/Shell";
+import { alertsRecalcTarget, companyScopedData, useWritableCompanySelection } from "../lib/companySelection";
 import { completenessCaption, savedCalculationCaption } from "../lib/alerts";
 import { alertEmpty } from "../lib/budget";
 
 export function AlertsPage() {
   const client = useQueryClient();
   const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
-  const companyId = companies.data?.companies[0]?.id;
+  const selection = useWritableCompanySelection(companies.data?.companies);
+  const { companyId } = selection;
   const alerts = useQuery({
     queryKey: ["alerts", companyId],
     queryFn: () => loadAlerts(companyId ?? ""),
     enabled: Boolean(companyId),
   });
+  const alertPayload = companyScopedData(companyId, companyId ?? undefined, alerts.data);
   const ack = useMutation({
     mutationFn: (alertId: string) => ackAlert(alertId),
     onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ["alerts", companyId] });
+      if (companyId) {
+        await client.invalidateQueries({ queryKey: ["alerts", companyId] });
+      }
     },
   });
   const recalc = useMutation({
-    mutationFn: () => recalculateAlerts(companyId ?? ""),
+    mutationFn: () => {
+      const target = alertsRecalcTarget(companyId);
+      if (!target.allowed) {
+        throw new Error("Выберите фирму");
+      }
+      return recalculateAlerts(target.companyId);
+    },
     onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ["alerts", companyId] });
+      if (companyId) {
+        await client.invalidateQueries({ queryKey: ["alerts", companyId] });
+      }
     },
   });
-  const openCount = alerts.data?.alerts.filter((item) => item.status !== "resolved").length ?? 0;
-  const completeness = completenessCaption(alerts.data?.completeness);
+  const writeLocked = recalc.isPending || ack.isPending;
+  const openCount =
+    alertPayload?.alerts.filter((item) => item.status !== "resolved").length ?? 0;
+  const completeness = completenessCaption(alertPayload?.completeness);
 
   return (
     <Shell>
       <h1 className="mb-4 text-xl font-semibold">Алерты</h1>
+      <CompanyWritePicker
+        list={selection.list}
+        value={selection.selectValue}
+        needsPlaceholder={selection.needsPlaceholder}
+        disabled={writeLocked}
+        onSelect={selection.onSelect}
+      />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <p className="text-sm text-slate-600">
-          {savedCalculationCaption(alerts.data?.report_date ?? null)}
+          {savedCalculationCaption(alertPayload?.report_date ?? null)}
         </p>
         {completeness ? <p className="text-sm text-slate-600">{completeness}</p> : null}
         <button
           type="button"
-          className="rounded border px-3 py-1"
-          disabled={!companyId || recalc.isPending}
-          onClick={() => recalc.mutate()}
+          className="rounded border px-3 py-1 disabled:opacity-50"
+          disabled={!selection.canWrite || recalc.isPending}
+          onClick={() => {
+            if (alertsRecalcTarget(companyId).allowed) {
+              recalc.mutate();
+            }
+          }}
         >
           Пересчитать
         </button>
       </div>
       {recalc.isError ? <p className="mb-3 text-red-700">Не удалось пересчитать сигналы.</p> : null}
-      {alerts.isLoading ? <p>Загрузка</p> : null}
-      {alerts.isError ? <p className="text-red-700">Не удалось загрузить сигналы.</p> : null}
-      {alerts.data ? (
-        <p className="mb-3 text-sm">{alertEmpty(alerts.data.status, openCount)}</p>
+      {companyId && alerts.isLoading ? <p>Загрузка</p> : null}
+      {companyId && alerts.isError ? <p className="text-red-700">Не удалось загрузить сигналы.</p> : null}
+      {alertPayload ? (
+        <p className="mb-3 text-sm">{alertEmpty(alertPayload.status, openCount)}</p>
       ) : null}
       <ul className="space-y-3">
-        {alerts.data?.alerts
+        {alertPayload?.alerts
           .filter((item) => item.status !== "resolved")
           .map((item) => (
             <li key={item.id} className="rounded-xl border bg-white p-4">
@@ -68,7 +95,8 @@ export function AlertsPage() {
               {item.status === "open" ? (
                 <button
                   type="button"
-                  className="mt-2 rounded border px-3 py-1"
+                  className="mt-2 rounded border px-3 py-1 disabled:opacity-50"
+                  disabled={!selection.canWrite || ack.isPending}
                   onClick={() => ack.mutate(item.id)}
                 >
                   Подтвердить
