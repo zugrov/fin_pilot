@@ -852,7 +852,13 @@
       "conclusion": "failure",
       "note": "30 balances/migration/rollback — ERROR на setup (guard требовал TEST_PG_PORT=5432); не результаты выполнения сценариев; frontend ok; Ruff/Mypy ok; pytest 203 passed + 30 errors"
     },
-    "test_db_guard_fix": "подготовлено: guard допускает 5432/5433 при совпадении engine и env URLs",
+    "test_db_guard_fix": "применено (85f6e26): guard допускает 5432/5433 при совпадении engine и env URLs",
+    "ci_run_39053629469": {
+      "sha": "85f6e269e5ddcca24b0a817c825095988b216162",
+      "conclusion": "failure",
+      "note": "30 balances-сценариев дошли до выполнения (не setup errors); pytest 242 passed, 1 failed; единственный fail — test_rollback_93428b7_routes_balances_dataset_to_cash_parser: git show 93428b7 — commit отсутствует в shallow checkout CI"
+    },
+    "ci_backend_fetch_depth_fix": "подготовлено: fetch-depth 0 только в backend job для rollback compatibility test",
     "local_verification_2026_10_17": {
       "database": "finpilot_test@127.0.0.1:5432",
       "balances_integration_tests": "30 passed",
