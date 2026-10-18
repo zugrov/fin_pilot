@@ -1,6 +1,6 @@
 # FA-R01 · Безопасный сквозной пользовательский путь
 
-Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; **FA-R01.2 accepted** на `73319a7`; **FA-R01.3 in_progress** локально).
+Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; **FA-R01.2 accepted** на `73319a7`; **FA-R01.3 local_verified** на mock, не accepted/deployed).
 
 Зависимость: этап **FA-R00** принят (G0) — контракты и ADR, без обязательной
 реализации delivery.
@@ -55,7 +55,21 @@ calendar, alerts, wallets.
 FA-R00 (G0)
   └─ FA-R01.1 контекст firm
        ├─ FA-R01.2 счета и opening (UI; может трогать wallets API только если нет gap)
-       ├─ FA-R01.3 формы, idempotency, связи plan/revenue (in_progress локально)
+       ├─ FA-R01.3 формы, idempotency, связи plan/revenue (local_verified на mock)
+
+### FA-R01.3 · browser lifecycle (mock, 2026-10-18)
+
+**Продуктовый SHA:** `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`. **Vite** `127.0.0.1:5173`, **mock** `sales-plan-lifecycle-mock` на `127.0.0.1:8000` (loopback, без `.env`/внешних запросов). **Не** доказывает backend/RLS. **Revenue create unknown+retry** ранее; в этом проходе не перегонялся.
+
+| Сценарий | Idempotency-Key | Synthetic result | Mock-журнал |
+| --- | --- | --- | --- |
+| Plan create DROP→retry | `8ecc98de-1e58-4c20-bc66-f38ab6082b1a` | `plan-f4105e71` | DROP + REPLAY; `post-log` одна запись `plan_create`; `plan_events=1` |
+| Revenue match DROP→retry | `5f13c670-c969-4e5a-b21e-da48b62536da` | `rcm-4881c1d7` | DROP + REPLAY; одна `revenue_match`; UI остаток 53000, link 35000 |
+| Plan match DROP→retry | `05aef509-e9b4-421b-ab45-8644870d89bb` | `pm-c4dfc3d2` | DROP + REPLAY; **`plan_matches=1`**; UI остаток 39000, оплачено 28000, link |
+
+Для каждого: заблокированы поля и смена фирмы в unknown; явная кнопка повтора; тот же payload/key; без второй записи в `post-log`.
+
+**Recovery-image (docs/workflow):** `SOURCE_SHA=7ee85e5`, tag `finpilot-api:recovery-7ee85e5`, artifact `finpilot-api-recovery-7ee85e5-linux-amd64`, platform `linux/amd64`; checksums расширены `revenue_service.py`, `plan_service.py`, `cash_service.py` (balances-файлы сохранены). Статус сборки — только после зелёного `recovery-image-smoke`.
 
 ### FA-R01.3 · контракт legacy Idempotency-Key
 
