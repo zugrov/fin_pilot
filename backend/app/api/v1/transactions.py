@@ -82,7 +82,9 @@ def list_transactions(
         limit=limit,
         offset=offset,
     )
-    return {"transactions": [cash_service.transaction_payload(item) for item in rows]}
+    return {
+        "transactions": [cash_service.transaction_payload(session, item) for item in rows]
+    }
 
 
 @router.post("/companies/{company_id}/transactions")
@@ -130,7 +132,7 @@ def get_transaction(
     membership = tenant_of(request, session, user)
     row = cash_service._locked(session, membership, transaction_id, "read")
     wallet_service.open_company(session, user, row.company_id, settings_of(request), "read")
-    return cash_service.transaction_payload(row)
+    return cash_service.transaction_payload(session, row)
 
 
 @router.patch("/transactions/{transaction_id}")

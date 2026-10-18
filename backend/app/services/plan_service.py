@@ -18,7 +18,11 @@ from app.models.plan import (
     RecurrenceRule,
 )
 from app.security.access import BILLING_MANAGER, OPERATOR
-from app.services.cash_service import request_hash
+from app.services.cash_service import (
+    lock_transaction_for_match,
+    plan_allocated_on_cash,
+    request_hash,
+)
 from app.services.revenue_service import counterparty_id
 from app.services.wallet_service import open_company
 from sqlalchemy import func, select
@@ -69,6 +73,7 @@ def create_event(
     open_company(session, user, company.id, settings, "write")
     fingerprint = request_hash(
         {
+            "company_id": str(company.id),
             "direction": direction,
             "amount": amount,
             "due_date": due_date.isoformat(),
@@ -81,9 +86,9 @@ def create_event(
             "notes": notes,
         }
     )
-    remembered = _idempotent(session, user, CREATE_SCOPE, idempotency_key, fingerprint)
-    if remembered is not None:
-        return remembered.response_body
+    replay = _idempotent(session, user, CREATE_SCOPE, idempotency_key, fingerprint)
+    if replay is not None:
+        return _require_replay_company(replay.response_body, company.id)
     parsed = _amount(amount)
     _enums(direction, confidence, priority)
     _wallet(session, company, wallet_id)
@@ -213,20 +218,29 @@ def create_match(
     open_company(session, user, company.id, settings, "write")
     fingerprint = request_hash(
         {
+            "company_id": str(company.id),
             "event_id": str(event_id),
             "cash_transaction_id": str(cash_transaction_id),
             "amount": amount,
         }
     )
-    remembered = _idempotent(session, user, MATCH_SCOPE, idempotency_key, fingerprint)
-    if remembered is not None:
-        return remembered.response_body
-    event = _owned(session, membership, event_id)
-    if event.company_id != company.id or event.status == "cancelled":
+    replay = _idempotent(session, user, MATCH_SCOPE, idempotency_key, fingerprint)
+    if replay is not None:
+        return _require_replay_company(replay.response_body, company.id)
+    cash = lock_transaction_for_match(
+        session,
+        tenant_id=company.tenant_id,
+        company_id=company.id,
+        transaction_id=cash_transaction_id,
+    )
+    event = _lock_plan_event(
+        session,
+        tenant_id=company.tenant_id,
+        company_id=company.id,
+        event_id=event_id,
+    )
+    if event.status == "cancelled":
         raise AppError(404, "not_found", "Событие не найдено")
-    cash = session.get(CashTransaction, cash_transaction_id)
-    if cash is None or cash.tenant_id != company.tenant_id or cash.company_id != company.id:
-        raise AppError(404, "not_found", "Операция не найдена")
     if cash.status != "posted":
         raise AppError(422, "validation_error", "Связывать можно только проведённую операцию")
     if cash.direction != event.direction or cash.currency != event.currency:
@@ -511,6 +525,7 @@ def event_payload(session: Session, row: PlannedCashEvent, today: date) -> dict:
     overdue = row.status != "cancelled" and remaining > 0 and row.due_date < today
     return {
         "id": str(row.id),
+        "company_id": str(row.company_id),
         "direction": row.direction,
         "amount": money_str(row.amount),
         "matched": money_str(matched),
@@ -525,6 +540,7 @@ def event_payload(session: Session, row: PlannedCashEvent, today: date) -> dict:
         "version": row.version,
         "wallet_id": None if row.wallet_id is None else str(row.wallet_id),
         "notes": row.notes,
+        "match_links": _plan_match_links(session, row.id),
     }
 
 
@@ -585,14 +601,63 @@ def _guard_match(
 
 
 def _cash_used(session: Session, cash_transaction_id: uuid.UUID) -> Decimal:
-    value = session.scalar(
-        select(func.coalesce(func.sum(PaymentMatch.allocated_amount), 0)).where(
-            PaymentMatch.cash_transaction_id == cash_transaction_id
+    return plan_allocated_on_cash(session, cash_transaction_id)
+
+
+def _plan_match_links(session: Session, event_id: uuid.UUID) -> list[dict]:
+    rows = session.scalars(
+        select(PaymentMatch).where(PaymentMatch.event_id == event_id)
+    ).all()
+    links: list[dict] = []
+    for match in rows:
+        cash = session.get(CashTransaction, match.cash_transaction_id)
+        if cash is None:
+            continue
+        desc = cash.description or "операция"
+        label = f"{cash.business_date.isoformat()} {cash.direction} {desc}"
+        links.append(
+            {
+                "cash_transaction_id": str(cash.id),
+                "amount": money_str(match.allocated_amount),
+                "label": label.strip(),
+            }
         )
+    return links
+
+
+def _lock_plan_event(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    company_id: uuid.UUID,
+    event_id: uuid.UUID,
+) -> PlannedCashEvent:
+    row = session.scalar(
+        select(PlannedCashEvent)
+        .where(
+            PlannedCashEvent.id == event_id,
+            PlannedCashEvent.tenant_id == tenant_id,
+            PlannedCashEvent.company_id == company_id,
+        )
+        .with_for_update()
     )
-    if not isinstance(value, Decimal):
-        return Decimal("0.00")
-    return value
+    if row is None:
+        raise AppError(404, "not_found", "Событие не найдено")
+    return row
+
+
+def _require_replay_company(body: dict, company_id: uuid.UUID) -> dict:
+    stored = body.get("company_id")
+    if stored is None:
+        raise AppError(
+            409,
+            "idempotency_conflict",
+            "Ответ без привязки к фирме; повтор с тем же ключом небезопасен, "
+            "пока результат исходной операции не подтверждён",
+        )
+    if stored != str(company_id):
+        raise AppError(409, "idempotency_conflict", "Другой payload для того же ключа")
+    return body
 
 
 def _owned(session: Session, membership: Membership, event_id: uuid.UUID) -> PlannedCashEvent:

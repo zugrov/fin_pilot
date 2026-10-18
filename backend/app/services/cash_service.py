@@ -17,10 +17,12 @@ from app.models.cash import (
     Wallet,
 )
 from app.models.identity import AuditLog, Company, IdempotencyRecord, Membership, User
+from app.models.plan import PaymentMatch
+from app.models.revenue import RevenueCashMatch
 from app.security.access import OPERATOR
 from app.security.tokens import canonical_hash
 from app.services.wallet_service import visible_wallet
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 SCOPE = "cash-create"
@@ -139,7 +141,7 @@ def create_transaction(
     session.add(row)
     session.flush()
     _audit(session, user, company.tenant_id, "transaction_created", row.id, at)
-    payload = transaction_payload(row)
+    payload = transaction_payload(session, row)
     _remember(session, user, company.tenant_id, idempotency_key, request_hash, payload, at)
     return 200, payload
 
@@ -176,7 +178,7 @@ def update_transaction(
     row.updated_at = at
     session.flush()
     _audit(session, user, row.tenant_id, "transaction_updated", row.id, at)
-    return transaction_payload(row)
+    return transaction_payload(session, row)
 
 
 def void_transaction(
@@ -192,14 +194,14 @@ def void_transaction(
     if row.version != version:
         raise AppError(409, "version_conflict", "Операция уже изменена")
     if row.status == "void":
-        return transaction_payload(row)
+        return transaction_payload(session, row)
     _remember_revision(session, row, user, at)
     row.status = "void"
     row.version += 1
     row.updated_at = at
     session.flush()
     _audit(session, user, row.tenant_id, "transaction_void", row.id, at)
-    return transaction_payload(row)
+    return transaction_payload(session, row)
 
 
 def classify_transaction(
@@ -224,7 +226,7 @@ def classify_transaction(
     row.updated_at = at
     session.flush()
     _audit(session, user, row.tenant_id, "transaction_classified", row.id, at)
-    return transaction_payload(row)
+    return transaction_payload(session, row)
 
 
 def link_transfer(
@@ -338,7 +340,53 @@ def wallet_view(session: Session, wallet: Wallet, at: datetime) -> dict:
     }
 
 
-def transaction_payload(row: CashTransaction) -> dict:
+def lock_transaction_for_match(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    company_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+) -> CashTransaction:
+    row = session.scalar(
+        select(CashTransaction)
+        .where(
+            CashTransaction.id == transaction_id,
+            CashTransaction.tenant_id == tenant_id,
+            CashTransaction.company_id == company_id,
+        )
+        .with_for_update()
+    )
+    if row is None:
+        raise AppError(404, "not_found", "Операция не найдена")
+    return row
+
+
+def revenue_allocated_on_cash(session: Session, cash_transaction_id: uuid.UUID) -> Decimal:
+    value = session.scalar(
+        select(func.coalesce(func.sum(RevenueCashMatch.amount), 0)).where(
+            RevenueCashMatch.cash_transaction_id == cash_transaction_id
+        )
+    )
+    if not isinstance(value, Decimal):
+        return Decimal("0.00")
+    return value
+
+
+def plan_allocated_on_cash(session: Session, cash_transaction_id: uuid.UUID) -> Decimal:
+    value = session.scalar(
+        select(func.coalesce(func.sum(PaymentMatch.allocated_amount), 0)).where(
+            PaymentMatch.cash_transaction_id == cash_transaction_id
+        )
+    )
+    if not isinstance(value, Decimal):
+        return Decimal("0.00")
+    return value
+
+
+def transaction_payload(session: Session, row: CashTransaction) -> dict:
+    revenue_matched = revenue_allocated_on_cash(session, row.id)
+    plan_matched = plan_allocated_on_cash(session, row.id)
+    amount = row.amount
     return {
         "id": str(row.id),
         "company_id": str(row.company_id),
@@ -346,7 +394,7 @@ def transaction_payload(row: CashTransaction) -> dict:
         "business_date": row.business_date.isoformat(),
         "occurred_at": None if row.occurred_at is None else row.occurred_at.isoformat(),
         "direction": row.direction,
-        "amount": money_str(row.amount),
+        "amount": money_str(amount),
         "currency": row.currency,
         "category_id": None if row.category_id is None else str(row.category_id),
         "description": row.description,
@@ -354,6 +402,10 @@ def transaction_payload(row: CashTransaction) -> dict:
         "version": row.version,
         "transfer_group_id": None if row.transfer_group_id is None else str(row.transfer_group_id),
         "locked_classification": row.locked_classification,
+        "revenue_matched": money_str(revenue_matched),
+        "plan_matched": money_str(plan_matched),
+        "revenue_unallocated": money_str(amount - revenue_matched),
+        "plan_unallocated": money_str(amount - plan_matched),
     }
 
 

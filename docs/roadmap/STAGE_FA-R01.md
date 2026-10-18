@@ -1,6 +1,6 @@
 # FA-R01 · Безопасный сквозной пользовательский путь
 
-Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; **FA-R01.2 accepted** на `73319a7`; FA-R01.3 planned).
+Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; **FA-R01.2 accepted** на `73319a7`; **FA-R01.3 in_progress** локально).
 
 Зависимость: этап **FA-R00** принят (G0) — контракты и ADR, без обязательной
 реализации delivery.
@@ -55,7 +55,16 @@ calendar, alerts, wallets.
 FA-R00 (G0)
   └─ FA-R01.1 контекст firm
        ├─ FA-R01.2 счета и opening (UI; может трогать wallets API только если нет gap)
-       ├─ FA-R01.3 формы, idempotency, связи plan/revenue
+       ├─ FA-R01.3 формы, idempotency, связи plan/revenue (in_progress локально)
+
+### FA-R01.3 · контракт legacy Idempotency-Key
+
+Записи `idempotency_records`, сохранённые **до** появления `company_id` в fingerprint и в
+`response_body`, **не** считаются безопасным replay: при совпадении hash, но без `company_id`
+в ответе, API возвращает **409 idempotency_conflict** (результат исходной операции неизвестен).
+Смена fingerprint (добавлен `company_id`) для того же ключа даёт **409** без новой бизнес-записи.
+Повтор с тем же ключом в **другой** firm не возвращает чужой результат. Миграция старых записей
+не выполняется; отсутствие `company_id` в сохранённом ответе **не** доказывает доступ к firm.
        └─ FA-R01.4 приёмка пути (зависит от 1.1–1.3; Playwright)
 ```
 

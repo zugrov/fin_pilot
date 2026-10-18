@@ -10,7 +10,11 @@ from app.models.identity import AuditLog, Company, IdempotencyRecord, Membership
 from app.models.imports import SourceConnection
 from app.models.revenue import Counterparty, Direction, RevenueCashMatch, RevenueEntry
 from app.security.access import BILLING_MANAGER, OPERATOR
-from app.services.cash_service import request_hash
+from app.services.cash_service import (
+    lock_transaction_for_match,
+    request_hash,
+    revenue_allocated_on_cash,
+)
 from app.services.wallet_service import open_company
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -77,7 +81,7 @@ def list_revenue(
     rows = session.scalars(
         query.order_by(RevenueEntry.recognition_date.desc()).limit(limit).offset(offset)
     ).all()
-    return [entry_payload(item) for item in rows]
+    return [entry_payload(session, item) for item in rows]
 
 
 def create_revenue(
@@ -105,6 +109,7 @@ def create_revenue(
     open_company(session, user, company.id, settings, "write")
     fingerprint = request_hash(
         {
+            "company_id": str(company.id),
             "recognition_date": recognition_date.isoformat(),
             "document_number": document_number,
             "amount_ex_vat": amount_ex_vat,
@@ -114,12 +119,13 @@ def create_revenue(
             "vat_basis": vat_basis,
             "direction_code": direction_code,
             "counterparty_inn": counterparty_inn,
+            "counterparty_name": counterparty_name,
             "external_id": external_id,
         }
     )
-    remembered = _idempotent(session, user, CREATE_SCOPE, idempotency_key, fingerprint)
-    if remembered is not None:
-        return remembered.response_body
+    replay = _idempotent(session, user, CREATE_SCOPE, idempotency_key, fingerprint)
+    if replay is not None:
+        return _require_replay_company(replay.response_body, company.id)
     if entry_type not in {"sale", "return"}:
         raise AppError(422, "validation_error", "Некорректные поля продажи")
     ex_vat, vat, inc = _checked_amounts(amount_ex_vat, vat_amount, amount_inc_vat, vat_basis)
@@ -149,7 +155,7 @@ def create_revenue(
     )
     session.add(row)
     session.flush()
-    payload = entry_payload(row)
+    payload = entry_payload(session, row)
     _remember(
         session, user, company.tenant_id, CREATE_SCOPE, idempotency_key, fingerprint, payload, at
     )
@@ -181,7 +187,7 @@ def void_revenue(
     row.updated_at = at
     session.flush()
     _audit(session, user, row.tenant_id, "revenue_voided", row.id, at)
-    return entry_payload(row)
+    return entry_payload(session, row)
 
 
 def create_match(
@@ -201,22 +207,32 @@ def create_match(
     open_company(session, user, company.id, settings, "write")
     fingerprint = request_hash(
         {
+            "company_id": str(company.id),
             "revenue_entry_id": str(revenue_entry_id),
             "cash_transaction_id": str(cash_transaction_id),
             "amount": amount,
         }
     )
-    remembered = _idempotent(session, user, MATCH_SCOPE, idempotency_key, fingerprint)
-    if remembered is not None:
-        return remembered.response_body
-    entry = session.get(RevenueEntry, revenue_entry_id)
-    cash = session.get(CashTransaction, cash_transaction_id)
-    if entry is None or entry.company_id != company.id or entry.tenant_id != company.tenant_id:
-        raise AppError(404, "not_found", "Продажа не найдена")
-    if cash is None or cash.company_id != company.id or cash.tenant_id != company.tenant_id:
-        raise AppError(404, "not_found", "Операция не найдена")
+    replay = _idempotent(session, user, MATCH_SCOPE, idempotency_key, fingerprint)
+    if replay is not None:
+        return _require_replay_company(replay.response_body, company.id)
+    cash = lock_transaction_for_match(
+        session,
+        tenant_id=company.tenant_id,
+        company_id=company.id,
+        transaction_id=cash_transaction_id,
+    )
+    entry = _lock_revenue_entry(
+        session,
+        tenant_id=company.tenant_id,
+        company_id=company.id,
+        entry_id=revenue_entry_id,
+    )
     if entry.status != "posted" or cash.status != "posted":
         raise AppError(422, "validation_error", "Связь только у проведённых строк")
+    if entry.entry_type == "sale":
+        if cash.direction != "in" or cash.currency != "RUB":
+            raise AppError(422, "validation_error", "Продажу связывают с поступлением RUB")
     linked = _parse_positive(amount)
     _guard_match_amount(session, entry, cash, linked)
     row = RevenueCashMatch(
@@ -235,6 +251,7 @@ def create_match(
         raise AppError(409, "conflict", "Связь уже существует") from exc
     payload = {
         "id": str(row.id),
+        "company_id": str(company.id),
         "revenue_entry_id": str(entry.id),
         "cash_transaction_id": str(cash.id),
         "amount": money_str(row.amount),
@@ -278,7 +295,10 @@ def set_coverage(
     }
 
 
-def entry_payload(row: RevenueEntry) -> dict:
+def entry_payload(session: Session, row: RevenueEntry) -> dict:
+    matched = _matched_sum(session, revenue_entry_id=row.id, cash_transaction_id=None)
+    unallocated = money(row.amount_inc_vat - matched)
+    links = _revenue_match_links(session, row.id)
     return {
         "id": str(row.id),
         "company_id": str(row.company_id),
@@ -295,7 +315,66 @@ def entry_payload(row: RevenueEntry) -> dict:
         "version": row.version,
         "direction_id": None if row.direction_id is None else str(row.direction_id),
         "counterparty_id": None if row.counterparty_id is None else str(row.counterparty_id),
+        "matched_amount": money_str(matched),
+        "unallocated_amount": money_str(unallocated),
+        "match_links": links,
     }
+
+
+def _revenue_match_links(session: Session, revenue_entry_id: uuid.UUID) -> list[dict]:
+    rows = session.scalars(
+        select(RevenueCashMatch).where(RevenueCashMatch.revenue_entry_id == revenue_entry_id)
+    ).all()
+    links: list[dict] = []
+    for match in rows:
+        cash = session.get(CashTransaction, match.cash_transaction_id)
+        if cash is None:
+            continue
+        desc = cash.description or "операция"
+        label = f"{cash.business_date.isoformat()} {cash.direction} {desc}"
+        links.append(
+            {
+                "cash_transaction_id": str(cash.id),
+                "amount": money_str(match.amount),
+                "label": label.strip(),
+            }
+        )
+    return links
+
+
+def _lock_revenue_entry(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    company_id: uuid.UUID,
+    entry_id: uuid.UUID,
+) -> RevenueEntry:
+    row = session.scalar(
+        select(RevenueEntry)
+        .where(
+            RevenueEntry.id == entry_id,
+            RevenueEntry.tenant_id == tenant_id,
+            RevenueEntry.company_id == company_id,
+        )
+        .with_for_update()
+    )
+    if row is None:
+        raise AppError(404, "not_found", "Продажа не найдена")
+    return row
+
+
+def _require_replay_company(body: dict, company_id: uuid.UUID) -> dict:
+    stored = body.get("company_id")
+    if stored is None:
+        raise AppError(
+            409,
+            "idempotency_conflict",
+            "Ответ без привязки к фирме; повтор с тем же ключом небезопасен, "
+            "пока результат исходной операции не подтверждён",
+        )
+    if stored != str(company_id):
+        raise AppError(409, "idempotency_conflict", "Другой payload для того же ключа")
+    return body
 
 
 def counterparty_id(
@@ -413,7 +492,7 @@ def _guard_match_amount(
     if linked > entry.amount_inc_vat or linked > cash.amount:
         raise AppError(422, "validation_error", "Связь больше продажи или оплаты")
     revenue_used = _matched_sum(session, revenue_entry_id=entry.id, cash_transaction_id=None)
-    cash_used = _matched_sum(session, revenue_entry_id=None, cash_transaction_id=cash.id)
+    cash_used = revenue_allocated_on_cash(session, cash.id)
     if revenue_used + linked > entry.amount_inc_vat:
         raise AppError(422, "validation_error", "Связи превышают продажу")
     if cash_used + linked > cash.amount:

@@ -198,14 +198,41 @@ export type OpeningBalanceResult = {
   status: string;
 };
 
+export type MatchLink = {
+  cash_transaction_id: string;
+  amount: string;
+  label: string;
+};
+
 export type RevenueEntry = {
   id: string;
+  company_id?: string;
   recognition_date: string;
   document_number: string | null;
+  external_id?: string | null;
   amount_ex_vat: string | null;
+  vat_amount?: string | null;
   amount_inc_vat: string;
   entry_type: string;
   status: string;
+  matched_amount?: string;
+  unallocated_amount?: string;
+  match_links?: MatchLink[];
+};
+
+export type CashTransactionRow = {
+  id: string;
+  company_id: string;
+  business_date: string;
+  direction: string;
+  amount: string;
+  currency: string;
+  description: string;
+  status: string;
+  revenue_matched?: string;
+  plan_matched?: string;
+  revenue_unallocated?: string;
+  plan_unallocated?: string;
 };
 
 export type Source = {
@@ -307,19 +334,59 @@ export function loadRevenue(companyId: string) {
   return request<{ entries: RevenueEntry[] }>(`/api/v1/companies/${companyId}/revenue`);
 }
 
-export function createRevenue(companyId: string, amountInc: string, amountEx: string, vat: string) {
-  return request<RevenueEntry>(`/api/v1/companies/${companyId}/revenue`, {
+export function createRevenue(
+  companyId: string,
+  body: {
+    recognition_date: string;
+    amount_inc_vat: string;
+    amount_ex_vat: string;
+    vat_amount: string;
+    document_number?: string;
+    external_id?: string;
+  },
+  idempotencyKey: string,
+) {
+  return walletRequest<RevenueEntry>(`/api/v1/companies/${companyId}/revenue`, {
     method: "POST",
-    headers: { "Idempotency-Key": crypto.randomUUID() },
+    headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({
-      recognition_date: new Date().toISOString().slice(0, 10),
-      amount_ex_vat: amountEx,
-      vat_amount: vat,
-      amount_inc_vat: amountInc,
+      ...body,
       entry_type: "sale",
       vat_basis: "net",
     }),
   });
+}
+
+export function createRevenueCashMatch(
+  companyId: string,
+  revenueEntryId: string,
+  cashTransactionId: string,
+  amount: string,
+  idempotencyKey: string,
+) {
+  return walletRequest<{
+    id: string;
+    company_id: string;
+    revenue_entry_id: string;
+    cash_transaction_id: string;
+    amount: string;
+  }>("/api/v1/revenue-cash-matches", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({
+      company_id: companyId,
+      revenue_entry_id: revenueEntryId,
+      cash_transaction_id: cashTransactionId,
+      amount,
+    }),
+  });
+}
+
+export function loadTransactions(companyId: string, status = "posted") {
+  const query = new URLSearchParams({ status, limit: "100" });
+  return request<{ transactions: CashTransactionRow[] }>(
+    `/api/v1/companies/${companyId}/transactions?${query.toString()}`,
+  );
 }
 
 export function loadSources(companyId: string) {
@@ -328,14 +395,17 @@ export function loadSources(companyId: string) {
 
 export type PlanEvent = {
   id: string;
+  company_id?: string;
   direction: string;
   amount: string;
+  matched?: string;
   remaining: string;
   due_date: string;
   expected_date: string;
   status: string;
   overdue: boolean;
   version: number;
+  match_links?: MatchLink[];
 };
 
 export type Forecast = {
@@ -365,17 +435,42 @@ export function loadCalendar(companyId: string) {
   return request<{ events: PlanEvent[] }>(`/api/v1/companies/${companyId}/calendar`);
 }
 
-export function createPlanEvent(companyId: string, amount: string, day: string) {
-  return request<PlanEvent>(`/api/v1/companies/${companyId}/planned-cash`, {
+export function createPlanEvent(
+  companyId: string,
+  body: {
+    direction: "in" | "out";
+    amount: string;
+    due_date: string;
+    expected_date: string;
+  },
+  idempotencyKey: string,
+) {
+  return walletRequest<PlanEvent>(`/api/v1/companies/${companyId}/planned-cash`, {
     method: "POST",
-    headers: { "Idempotency-Key": crypto.randomUUID() },
+    headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({
-      direction: "out",
-      amount,
-      due_date: day,
-      expected_date: day,
+      ...body,
       confidence: "expected",
       priority: "normal",
+    }),
+  });
+}
+
+export function createPlanPaymentMatch(
+  companyId: string,
+  eventId: string,
+  cashTransactionId: string,
+  amount: string,
+  idempotencyKey: string,
+) {
+  return walletRequest<PlanEvent>("/api/v1/payment-matches", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({
+      company_id: companyId,
+      event_id: eventId,
+      cash_transaction_id: cashTransactionId,
+      amount,
     }),
   });
 }

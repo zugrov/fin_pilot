@@ -18,8 +18,8 @@
   },
   "current_stage": "FA-R01",
   "current_task": "FA-R01.3",
-  "status": "ready",
-  "allowed_next_action": "FA-R01.3 (planned, не начата): следующая задача требует отдельного разрешения владельца; продуктовый код автоматически не начинать.",
+  "status": "in_progress",
+  "allowed_next_action": "FA-R01.3: локальная реализация форм/idempotency/сопоставлений; commit/push/deploy — только по отдельному разрешению.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -154,8 +154,14 @@
         {
           "id": "FA-R01.3",
           "title": "Формы и сопоставления",
-          "status": "planned",
-          "evidence": []
+          "status": "in_progress",
+          "evidence": [
+            "локально 2026-10-18: frontend vitest 89 passed + npm run build",
+            "backend Ruff + Mypy green; pytest 276 passed (backup_restore skipped локально, pg_dump 5433)",
+            "tests/integration/test_sales_plan_matching.py: 17 сценариев (4 actions idempotency, concurrency, legacy)",
+            "browser smoke mock sales-plan-lifecycle-mock@127.0.0.1:8000 + Vite 5173: Sales create/match/partial/unknown-retry; Calendar due≠expected, plan match/partial/links",
+            "mock не доказывает backend/RLS; legacy idempotency без company_id → 409 (STAGE_FA-R01.md)"
+          ]
         },
         {
           "id": "FA-R01.4",
@@ -1078,7 +1084,7 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R01.1 accepted (e70612d). FA-R01.2 accepted (73319a7, 2026-10-18): пакет 1 на 93428b7 сохранён; пакет 2 balances.csv принят со staging smoke. FA-R01 in_progress; current_task FA-R01.3 planned; status ready. backup/restore локально не подтверждён.",
+  "note": "FA-R01.1 accepted (e70612d). FA-R01.2 accepted (73319a7, 2026-10-18). FA-R01.3 in_progress локально (формы/idempotency/сопоставления); local_verified для R01.3 не выставлен. backup/restore локально: pg_dump 5433 refused.",
   "updated_at": "2026-10-18",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
