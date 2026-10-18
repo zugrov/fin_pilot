@@ -251,7 +251,9 @@ wallet/opening на существующей таблице `idempotency_records
 
 **Staging deploy 2026-10-18 (ff96bc5, balances=false):** свежий encrypted backup `finpilot-staging-pre-balances-20261018T093953Z.tar.enc` (SHA `d1970ecd…`, 5 вложений, verify без полного restore); offsite Mac; passphrase-файл удалён после копии. Миграция `20261017_0010`; api `recovery-ff96bc5`, frontend `release-ff96bc5`, override `/var/tmp/finpilot-release-ff96bc5/compose.override.yml`; rollback-теги `*-pre-ff96bc5-20261018T094029Z`; worker/beat не пересоздавались (образ `c7ff510`). Read-only smoke OK; gate 503 на create balances source. **Пакет 2 не accepted**; `BALANCES_IMPORT_ENABLED` не включали.
 
-**Корректирующий пакет (локально, post-deploy):** дефект — `refresh-preview` для balances пересчитывал строки через `_amount_from_raw`/`_date_from_raw` (тихое `money()` округление, `errors=()`). **Исправлено:** единая `normalize_balances_line` для upload/refresh; строгая дата `YYYY-MM-DD`; NaN/Inf; отрицательные суммы как opening `positive=False`; preview API/UI: `wallet_code`, `currency`, `company_timezone`, before/after `effective_at` с серверным offset. Staging/deploy/balances gate **не** менялись.
+**Корректирующий пакет (73319a7):** refresh balances через единую `normalize_balances_line`; preview wallet_code/currency/timezone. CI `39119642860` success.
+
+**Release pass пакета 2 (73319a7):** recovery-image-smoke → artifact `finpilot-api-recovery-73319a7-linux-amd64`; staging deploy + gate=true + browser write-smoke — по отдельному разрешению (этот проход). **Accepted** — только владелец.
 
 **Целевой артеfact (локально, когда Docker доступен):**
 

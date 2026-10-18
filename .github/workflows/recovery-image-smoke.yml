@@ -7,8 +7,8 @@ permissions:
   contents: read
 
 env:
-  SOURCE_SHA: ff96bc5e9a01fd6a9f0f4b106403f8517a2b9624
-  IMAGE_TAG: finpilot-api:recovery-ff96bc5
+  SOURCE_SHA: 73319a7dc13a1bae33d0468a2468047afffed891
+  IMAGE_TAG: finpilot-api:recovery-73319a7
   BUILD_PLATFORM: linux/amd64
 
 jobs:
@@ -54,6 +54,8 @@ jobs:
           sha256sum \
             app/config.py \
             app/services/import_service.py \
+            app/domain/imports/balances_reader.py \
+            app/services/balances_import.py \
             alembic/sql/0010_balances_dataset.sql \
             alembic/sql/0010_balances_dataset_downgrade.sql \
             > "${{ runner.temp }}/source-checksums.txt"
@@ -132,6 +134,8 @@ jobs:
           files = (
               "app/config.py",
               "app/services/import_service.py",
+              "app/domain/imports/balances_reader.py",
+              "app/services/balances_import.py",
               "alembic/sql/0010_balances_dataset.sql",
               "alembic/sql/0010_balances_dataset_downgrade.sql",
           )
@@ -173,7 +177,7 @@ jobs:
 
       - name: Export image artifact
         run: |
-          out="${{ runner.temp }}/finpilot-api-recovery-ff96bc5-linux-amd64.tar.gz"
+          out="${{ runner.temp }}/finpilot-api-recovery-73319a7-linux-amd64.tar.gz"
           docker save "${{ env.IMAGE_TAG }}" | gzip -9 > "$out"
           sha256sum "$out" | tee "${{ runner.temp }}/recovery-image.sha256"
           ls -lh "$out"
@@ -181,9 +185,9 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: finpilot-api-recovery-ff96bc5-linux-amd64
+          name: finpilot-api-recovery-73319a7-linux-amd64
           path: |
-            ${{ runner.temp }}/finpilot-api-recovery-ff96bc5-linux-amd64.tar.gz
+            ${{ runner.temp }}/finpilot-api-recovery-73319a7-linux-amd64.tar.gz
             ${{ runner.temp }}/recovery-image.sha256
             ${{ runner.temp }}/recovery-manifest.txt
             ${{ runner.temp }}/source-checksums.txt

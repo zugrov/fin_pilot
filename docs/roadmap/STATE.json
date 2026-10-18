@@ -19,7 +19,7 @@
   "current_stage": "FA-R01",
   "current_task": "FA-R01.2",
   "status": "in_progress",
-  "allowed_next_action": "FA-R01.2 in_progress: staging ff96bc5, schema 0010, gate=false; корректирующий пакет refresh/preview в репозитории после CI; пакет 2 не accepted; включение balances и file write-smoke на staging — отдельное решение.",
+  "allowed_next_action": "FA-R01.2 release pass: recovery image 73319a7, staging update и browser smoke — in_progress; пакет 2 не accepted до решения владельца.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
