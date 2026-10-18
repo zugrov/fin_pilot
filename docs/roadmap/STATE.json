@@ -17,9 +17,9 @@
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
   "current_stage": "FA-R01",
-  "current_task": "FA-R01.3",
-  "status": "in_progress",
-  "allowed_next_action": "FA-R01.3 local_verified (browser mock): приёмка владельцем и recovery-image по 7ee85e5 — отдельно; FA-R01.4/staging/deploy не начинать без разрешения.",
+  "current_task": "FA-R01.4",
+  "status": "ready",
+  "allowed_next_action": "FA-R01.4 приёмка пути (Playwright): только после отдельного разрешения владельца; код, deploy, staging и внешние интеграции не начинать автоматически.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -154,22 +154,28 @@
         {
           "id": "FA-R01.3",
           "title": "Формы и сопоставления",
-          "status": "local_verified",
-          "local_verified_scope": "browser на sales-plan-lifecycle-mock@127.0.0.1:8000 + Vite 5173; не backend/RLS; не accepted; не deployed",
-          "product_sha": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
+          "status": "accepted",
+          "accepted_product_sha": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
+          "accepted_at": "2026-10-18",
           "evidence": [
-            "локально 2026-10-18: frontend vitest 89 passed + npm run build",
-            "backend Ruff + Mypy green; pytest 276 passed (backup_restore skipped локально, pg_dump 5433)",
-            "tests/integration/test_sales_plan_matching.py: 17 сценариев (4 actions idempotency, concurrency, legacy)",
-            "browser 2026-10-18: plan create DROP→retry key 8ecc98de… result plan-f4105e71; revenue match DROP→retry 5f13c670… rcm-4881c1d7; plan match DROP→retry 05aef509… pm-c4dfc3d2; plan_matches=1",
-            "mock post-log/journal DROP+REPLAY; revenue create unknown не перегонялся в этом проходе",
-            "legacy idempotency без company_id → 409 (STAGE_FA-R01.md)"
+            "CI продуктового SHA 7ee85e5: frontend vitest 89 + build; backend Ruff/Mypy green; pytest 276 passed (backup_restore локально pg_dump 5433)",
+            "tests/integration/test_sales_plan_matching.py: 17 сценариев (idempotency 4 actions, concurrency, legacy 409)",
+            "browser mock lifecycle 2026-10-18 (sales-plan-lifecycle-mock@127.0.0.1:8000): plan create, revenue match, plan match DROP→retry; revenue create unknown ранее",
+            "recovery-image run 39133083054: artifact finpilot-api-recovery-7ee85e5-linux-amd64, SHA tarball сверен, linux/amd64",
+            "staging deploy 7ee85e5: override /var/tmp/finpilot-release-7ee85e5/compose.override.yml; api recovery-7ee85e5; frontend release-7ee85e5; schema 20261017_0010; gate true",
+            "staging read-only smoke: auth/me 200; firm Top; sales/calendar/wallets/import-balances/forecast/budget/alerts; reload firm",
+            "staging write-smoke: create revenue + revenue match + create plan + plan match; 4× fetch replay без доп. записей и бизнес-audit",
+            "partial match 0.50 / remaining 1.50; dates/links после reload; cash_transactions 5→5; cash_total 80499.50; revenue ex-VAT oct 20000→20002 на staging",
+            "staging baseline revenue oct 20002.00 после приёмочных записей; синтетическая регрессионная фикстура 20000.00 не переписывалась",
+            "forecast/alerts POST-пересчёта не было; сохранённый расчёт alerts не объявлялся новым",
+            "legacy FA-R01.1/1.2 продажи/планы/FA-R01.2 артефакты без изменений",
+            "приёмочные IDs на staging: revenue 4a2620cf-…; rev match faf5f930-…; plan 3fdb8da9-… (due 2026-10-25, expected 2026-10-27); plan match bf5ad3e2-…"
           ]
         },
         {
           "id": "FA-R01.4",
           "title": "Приёмка пути",
-          "status": "planned",
+          "status": "ready",
           "evidence": []
         }
       ],
@@ -685,12 +691,13 @@
     "at": "2026-10-18",
     "from_stage": "FA-R01",
     "to_stage": "FA-R01",
-    "from_task": "FA-R01.2",
-    "to_task": "FA-R01.3",
+    "from_task": "FA-R01.3",
+    "to_task": "FA-R01.4",
     "fa_r00": "accepted",
     "g0": "accepted",
     "fa_r01_1": "accepted",
-    "fa_r01_2": "accepted"
+    "fa_r01_2": "accepted",
+    "fa_r01_3": "accepted"
   },
   "fa_r01_1_acceptance": {
     "accepted_product_sha": "e70612da585c4718881b2ab30acc9bbf74702e2a",
@@ -827,8 +834,46 @@
       "status": "accepted",
       "by": "owner",
       "basis": "packages 1 (93428b7) and 2 (73319a7) accepted; accepted_product_sha 73319a7dc13a1bae33d0468a2468047afffed891"
+    },
+    {
+      "at": "2026-10-18",
+      "task": "FA-R01.3",
+      "status": "accepted",
+      "by": "owner",
+      "basis": "product SHA 7ee85e501735efcfa449ad8f44ef11258e5e4cf2; CI; mock lifecycle 4 actions; recovery-image; staging deploy/read/write smoke; 4 replay; acceptance artifacts preserved on staging"
     }
   ],
+  "fa_r01_3_acceptance": {
+    "accepted_product_sha": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
+    "accepted_at": "2026-10-18",
+    "recovery_image_run": {
+      "run_id": 39133083054,
+      "artifact_sha256": "5d0910507b29198c457f8cbc8a507e45f9255459fa83c2776dfc38a9a779d507",
+      "conclusion": "success"
+    },
+    "staging_deployed": true,
+    "staging_acceptance_artifacts": {
+      "company_id": "2f346a28-da63-4ab1-a9e8-611fe7e2dd7d",
+      "revenue_entry_id": "4a2620cf-2fbe-4034-aef8-469efeaaaeae",
+      "revenue_cash_match_id": "faf5f930-211c-4b00-8c21-a7a1fa285b71",
+      "plan_event_id": "3fdb8da9-d7ce-480b-90cb-b2e676be9de4",
+      "payment_match_id": "bf5ad3e2-457d-46db-9359-affe120c5f94",
+      "plan_amount": "2.00",
+      "plan_matched": "0.50",
+      "plan_remaining": "1.50",
+      "plan_due_date": "2026-10-25",
+      "plan_expected_date": "2026-10-27",
+      "external_id": "FA-R01-3-WS-EXT-001"
+    },
+    "staging_baseline_after_acceptance": {
+      "cash_transactions_posted": 5,
+      "overview_cash_total": "80499.50",
+      "overview_revenue_ex_vat_october": "20002.00",
+      "note": "отличается от неизменённой синтетической регрессионной фикстуры (20000.00)"
+    },
+    "forecast_alerts_recalculated": false,
+    "fa_r01_4_started": false
+  },
   "fa_r01_2_package_1_acceptance": {
     "accepted_product_sha": "93428b758fc581c35b8da933423b11e731a15b90",
     "accepted_at": "2026-10-17",
@@ -1027,6 +1072,40 @@
         "package_2_accepted_at": "2026-10-18",
         "fa_r01_2_accepted": true
       },
+      "staging_deploy_7ee85e5_2026_10_18": {
+        "product_sha": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
+        "ci_run": "39133083054",
+        "artifact_id": "12138821203",
+        "artifact_sha256": "5d0910507b29198c457f8cbc8a507e45f9255459fa83c2776dfc38a9a779d507",
+        "api_image": "finpilot-api:recovery-7ee85e5",
+        "api_image_id_vps": "sha256:d5520080a1cd6c731bcdee102ca00dfa0098622c076b58e6ea2946b1cacd55ae",
+        "frontend_image": "finpilot-frontend:release-7ee85e5",
+        "compose_override": "/var/tmp/finpilot-release-7ee85e5/compose.override.yml",
+        "rollback_tags": "finpilot-api:staging-pre-7ee85e5-20261018T141340Z; finpilot-frontend:staging-pre-7ee85e5-20261018T141340Z",
+        "previous_product_sha": "73319a7dc13a1bae33d0468a2468047afffed891",
+        "schema_unchanged": "20261017_0010",
+        "balances_gate_runtime": true,
+        "migrations_run": false,
+        "browser_smoke_read_only": "2026-10-18: auth/me 200; firm Top; sales/calendar/wallets/import-balances/forecast/budget/alerts/telegram/billing; reload firm ok",
+        "write_smoke_2026_10_18": {
+          "revenue_entry_id": "4a2620cf-2fbe-4034-aef8-469efeaaaeae",
+          "revenue_cash_match_id": "faf5f930-211c-4b00-8c21-a7a1fa285b71",
+          "plan_event_id": "3fdb8da9-d7ce-480b-90cb-b2e676be9de4",
+          "payment_match_id": "bf5ad3e2-457d-46db-9359-affe120c5f94",
+          "external_id": "FA-R01-3-WS-EXT-001",
+          "cash_in": "1e0eb0fc-a706-4787-9052-e0d101cb082d",
+          "cash_out": "bdda02a5-92ad-4533-b788-fd1858972961",
+          "idempotency_replay": "4x fetch replay OK, audit +1 per operation type",
+          "cash_tx_count": 5,
+          "overview_cash_total": "80499.50",
+          "overview_revenue_ex_vat_oct": "20002.00"
+        },
+        "fa_r01_3_accepted": true,
+        "fa_r01_3_deployed": true,
+        "fa_r01_3_accepted_at": "2026-10-18",
+        "package_2_accepted": true,
+        "fa_r01_2_accepted": true
+      },
       "balances_refresh_preview_fix_2026_10_18": {
         "defect": "refresh-preview balances: отдельный parse без ошибок, money() округлял invalid precision",
         "status": "fixed",
@@ -1087,7 +1166,7 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R01.1 accepted (e70612d). FA-R01.2 accepted (73319a7, 2026-10-18). FA-R01.3 local_verified 2026-10-18 (browser mock, product 7ee85e5); не accepted/deployed. recovery-image 7ee85e5 — по зелёному workflow. backup/restore локально: pg_dump 5433 refused.",
+  "note": "FA-R01.1 accepted (e70612d). FA-R01.2 accepted (73319a7, 2026-10-18). FA-R01.3 accepted (7ee85e5, 2026-10-18): mock lifecycle, staging deploy, read/write smoke. current_task FA-R01.4 ready — код только по разрешению. backup/restore локально: pg_dump 5433 refused.",
   "updated_at": "2026-10-18",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",

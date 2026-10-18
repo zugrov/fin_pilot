@@ -1,6 +1,6 @@
 # FA-R01 · Безопасный сквозной пользовательский путь
 
-Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; **FA-R01.2 accepted** на `73319a7`; **FA-R01.3 local_verified** на mock, не accepted/deployed).
+Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; **FA-R01.2 accepted** на `73319a7`; **FA-R01.3 accepted** на `7ee85e5`, 2026-10-18; **FA-R01.4** — `ready`, не начата).
 
 Зависимость: этап **FA-R00** принят (G0) — контракты и ADR, без обязательной
 реализации delivery.
@@ -55,7 +55,7 @@ calendar, alerts, wallets.
 FA-R00 (G0)
   └─ FA-R01.1 контекст firm
        ├─ FA-R01.2 счета и opening (UI; может трогать wallets API только если нет gap)
-       ├─ FA-R01.3 формы, idempotency, связи plan/revenue (local_verified на mock)
+       ├─ FA-R01.3 формы, idempotency, связи plan/revenue (accepted на 7ee85e5)
 
 ### FA-R01.3 · browser lifecycle (mock, 2026-10-18)
 
@@ -70,6 +70,31 @@ FA-R00 (G0)
 Для каждого: заблокированы поля и смена фирмы в unknown; явная кнопка повтора; тот же payload/key; без второй записи в `post-log`.
 
 **Recovery-image (docs/workflow):** `SOURCE_SHA=7ee85e5`, tag `finpilot-api:recovery-7ee85e5`, artifact `finpilot-api-recovery-7ee85e5-linux-amd64`, platform `linux/amd64`; checksums расширены `revenue_service.py`, `plan_service.py`, `cash_service.py` (balances-файлы сохранены). Статус сборки — только после зелёного `recovery-image-smoke`.
+
+### FA-R01.3 · staging deploy (read-only smoke, 2026-10-18)
+
+**Продуктовый SHA:** `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`. **VPS:** beget, `finpilot-staging`, override `/var/tmp/finpilot-release-7ee85e5/compose.override.yml`. API `finpilot-api:recovery-7ee85e5` (artifact run 39133083054, SHA tarball сверен), frontend `release-7ee85e5` (сборка на VPS из checkout без reset --hard). Worker/beat/postgres/redis/proxy не менялись; read-only smoke до write. Откат api/frontend: `staging-pre-7ee85e5-20261018T141340Z` → пара 73319a7.
+
+### FA-R01.3 · staging write-smoke (2026-10-18) · в evidence приёмки
+
+Контролируенный write на **7ee85e5**, фирма «Топ»: create revenue / revenue match / create plan / plan match; по одному **fetch-replay** на каждый POST (без доп. записей и бизнес-audit). **cash tx = 5**; обзор **80499.50**; выручка без НДС окт на staging **20002.00** (было **20000.00** до write-smoke). **Forecast/alerts** POST-пересчётом не обновлялись.
+
+### FA-R01.3 · принят (product SHA `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`, 2026-10-18)
+
+**Приёмка владельцем:** mock lifecycle четырёх действий, recovery-image, staging deploy, read-only и controlled write-smoke с replay.
+
+**Приёмочные артефакты на staging (не удалять, не изменять):**
+
+| Роль | ID / значение |
+| --- | --- |
+| revenue | `4a2620cf-2fbe-4034-aef8-469efeaaaeae` (ext `FA-R01-3-WS-EXT-001`) |
+| revenue match | `faf5f930-211c-4b00-8c21-a7a1fa285b71` (0.50 → cash `1e0eb0fc-a706-4787-9052-e0d101cb082d`) |
+| plan (out) | `3fdb8da9-d7ce-480b-90cb-b2e676be9de4` — amount **2.00**, matched **0.50**, remaining **1.50**, due **2026-10-25**, expected **2026-10-27** |
+| plan match | `bf5ad3e2-457d-46db-9359-affe120c5f94` (0.50 → cash `bdda02a5-92ad-4533-b788-fd1858972961`) |
+
+**Baseline staging vs тесты:** текущий staging после приёмочных записей показывает выручку без НДС за октябрь **20002.00**. Исходная **синтетическая регрессионная фикстура** (ожидание **20000.00** в автотестах) остаётся отдельным набором и **не** переписывалась под staging.
+
+**Без изменений:** учебные продажи/планы до write-smoke, FA-R01.2 wallets/import/opening, T-BANK `dd1295af-f861-4389-b654-75bdf79aaab0`, smoke wallet `6337cbaf-5800-4273-8dcd-3c064caaf822`.
 
 ### FA-R01.3 · контракт legacy Idempotency-Key
 
