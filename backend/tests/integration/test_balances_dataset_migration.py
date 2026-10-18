@@ -12,6 +12,7 @@ from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import BACKEND
 from tests.integration.test_balances_import import _balances_source, _ready
 
+HEAD = "20261018_0011"
 REVISION = "20261017_0010"
 PREV = "20261014_0009"
 
@@ -151,7 +152,7 @@ def _run_alembic(action: str, revision: str) -> None:
 @pytest.fixture
 def restore_head(migrated_database):
     yield
-    if _current_revision(migrated_database) != REVISION:
+    if _current_revision(migrated_database) != HEAD:
         _run_alembic("upgrade", "head")
 
 
@@ -188,7 +189,7 @@ def test_downgrade_blocked_when_balances_source_exists(
     with pytest.raises(Exception) as exc:
         _run_alembic("downgrade", PREV)
     assert "downgrade_blocked" in str(exc.value)
-    assert _current_revision(migrated_database) == REVISION
+    assert _current_revision(migrated_database) == HEAD
     assert _constraint_allows(migrated_database, "balances")
     with admin.connect() as connection:
         count = connection.execute(
@@ -251,8 +252,8 @@ def test_migration_upgrade_lock_timeout_live(migrated_database, restore_head) ->
     assert "balances" not in definition
     assert "'budget'" in definition
 
-    _run_alembic("upgrade", REVISION)
-    assert _current_revision(migrated_database) == REVISION
+    _run_alembic("upgrade", "head")
+    assert _current_revision(migrated_database) == HEAD
     assert _constraint_allows(migrated_database, "balances")
     assert "balances" in _constraint_definition(migrated_database)
 
@@ -271,4 +272,4 @@ def test_migration_sql_timeouts_lock_and_downgrade_guard(migrated_database, rest
     )
     assert "downgrade_blocked" in downgrade_sql
     assert downgrade_sql.index("downgrade_blocked") < downgrade_sql.index("DROP CONSTRAINT")
-    assert _current_revision(migrated_database) == REVISION
+    assert _current_revision(migrated_database) == HEAD

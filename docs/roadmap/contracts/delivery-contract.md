@@ -1,9 +1,10 @@
 # Контракт логической доставки (IngestionDelivery)
 
-Статус: **проект FA-R00.4**. Не DDL и не API приложения.
+Статус: **проект FA-R00.4** + **реализация FA-R02.1** (см. ниже). Не полный envelope API.
 
-`IngestionDelivery` — проектное имя транспортной сущности. В PostgreSQL
-и Python его **нет**. Связь с as-is: один файл ≈ один `ImportBatch`;
+`IngestionDelivery` — транспортная сущность (с **R02.1** есть в PostgreSQL/Python).
+Связь с as-is: один файл ≈ один `ImportBatch` по `file_hash`; повторная доставка того же
+байтового содержимого — новый delivery/part, тот же batch без повторного parse/commit.
 почта ≈ `EmailIngestion` + batch после `receive_import`.
 
 ## 1. Идентификаторы

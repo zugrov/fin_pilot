@@ -53,6 +53,38 @@ class ImportProfile(Base):
     schema_version: Mapped[int] = mapped_column(Integer, default=1)
 
 
+class IngestionDelivery(Base):
+    __tablename__ = "ingestion_deliveries"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    company_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    connection_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    channel: Mapped[str] = mapped_column(String(16))
+    delivery_key: Mapped[str] = mapped_column(String(200))
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
+    transport_status: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class IngestionDeliveryPart(Base):
+    __tablename__ = "ingestion_delivery_parts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    delivery_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    company_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    connection_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    part_index: Mapped[int] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    part_status: Mapped[str] = mapped_column(String(16))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ImportBatch(Base):
     __tablename__ = "import_batches"
 
@@ -60,6 +92,7 @@ class ImportBatch(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     company_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     connection_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    delivery_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     file_hash: Mapped[str] = mapped_column(String(64))
     file_storage_key: Mapped[str] = mapped_column(Text)
     format: Mapped[str] = mapped_column(String(16))
@@ -114,6 +147,7 @@ class EmailIngestion(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     connection_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     batch_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    delivery_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     uidvalidity: Mapped[int] = mapped_column(BigInteger)
     uid: Mapped[int] = mapped_column(BigInteger)
     message_id: Mapped[str | None] = mapped_column(Text)

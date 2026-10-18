@@ -27,6 +27,7 @@ from app.models.imports import (
     EmailIngestion,
     ImportBatch,
     ImportProfile,
+    IngestionDeliveryPart,
     RawImportRow,
     SourceConnection,
     SourceIdentity,
@@ -52,6 +53,18 @@ from app.services.budget_import import (
     revise_imported as revise_budget_row,
 )
 from app.services.cash_service import _audit, _remember_revision
+from app.services.ingestion_delivery_service import (
+    PART_PREVIEW,
+    TransportContext,
+    attach_delivery_id,
+    content_digest,
+    get_or_create_part,
+    link_part_to_batch,
+    refresh_delivery_transport_status,
+    resolve_delivery,
+    ui_delivery_key,
+    ui_request_fingerprint,
+)
 from app.services.plan_import import (
     create_imported as create_plan_row,
 )
@@ -201,7 +214,7 @@ def list_sources(session: Session, company: Company) -> list[dict]:
     return [_source_payload(item) for item in rows]
 
 
-def receive_import(
+def upload_file(
     session: Session,
     membership: Membership,
     company: Company,
@@ -218,12 +231,83 @@ def receive_import(
     if len(content) > settings.import_max_bytes:
         raise AppError(413, "payload_too_large", "Файл больше лимита")
     connection = _connection(session, company, connection_id)
-    _require_balances_import_enabled(settings, connection.dataset)
-    digest = hashlib.sha256(content).hexdigest()
+    digest = content_digest(content)
     fingerprint = canonical_hash(f"{connection.id}:{digest}")
     remembered = _idempotent(session, user, idempotency_key, fingerprint)
     if remembered is not None:
         return remembered.response_body
+
+    try:
+        with session.begin_nested():
+            delivery = resolve_delivery(
+                session,
+                company,
+                connection,
+                channel="ui",
+                delivery_key=ui_delivery_key(user.id, idempotency_key),
+                request_fingerprint=ui_request_fingerprint(connection.id, digest),
+                at=at,
+            )
+            part = get_or_create_part(
+                session,
+                delivery,
+                part_index=1,
+                content_hash=digest,
+                at=at,
+            )
+            if part.part_status == PART_PREVIEW and part.batch_id is not None:
+                batch = session.get(ImportBatch, part.batch_id)
+                if batch is not None:
+                    payload = attach_delivery_id(_payload(session, batch), delivery.id)
+                    refresh_delivery_transport_status(session, delivery.id, at)
+                    return payload
+            transport = TransportContext(delivery_id=delivery.id, part_id=part.id)
+            payload = receive_import(
+                session,
+                membership,
+                company,
+                user,
+                settings,
+                connection_id=connection_id,
+                content=content,
+                idempotency_key=idempotency_key,
+                at=at,
+                transport=transport,
+                skip_http_idempotency=True,
+            )
+            refresh_delivery_transport_status(session, delivery.id, at)
+    except AppError:
+        raise
+    _remember(session, user, company.tenant_id, idempotency_key, fingerprint, payload, at)
+    return payload
+
+
+def receive_import(
+    session: Session,
+    membership: Membership,
+    company: Company,
+    user: User,
+    settings: Settings,
+    *,
+    connection_id: uuid.UUID,
+    content: bytes,
+    idempotency_key: str,
+    at: datetime,
+    transport: TransportContext | None = None,
+    skip_http_idempotency: bool = False,
+) -> dict:
+    _deny(membership)
+    open_company(session, user, company.id, settings, "write")
+    if len(content) > settings.import_max_bytes:
+        raise AppError(413, "payload_too_large", "Файл больше лимита")
+    connection = _connection(session, company, connection_id)
+    _require_balances_import_enabled(settings, connection.dataset)
+    digest = hashlib.sha256(content).hexdigest()
+    fingerprint = canonical_hash(f"{connection.id}:{digest}")
+    if not skip_http_idempotency:
+        remembered = _idempotent(session, user, idempotency_key, fingerprint)
+        if remembered is not None:
+            return remembered.response_body
     existing = session.scalar(
         select(ImportBatch).where(
             ImportBatch.tenant_id == company.tenant_id,
@@ -234,7 +318,18 @@ def receive_import(
     )
     if existing is not None:
         payload = _payload(session, existing)
-        _remember(session, user, company.tenant_id, idempotency_key, fingerprint, payload, at)
+        payload = _finalize_transport_and_remember(
+            session,
+            transport,
+            existing,
+            user,
+            company.tenant_id,
+            idempotency_key,
+            fingerprint,
+            payload,
+            at,
+            remember=not skip_http_idempotency,
+        )
         return payload
     wallet_code = _bound_code(session, company, connection)
     try:
@@ -256,6 +351,7 @@ def receive_import(
         tenant_id=company.tenant_id,
         company_id=company.id,
         connection_id=connection.id,
+        delivery_id=transport.delivery_id if transport is not None else None,
         file_hash=digest,
         file_storage_key=key,
         format=connection.format,
@@ -269,20 +365,32 @@ def receive_import(
     )
     session.add(batch)
     try:
-        session.flush()
+        with session.begin_nested():
+            session.flush()
     except IntegrityError as exc:
-        session.rollback()
-        set_context(session, tenant_id=company.tenant_id, user_id=user.id)
         found = session.scalar(
             select(ImportBatch).where(
                 ImportBatch.tenant_id == company.tenant_id,
+                ImportBatch.company_id == company.id,
                 ImportBatch.connection_id == connection.id,
                 ImportBatch.file_hash == digest,
             )
         )
         if found is None:
             raise AppError(409, "conflict", "Файл уже импортируется") from exc
-        return _payload(session, found)
+        payload = _payload(session, found)
+        return _finalize_transport_and_remember(
+            session,
+            transport,
+            found,
+            user,
+            company.tenant_id,
+            idempotency_key,
+            fingerprint,
+            payload,
+            at,
+            remember=not skip_http_idempotency,
+        )
     file_dupes: set[str] = set()
     if connection.dataset == "balances":
         file_dupes = duplicate_wallet_codes(lines)
@@ -329,7 +437,18 @@ def receive_import(
     batch.status = "preview_ready"
     session.flush()
     payload = _payload(session, batch)
-    _remember(session, user, company.tenant_id, idempotency_key, fingerprint, payload, at)
+    payload = _finalize_transport_and_remember(
+        session,
+        transport,
+        batch,
+        user,
+        company.tenant_id,
+        idempotency_key,
+        fingerprint,
+        payload,
+        at,
+        remember=not skip_http_idempotency,
+    )
     _batch_audit(session, user, company.tenant_id, "import_received", batch.id, at)
     return payload
 
@@ -1068,6 +1187,36 @@ def _rule_payload(rule: ClassificationRule) -> dict:
     }
 
 
+def _finalize_transport_and_remember(
+    session: Session,
+    transport: TransportContext | None,
+    batch: ImportBatch,
+    user: User,
+    tenant_id: uuid.UUID,
+    idempotency_key: str,
+    fingerprint: str,
+    payload: dict,
+    at: datetime,
+    *,
+    remember: bool,
+) -> dict:
+    if transport is not None:
+        part = session.get(IngestionDeliveryPart, transport.part_id)
+        if part is not None:
+            link_part_to_batch(
+                session,
+                part,
+                batch,
+                part_status=PART_PREVIEW,
+                error_code=None,
+                at=at,
+            )
+        payload = attach_delivery_id(payload, transport.delivery_id)
+    if remember:
+        _remember(session, user, tenant_id, idempotency_key, fingerprint, payload, at)
+    return payload
+
+
 def _idempotent(session, user, key: str, request_hash: str) -> IdempotencyRecord | None:
     row = session.scalar(
         select(IdempotencyRecord).where(
@@ -1084,18 +1233,25 @@ def _idempotent(session, user, key: str, request_hash: str) -> IdempotencyRecord
 
 
 def _remember(session, user, tenant_id, key, request_hash, payload, at) -> None:
-    session.add(
-        IdempotencyRecord(
-            tenant_id=tenant_id,
-            user_id=user.id,
-            scope=SCOPE,
-            idempotency_key=key,
-            request_hash=request_hash,
-            status_code=200,
-            response_body=payload,
-            created_at=at,
-        )
-    )
+    try:
+        with session.begin_nested():
+            session.add(
+                IdempotencyRecord(
+                    tenant_id=tenant_id,
+                    user_id=user.id,
+                    scope=SCOPE,
+                    idempotency_key=key,
+                    request_hash=request_hash,
+                    status_code=200,
+                    response_body=payload,
+                    created_at=at,
+                )
+            )
+            session.flush()
+    except IntegrityError as exc:
+        row = _idempotent(session, user, key, request_hash)
+        if row is None:
+            raise AppError(409, "conflict", "Ключ idempotency уже занят") from exc
 
 
 def _batch_audit(session, user, tenant_id, action: str, entity_id, at: datetime) -> None:

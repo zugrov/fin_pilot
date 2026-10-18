@@ -1,6 +1,6 @@
 # FA-R02 · Первые задачи (bootstrap после FA-R01)
 
-Статус: **planned**. Реализация только после FA-R01 и разрешения на код/миграции.
+Статус: **in_progress** (FA-R02.1 local_verified, 2026-10-18). FA-R01 accepted; deploy сервера этим пакетом не входит.
 
 Опора: ADR-001-B, `contracts/*`.
 
@@ -26,6 +26,13 @@ UI file и почта создают delivery; transport idempotency по `deliv
 **Тесты.** Повтор file → один batch; UI path создаёт delivery; email N parts → 1 delivery N batch.
 
 **Приёмка.** CI green; фикстуры двух firm без изменения сумм.
+
+### R02.1 (принятое решение, 2026-10-18)
+
+- Материализованы `ingestion_deliveries`, `ingestion_delivery_parts`, nullable `import_batches.delivery_id` (только для **нового** batch), nullable `email_ingestions.delivery_id`.
+- UI: `delivery_key = ui:{user_id}:{Idempotency-Key}`; HTTP idempotency до delivery; `delivery_id` в ответе upload — текущая доставка.
+- Mail: delivery на `connection+UIDVALIDITY+UID`; fingerprint — manifest частей с полными SHA-256; повтор → `duplicate_transport`, успешные parts не дублируются.
+- Downgrade 0011: guard при непустой `ingestion_deliveries`; balances guards не ослаблены.
 
 **Риски.** Deadlock на unique file_hash + delivery insert; RLS на новой таблице.
 

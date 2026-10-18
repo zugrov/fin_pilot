@@ -1,7 +1,11 @@
 # Машины состояний приёма (проект FA-R00.4)
 
 As-is уже имеет статусы `ImportBatch` и `EmailIngestion.status`.
-Ниже — целевое разделение слоёв для варианта B. Переходы в коде **не реализованы**.
+Ниже — целевое разделение слоёв для варианта B.
+
+**FA-R02.1:** transport-статусы `partially_received`, `transport_complete`,
+`transport_rejected`, `duplicate_transport` реализованы для UI file и mock-mail;
+`content_conflict` / chunk-envelope — вне R02.1.
 
 ## 1. Получение (transport)
 

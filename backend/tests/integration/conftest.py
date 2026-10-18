@@ -40,13 +40,15 @@ from sqlalchemy import create_engine, text
 BACKEND = Path(__file__).resolve().parents[2]
 PASSWORD = "long-password-1"
 TRUNCATE = """
+ingestion_delivery_parts,
 email_ingestions,
 notification_outbox, bot_drafts, digest_snapshots, digest_subscriptions,
 telegram_updates, telegram_bindings, telegram_link_tokens,
 alerts, alert_rules, budget_daily_allocations, budget_lines, budget_versions,
 forecast_contributions, forecast_points, forecast_runs, obligation_cash_links,
 payment_matches, planned_cash_events, obligations, recurrence_rules,
-revenue_cash_matches, source_identities, raw_import_rows, import_batches, import_profiles,
+revenue_cash_matches, source_identities, raw_import_rows, import_batches,
+ingestion_deliveries, import_profiles,
 revenue_entries, counterparties, directions,
 classification_rules, source_connections,
 transaction_revisions, cash_transactions, transfer_groups, opening_balances,
@@ -87,9 +89,22 @@ def migrated_database():
     engine.dispose()
 
 
+HEAD_REVISION = "20261018_0011"
+
+
 @pytest.fixture(autouse=True)
 def clean_tables(migrated_database):
     yield
+    with migrated_database.connect() as connection:
+        revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    if revision != HEAD_REVISION:
+        config = Config(str(BACKEND / "alembic.ini"))
+        previous = os.getcwd()
+        os.chdir(BACKEND)
+        try:
+            command.upgrade(config, "head")
+        finally:
+            os.chdir(previous)
     with migrated_database.begin() as connection:
         connection.execute(text(f"TRUNCATE {TRUNCATE} RESTART IDENTITY CASCADE"))
 

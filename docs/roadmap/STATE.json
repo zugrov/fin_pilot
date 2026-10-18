@@ -8,7 +8,7 @@
   "baseline": {
     "application_sha_last_reported": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
     "checkpoint_docs_sha": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
-    "migration_last_reported": "20261017_0010",
+    "migration_last_reported": "20261018_0011",
     "synthetic_company_only": true,
     "restore_current_cluster_verified_by_report": true,
     "offsite_copy_verified_by_report": true,
@@ -18,8 +18,8 @@
   },
   "current_stage": "FA-R02",
   "current_task": "FA-R02.1",
-  "status": "ready",
-  "allowed_next_action": "FA-R02 не начат. Отдельное разрешение на определение малого пакета FA-R02.1; реализация автоматически не разрешена.",
+  "status": "in_progress",
+  "allowed_next_action": "FA-R02.1: локальные проверки пройдены; ожидание CI/E2E на push-SHA. accepted не ставить.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -207,13 +207,16 @@
       "depends_on": [
         "FA-R01"
       ],
-      "status": "planned",
+      "status": "in_progress",
       "tasks": [
         {
           "id": "FA-R02.1",
           "title": "Оболочка и адаптация старого",
-          "status": "planned",
-          "evidence": []
+          "status": "local_verified",
+          "evidence": [
+            "backend/alembic/versions/20261018_0011_ingestion_delivery.py",
+            "backend/tests/integration/test_ingestion_delivery.py"
+          ]
         },
         {
           "id": "FA-R02.2",
@@ -1188,7 +1191,7 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R01 accepted (verification 3044376, product 7ee85e5, 2026-10-18): Playwright E2E A–D на finpilot_test. Handoff FA-R02.1 planned, не in_progress. FA-R02 реализация — только по отдельному разрешению.",
+  "note": "FA-R02.1 (R02.1): transport IngestionDelivery/parts, UI+mail адаптация, migration 0011. Локально: pytest 288 (без backup_restore/pg_dump), ruff/mypy, frontend 89 unit + build. accepted/CI/E2E — после push.",
   "updated_at": "2026-10-18",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",

@@ -133,7 +133,7 @@ def post_import(
         raise AppError(400, "validation_error", "Нужен заголовок Idempotency-Key")
     limit = settings_of(request).import_max_bytes + 1
     content = upload.file.read(limit)
-    return import_service.receive_import(
+    return import_service.upload_file(
         session,
         membership,
         company,

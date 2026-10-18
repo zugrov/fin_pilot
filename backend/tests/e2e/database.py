@@ -12,13 +12,15 @@ from tests.e2e.env import E2E_DATABASE, E2E_HOST
 BACKEND = Path(__file__).resolve().parents[2]
 
 TRUNCATE = """
+ingestion_delivery_parts,
 email_ingestions,
 notification_outbox, bot_drafts, digest_snapshots, digest_subscriptions,
 telegram_updates, telegram_bindings, telegram_link_tokens,
 alerts, alert_rules, budget_daily_allocations, budget_lines, budget_versions,
 forecast_contributions, forecast_points, forecast_runs, obligation_cash_links,
 payment_matches, planned_cash_events, obligations, recurrence_rules,
-revenue_cash_matches, source_identities, raw_import_rows, import_batches, import_profiles,
+revenue_cash_matches, source_identities, raw_import_rows, import_batches,
+ingestion_deliveries, import_profiles,
 revenue_entries, counterparties, directions,
 classification_rules, source_connections,
 transaction_revisions, cash_transactions, transfer_groups, opening_balances,
