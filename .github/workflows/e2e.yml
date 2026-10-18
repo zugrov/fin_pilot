@@ -1,0 +1,62 @@
+name: e2e
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16.6
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Backend deps
+        working-directory: backend
+        run: uv sync --group dev --frozen
+      - name: Роль для миграций
+        working-directory: backend
+        run: >
+          uv run python -c "import os, psycopg; user=os.popen('whoami').read().strip();
+          conn=psycopg.connect('postgresql://postgres@127.0.0.1:5433/postgres', autocommit=True);
+          conn.execute('CREATE ROLE %s WITH LOGIN SUPERUSER' % psycopg.sql.Identifier(user).as_string(conn))"
+      - name: Frontend deps
+        working-directory: frontend
+        run: npm ci
+      - name: Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: E2E
+        working-directory: frontend
+        run: npm run test:e2e
+        env:
+          TEST_PG_PORT: "5433"
+          CI: "true"
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

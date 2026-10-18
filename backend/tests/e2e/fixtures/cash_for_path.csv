@@ -1,0 +1,4 @@
+external_id,wallet_code,business_date,direction,amount,currency,counterparty_inn,counterparty_name,description,document_number,category_code,direction_code
+pay-in-1,main,2026-10-10,in,1500.00,RUB,7700000001,ООО Бета,Поступление,15,operating,
+pay-in-2,main,2026-10-10,in,1500.00,RUB,7700000001,ООО Бета,Поступление,16,operating,
+pay-out-1,main,2026-10-11,out,800.00,RUB,7700000002,ООО Гamma,Комиссия,21,operating,

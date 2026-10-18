@@ -1,0 +1,2 @@
+external_id,wallet_code,business_date,direction,amount,currency,counterparty_inn,counterparty_name,description,document_number,category_code,direction_code
+pay-in-idem,idem,2026-10-10,in,1500.00,RUB,7700000001,ООО Бета,IDEM-IN-ONLY,15,operating,

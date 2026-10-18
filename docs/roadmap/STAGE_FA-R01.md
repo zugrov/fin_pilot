@@ -1,6 +1,6 @@
 # FA-R01 · Безопасный сквозной пользовательский путь
 
-Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; **FA-R01.2 accepted** на `73319a7`; **FA-R01.3 accepted** на `7ee85e5`, 2026-10-18; **FA-R01.4** — `ready`, не начата).
+Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; **FA-R01.2 accepted** на `73319a7`; **FA-R01.3 accepted** на `7ee85e5`, 2026-10-18; **FA-R01.4 in_progress** — Playwright E2E, baseline docs `b165055` / product `7ee85e5`).
 
 Зависимость: этап **FA-R00** принят (G0) — контракты и ADR, без обязательной
 реализации delivery.
@@ -95,6 +95,20 @@ FA-R00 (G0)
 **Baseline staging vs тесты:** текущий staging после приёмочных записей показывает выручку без НДС за октябрь **20002.00**. Исходная **синтетическая регрессионная фикстура** (ожидание **20000.00** в автотестах) остаётся отдельным набором и **не** переписывалась под staging.
 
 **Без изменений:** учебные продажи/планы до write-smoke, FA-R01.2 wallets/import/opening, T-BANK `dd1295af-f861-4389-b654-75bdf79aaab0`, smoke wallet `6337cbaf-5800-4273-8dcd-3c064caaf822`.
+
+### FA-R01.4 · Playwright E2E (in_progress, baseline `b165055` / product `7ee85e5`)
+
+**Контур:** настоящий FastAPI (`tests.e2e.run_api`) + Vite dev-server (proxy `/api`); PostgreSQL **только** `finpilot_test` (локально `:5432`, CI `:5433`). Seed через `tests.e2e.prepare`: verified owner, workspace, **две** оплаченные фирмы (FakeYooKassa/test billing), без staging-артефактов.
+
+**Группы:** A основной UI-путь (wallet/opening, cash+balances import, sale/plan, partial matches); B две фирмы + stale GET; C unknown-result/replay (create+match) + double-click; D invalid balances preview без commit.
+
+**C (lost-response):** первый POST обрабатывается backend (`route.fetch()`), ответ клиенту не доставляется (`abort`); до «Повторить» запись/связь уже в БД; replay с тем же ключом не дублирует audit/counts. Отдельно в helpers — `abortFirstPostBeforeBackend` (чистый сетевой отказ).
+
+**D (UX):** при ошибках preview кнопка «Провести» может оставаться enabled; тест кликает commit и ждёт **409** «ошибки строк» — production UI в этом пакете не меняется.
+
+**Серверы:** Playwright `webServer` поднимает API и Vite, readiness API — `/health/ready`; `reuseExistingServer: false` — процессы завершаются после прогона.
+
+**Запуск:** `cd frontend && npm run test:e2e` (Chromium через `npx playwright install chromium`; `globalSetup` вызывает `tests.e2e.prepare`). CI: workflow **`e2e.yml`** (отдельно от `ci.yml`).
 
 ### FA-R01.3 · контракт legacy Idempotency-Key
 
