@@ -1,6 +1,6 @@
 # FA-R01 · Безопасный сквозной пользовательский путь
 
-Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; FA-R01.2 in_progress).
+Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; **FA-R01.2 accepted** на `73319a7`; FA-R01.3 planned).
 
 Зависимость: этап **FA-R00** принят (G0) — контракты и ADR, без обязательной
 реализации delivery.
@@ -72,7 +72,7 @@ FA-R00 (G0)
 
 ## FA-R01.2 · Счета и начальный остаток
 
-Задача **in_progress** (принята не целиком): **пакет 1** принят владельцем; **balances.csv** — следующий пакет.
+Задача **accepted** (принята владельцем **2026-10-18**). Продуктовый SHA **`73319a7dc13a1bae33d0468a2468047afffed891`**. **Пакет 1** остаётся отдельно принятым на **`93428b7`**.
 
 ### Пакет 1 · принят (product SHA `93428b758fc581c35b8da933423b11e731a15b90`)
 
@@ -111,15 +111,34 @@ wallet/opening на существующей таблице `idempotency_records
 **Вне пакета 1 (остаётся в FA-R01.2).**
 
 - история `replaced` в UI, wallet access UI, ImportPage wallet picker (не обязательный объём пакета 2).
-- Приёмка всей FA-R01.2 (`accepted`) — после пакета `balances.csv` и smoke.
+- Приёмка всей FA-R01.2 — выполнена после пакета `balances.csv` и smoke (см. пакет 2 ниже).
 
 **Миграции пакета 1.** Нет (IdempotencyRecord уже есть).
 
 ---
 
-### Пакет 2 · balances.csv (in_progress, спецификация зафиксирована 2026-10-17)
+### Пакет 2 · balances.csv · принят (product SHA `73319a7dc13a1bae33d0468a2468047afffed891`)
 
-**Статус:** контракт согласован; **локальная реализация и verification 2026-10-17** (preview / refresh / atomic commit; миграция `20261017_0010`); **не выложено, не принято**, FA-R01.2 `in_progress`. Пакет 1 остаётся accepted на `93428b7`.
+**Приёмка владельцем:** 2026-10-18 (вместе с задачей FA-R01.2).
+
+**CI исправленного кода:** run **39119642860** (success, SHA `73319a7…`); release pass run **39126116053** (success); recovery-image run **39126118823** (success).
+
+**Staging:** schema **`20261017_0010`**; deploy api `recovery-73319a7`, frontend `release-73319a7`, override `/var/tmp/finpilot-release-73319a7/compose.override.yml`; runtime **`BALANCES_IMPORT_ENABLED=true`** (override, recreate api only).
+
+**Browser smoke C.7–C.13 (авторизованный, ООО «Топ»):** preview before/after (replace, Europe/Moscow); commit **completed**, `rows_committed=1`; **completed replay** без новой active opening; повтор файла — **тот же batch** (dedup); на smoke wallet **1 active + 1 replaced**; **нет diff** T-BANK / dashboard (cash **80499.50**).
+
+**Приёмочные артефакты (не удалять, не изменять):**
+
+| Роль | ID / значение |
+| --- | --- |
+| balances-source | `b223b0d5-f149-4556-be7a-9657abed6e6a` («Остатки») |
+| import batch | `7d28ba99-24d3-4e71-8182-cae6d4adee52` |
+| smoke wallet | `6337cbaf-5800-4273-8dcd-3c064caaf822` (`fa-r01-2-smoke-93428b7`) |
+| текущий active opening (после import) | **0.00** на **`2026-10-02T00:00:00+03:00`** (UTC storage `2026-10-01T21:00:00+00:00`) |
+
+**История исправлений пакета 2:** корректирующий коммит `73319a7` — единая `normalize_balances_line` для upload/refresh; preview с `wallet_code`, `currency`, `company_timezone` (CI **39119642860**).
+
+**Статус (историческая спецификация 2026-10-17):** контракт согласован; локальная verification и миграция `20261017_0010` — см. таблицы ниже.
 
 **Цель.** Импорт начальных остатков из `balances.csv` через существующий pipeline `ImportBatch` / preview / commit, с вызовом **`wallet_service.set_opening_balance`** (тот же механизм replaced/active, что Wallets UI). Второй import/opening framework не строить.
 
@@ -253,7 +272,9 @@ wallet/opening на существующей таблице `idempotency_records
 
 **Корректирующий пакет (73319a7):** refresh balances через единую `normalize_balances_line`; preview wallet_code/currency/timezone. CI `39119642860` success.
 
-**Release pass пакета 2 (73319a7):** recovery-image-smoke → artifact `finpilot-api-recovery-73319a7-linux-amd64`; staging deploy + gate=true + browser write-smoke — по отдельному разрешению (этот проход). **Accepted** — только владелец.
+**Release pass 73319a7 (2026-10-18):** CI `39126116053`, recovery run `39126118823`, artifact SHA `4787b46a…`; staging api `recovery-73319a7`, frontend `release-73319a7`, override `/var/tmp/finpilot-release-73319a7/`.
+
+**Browser write-smoke C.7–C.13 (2026-10-18):** зафиксировано в приёмке пакета 2 выше; gate **true** в override сохранён после smoke.
 
 **Целевой артеfact (локально, когда Docker доступен):**
 
@@ -270,7 +291,7 @@ wallet/opening на существующей таблице `idempotency_records
 
 **Критерии приёмки пакета 2.**
 
-- Контракт в import-formats; staging smoke balances — отдельное разрешение.
-- FA-R01.2 `accepted` — только после пакета 2 и владельца (не в этом документе).
+- Выполнены: контракт, CI, образ/deploy, schema 0010, gate runtime, smoke C.7–C.13, артефакты source/batch/wallet.
+- FA-R01.2 **accepted** на **`73319a7`** — **2026-10-18** (владелец).
 
 **Вне обязательного объёма пакета 2:** UI истории `replaced`, wallet access UI, расширенный wallet picker на ImportPage.

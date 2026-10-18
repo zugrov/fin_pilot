@@ -8,7 +8,7 @@
   "baseline": {
     "application_sha_last_reported": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
     "checkpoint_docs_sha": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
-    "migration_last_reported": "20261014_0009",
+    "migration_last_reported": "20261017_0010",
     "synthetic_company_only": true,
     "restore_current_cluster_verified_by_report": true,
     "offsite_copy_verified_by_report": true,
@@ -17,9 +17,9 @@
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
   "current_stage": "FA-R01",
-  "current_task": "FA-R01.2",
-  "status": "in_progress",
-  "allowed_next_action": "FA-R01.2 release pass: recovery image 73319a7, staging update и browser smoke — in_progress; пакет 2 не accepted до решения владельца.",
+  "current_task": "FA-R01.3",
+  "status": "ready",
+  "allowed_next_action": "FA-R01.3 (planned, не начата): следующая задача требует отдельного разрешения владельца; продуктовый код автоматически не начинать.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -121,7 +121,9 @@
         {
           "id": "FA-R01.2",
           "title": "Счета и начальные остатки",
-          "status": "in_progress",
+          "status": "accepted",
+          "accepted_product_sha": "73319a7dc13a1bae33d0468a2468047afffed891",
+          "accepted_at": "2026-10-18",
           "evidence": [
             "локальный пакет 1 (d8a229a): POST wallet/opening с Idempotency-Key (IdempotencyRecord, scopes wallet_create/wallet_opening)",
             "active_opening в GET wallets; duplicate_wallet_code 409",
@@ -135,13 +137,14 @@
             "staging deploy 2026-10-17: api+frontend только, SHA 93428b7, CI 39038691269; worker/beat не пересоздавались (образ api c7ff510)",
             "staging smoke read-only: Wallets ООО Топ, баланс/opening раздельно, пустая дата, cancel opening modal; 7 экранов + reload фирмы; POST записей нет",
             "staging write-smoke 2026-10-17 (93428b7, ООО Топ): UI create+opening 0.00 @ 2026-10-01T00:00:00+03:00; replay create/opening 200; wallet 6337cbaf-5800-4273-8dcd-3c064caaf822; opening b429046a-7741-40bd-865e-bc2e26e3b22f; T-BANK и dashboard 2026-10-01..31 без отличий от baseline; артефакт не удалять",
-            "пакет 1 FA-R01.2 принят владельцем 2026-10-17: product SHA 93428b758fc581c35b8da933423b11e731a15b90; CI 83 frontend + build, 203 backend pytest Ruff/Mypy; mock A–F; staging read-only + write-smoke; create key 905d9e37-24bb-4ccf-8821-3d13b8301f66; opening key f205b4d0-46ff-43b7-bf56-dc8ef2648e25"
+            "пакет 1 FA-R01.2 принят владельцем 2026-10-17: product SHA 93428b758fc581c35b8da933423b11e731a15b90; CI 83 frontend + build, 203 backend pytest Ruff/Mypy; mock A–F; staging read-only + write-smoke; create key 905d9e37-24bb-4ccf-8821-3d13b8301f66; opening key f205b4d0-46ff-43b7-bf56-dc8ef2648e25",
+            "пакет 2 balances.csv принят 2026-10-18: product SHA 73319a7dc13a1bae33d0468a2468047afffed891; CI 39119642860 + release 39126116053 + recovery 39126118823; staging schema 20261017_0010; BALANCES_IMPORT_ENABLED=true; browser smoke C.7–C.13; preview before/after; commit completed rows_committed=1; replay без новой active; dedup same batch; 1 active + 1 replaced; T-BANK/dashboard без diff",
+            "FA-R01.2 accepted 2026-10-18 владельцем на 73319a7 (пакет 1 остаётся на 93428b7)"
           ],
           "package_1_accepted_product_sha": "93428b758fc581c35b8da933423b11e731a15b90",
           "package_1_accepted_at": "2026-10-17",
-          "open_packages": [
-            "balances.csv"
-          ],
+          "package_2_accepted_product_sha": "73319a7dc13a1bae33d0468a2468047afffed891",
+          "package_2_accepted_at": "2026-10-18",
           "balances_csv_contract_fixed_at": "2026-10-17",
           "balances_csv_contract_docs": [
             "docs/import-formats.md",
@@ -670,14 +673,15 @@
     }
   ],
   "last_handoff": {
-    "at": "2026-10-17",
+    "at": "2026-10-18",
     "from_stage": "FA-R01",
     "to_stage": "FA-R01",
-    "from_task": "FA-R01.1",
-    "to_task": "FA-R01.2",
+    "from_task": "FA-R01.2",
+    "to_task": "FA-R01.3",
     "fa_r00": "accepted",
     "g0": "accepted",
-    "fa_r01_1": "accepted"
+    "fa_r01_1": "accepted",
+    "fa_r01_2": "accepted"
   },
   "fa_r01_1_acceptance": {
     "accepted_product_sha": "e70612da585c4718881b2ab30acc9bbf74702e2a",
@@ -799,6 +803,21 @@
       "status": "accepted",
       "by": "owner",
       "basis": "product SHA 93428b7; CI 83/203; mock A–F; staging deploy read-only + write-smoke; idempotent replay; T-BANK/dashboard baseline; staging artifact wallet/opening preserved"
+    },
+    {
+      "at": "2026-10-18",
+      "task": "FA-R01.2",
+      "package": "2",
+      "status": "accepted",
+      "by": "owner",
+      "basis": "product SHA 73319a7; CI 39119642860/39126116053/39126118823; staging deploy schema 0010; gate true; smoke C.7–C.13; source b223b0d5; batch 7d28ba99; wallet 6337cbaf; opening 0.00 @ 2026-10-02+03; replay/dedup; T-BANK/dashboard unchanged"
+    },
+    {
+      "at": "2026-10-18",
+      "task": "FA-R01.2",
+      "status": "accepted",
+      "by": "owner",
+      "basis": "packages 1 (93428b7) and 2 (73319a7) accepted; accepted_product_sha 73319a7dc13a1bae33d0468a2468047afffed891"
     }
   ],
   "fa_r01_2_package_1_acceptance": {
@@ -828,21 +847,67 @@
       "create_idempotency_key": "905d9e37-24bb-4ccf-8821-3d13b8301f66",
       "opening_idempotency_key": "f205b4d0-46ff-43b7-bf56-dc8ef2648e25"
     },
-    "fa_r01_2_task_still_in_progress": true,
-    "open_next_package": "balances.csv"
+    "fa_r01_2_task_still_in_progress": false,
+    "open_next_package": null
+  },
+  "fa_r01_2_acceptance": {
+    "accepted_product_sha": "73319a7dc13a1bae33d0468a2468047afffed891",
+    "accepted_at": "2026-10-18",
+    "package_1_accepted_product_sha": "93428b758fc581c35b8da933423b11e731a15b90",
+    "package_2_accepted_product_sha": "73319a7dc13a1bae33d0468a2468047afffed891",
+    "ci_corrective_code": {
+      "run_id": 39119642860,
+      "product_sha": "73319a7dc13a1bae33d0468a2468047afffed891",
+      "conclusion": "success"
+    },
+    "ci_release_pass": {
+      "run_id": 39126116053,
+      "workflow_commit": "1379da3",
+      "conclusion": "success"
+    },
+    "recovery_image_run": {
+      "run_id": 39126118823,
+      "artifact_sha256": "4787b46a4842137840eb069f63471bc60793a672167606cd083b25abd4890edd",
+      "conclusion": "success"
+    },
+    "staging_schema_revision": "20261017_0010",
+    "staging_balances_gate_runtime": true,
+    "browser_smoke_c7_c13": true,
+    "preview_before_after": true,
+    "commit_completed_rows_committed_1": true,
+    "completed_replay_no_new_active_opening": true,
+    "file_reupload_same_batch_dedup": true,
+    "openings_active_plus_replaced": "1 active + 1 replaced on smoke wallet",
+    "tbank_dashboard_no_diff": true,
+    "staging_acceptance_artifacts": {
+      "company_id": "2f346a28-da63-4ab1-a9e8-611fe7e2dd7d",
+      "balances_source_id": "b223b0d5-f149-4556-be7a-9657abed6e6a",
+      "import_batch_id": "7d28ba99-24d3-4e71-8182-cae6d4adee52",
+      "smoke_wallet_id": "6337cbaf-5800-4273-8dcd-3c064caaf822",
+      "smoke_wallet_code": "fa-r01-2-smoke-93428b7",
+      "active_opening_amount": "0.00",
+      "active_opening_effective_at_moscow": "2026-10-02T00:00:00+03:00",
+      "active_opening_effective_at_utc": "2026-10-01T21:00:00+00:00",
+      "control_wallet_unchanged": "dd1295af-f861-4389-b654-75bdf79aaab0",
+      "overview_cash_total_unchanged": "80499.50",
+      "artifacts_do_not_delete_or_modify": true
+    },
+    "package_2_fix_history": "73319a7 normalize_balances_line upload+refresh; preview wallet_code/currency/timezone"
   },
   "fa_r01_2_balances_csv_contract": {
     "fixed_at": "2026-10-17",
-    "implementation_status": "in_repository_not_deployed_not_accepted",
+    "implementation_status": "accepted_deployed_staging",
     "implemented_locally_at": "2026-10-17",
-    "accepted": false,
-    "deployed_to_staging": false,
-    "staging_migration_0010_applied": false,
-    "dataset_balances_supported_in_product": false,
-    "dataset_balances_available_on_staging": false,
+    "accepted": true,
+    "accepted_at": "2026-10-18",
+    "accepted_product_sha": "73319a7dc13a1bae33d0468a2468047afffed891",
+    "deployed_to_staging": true,
+    "staging_migration_0010_applied": true,
+    "dataset_balances_supported_in_product": true,
+    "dataset_balances_available_on_staging": true,
     "migration_20261017_0010": {
-      "status": "agreed_local_only",
-      "apply_to_staging": false,
+      "status": "applied_staging",
+      "apply_to_staging": true,
       "down_revision": "20261014_0009",
       "note": "lock_timeout 5s, statement_timeout 60s, ACCESS EXCLUSIVE; downgrade guard до DROP; только finpilot_test локально через pytest fixture"
     },
@@ -930,8 +995,28 @@
         "worker_beat_unchanged": "container a830a0221c4f / 54c9c9cd0b5d; image c7ff51049957",
         "balances_import_enabled_runtime": false,
         "read_only_smoke": "ok (wallets, sources x4, gate 503, baseline wallets/opening/tbank/cash_tx_oct=5)",
-        "package_2_accepted": false,
+        "package_2_accepted": true,
+        "package_2_accepted_at": "2026-10-18",
         "passphrase_file_removed_after_offsite": true
+      },
+      "staging_deploy_73319a7_2026_10_18": {
+        "product_sha": "73319a7dc13a1bae33d0468a2468047afffed891",
+        "workflow_commit": "1379da3",
+        "ci_run": "39126116053",
+        "recovery_image_run": "39126118823",
+        "artifact_sha256": "4787b46a4842137840eb069f63471bc60793a672167606cd083b25abd4890edd",
+        "api_image": "finpilot-api:recovery-73319a7",
+        "api_manifest_digest_vps": "sha256:239dbee080e3e3f78ca84b6c356fabd33358067bf44b006ed8704ad98020bbf5",
+        "gha_manifest_config_digest": "sha256:b41617370bfbe000ada4486e69fad65cc8739c533e484bd2f136833583e693bf",
+        "frontend_image": "finpilot-frontend:release-73319a7",
+        "compose_override": "/var/tmp/finpilot-release-73319a7/compose.override.yml",
+        "rollback_tags": "finpilot-api:staging-pre-73319a7-20261018T121607Z; finpilot-frontend:staging-pre-73319a7-20261018T121607Z",
+        "balances_gate_runtime": true,
+        "browser_smoke_c7_c13": "2026-10-18 success: source b223b0d5-f149-4556-be7a-9657abed6e6a; batch 7d28ba99-24d3-4e71-8182-cae6d4adee52; smoke wallet 6337cbaf-5800-4273-8dcd-3c064caaf822 opening 0.00 @ 2026-10-01T21:00:00+00; replay+dedup 1 batch; T-BANK unchanged; overview 80499.50",
+        "balances_sources_after": 1,
+        "package_2_accepted": true,
+        "package_2_accepted_at": "2026-10-18",
+        "fa_r01_2_accepted": true
       },
       "balances_refresh_preview_fix_2026_10_18": {
         "defect": "refresh-preview balances: отдельный parse без ошибок, money() округлял invalid precision",
@@ -941,8 +1026,8 @@
         "ci_conclusion": "success",
         "scope": "normalize_balances_line upload+refresh; preview wallet_code/currency/timezone; ImportPage",
         "staging_unchanged": true,
-        "balances_gate_staging": false,
-        "package_2_accepted": false,
+        "balances_gate_staging": true,
+        "package_2_accepted": true,
         "package_1_and_fa_r00_stages": "unchanged"
       },
       "recovery_image_local_build_2026_10_17": {
@@ -993,8 +1078,8 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R01.1 accepted (e70612d). FA-R01.2 in_progress: пакет 1 accepted (93428b7); пакет 2 balances в репо, не deployed/accepted; staging без пакета 2 и 0010; backup/restore локально не подтверждён.",
-  "updated_at": "2026-10-17",
+  "note": "FA-R01.1 accepted (e70612d). FA-R01.2 accepted (73319a7, 2026-10-18): пакет 1 на 93428b7 сохранён; пакет 2 balances.csv принят со staging smoke. FA-R01 in_progress; current_task FA-R01.3 planned; status ready. backup/restore локально не подтверждён.",
+  "updated_at": "2026-10-18",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
     "documentation": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
