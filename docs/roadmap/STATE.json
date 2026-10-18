@@ -16,10 +16,10 @@
     "live_repository_and_server_must_be_rechecked": false,
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
-  "current_stage": "FA-R01",
-  "current_task": "FA-R01.4",
-  "status": "in_progress",
-  "allowed_next_action": "FA-R01.4 локальная реализация E2E (Playwright) на 7ee85e5/b165055: commit/push и staging — отдельное разрешение; FA-R02 не начинать.",
+  "current_stage": "FA-R02",
+  "current_task": "FA-R02.1",
+  "status": "ready",
+  "allowed_next_action": "FA-R02 не начат. Отдельное разрешение на определение малого пакета FA-R02.1; реализация автоматически не разрешена.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -100,7 +100,8 @@
       "depends_on": [
         "FA-R00"
       ],
-      "status": "in_progress",
+      "status": "accepted",
+      "accepted_product_sha": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
       "tasks": [
         {
           "id": "FA-R01.1",
@@ -175,20 +176,30 @@
         {
           "id": "FA-R01.4",
           "title": "Приёмка пути",
-          "status": "in_progress",
-          "product_sha_baseline": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
-          "docs_sha_baseline": "b165055fa6c40fba7f223eb77bccf34cb5459c66",
+          "status": "accepted",
+          "accepted_at": "2026-10-18",
+          "accepted_product_sha": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
+          "verification_sha": "30443769688f2e476b75e6663a4c5466f4c2483a",
           "evidence": [
-            "локальная реализация: Playwright A–D, backend/tests/e2e bootstrap/seed/db_assert",
-            "контур: 127.0.0.1, finpilot_test (5432/5433), prepare в webServer (seed→run_api), без globalSetup",
-            "guard: validate_e2e_target_config до DDL; verify_live после CREATE finpilot_test",
-            "CI 182e27b: ci — test_bootstrap ERROR (finpilot_test отсутствует до assert); e2e — webServer API до prepare",
-            "исправление bootstrap: единый prepare_e2e_environment; локально bootstrap 5/5, E2E 6/6 ×2; CI после fix-commit"
+            "принятый deployed product SHA 7ee85e5 (FA-R01.3); verification SHA 3044376 — Playwright/bootstrap, не deploy",
+            "контур: настоящий FastAPI tests.e2e.run_api + Vite; PostgreSQL finpilot_test (5432 local / 5433 CI); browser UI",
+            "CI 39152836527: backend pytest 281 passed, Ruff/Mypy OK; frontend vitest 89 + build OK",
+            "E2E 39152836529: 6 passed, 0 failed/skipped — setup auth + A + B + C×2 + D",
+            "A: wallet/opening, cash+balances import, sale/plan, partial matches; B: две фирмы, stale GET",
+            "C: lost-response после backend commit (fetch+abort); replay без дубля записи/audit; matched/remaining",
+            "D: invalid balances preview; commit 409 без финансовых записей; UX: «Провести» может быть enabled — не disabled-check",
+            "bootstrap cold-start на CI: validate→CREATE finpilot_test→migrate→seed; webServer seed→run_api; teardown автоматический",
+            "локально: E2E 6/6 ×2; bootstrap 5/5; staging baseline и приёмочные артефакты FA-R01.1–1.3 без изменений"
           ]
         }
       ],
-      "accepted_sha": null,
-      "acceptance_evidence": []
+      "accepted_sha": "30443769688f2e476b75e6663a4c5466f4c2483a",
+      "acceptance_evidence": [
+        "docs/roadmap/STAGE_FA-R01.md",
+        "CI run 39152836527 (SHA 3044376)",
+        "E2E run 39152836529 (SHA 3044376)",
+        "deployed product baseline 7ee85e5 (staging FA-R01.3, без нового deploy в FA-R01.4)"
+      ]
     },
     {
       "id": "FA-R02",
@@ -698,14 +709,17 @@
   "last_handoff": {
     "at": "2026-10-18",
     "from_stage": "FA-R01",
-    "to_stage": "FA-R01",
-    "from_task": "FA-R01.3",
-    "to_task": "FA-R01.4",
+    "to_stage": "FA-R02",
+    "from_task": "FA-R01.4",
+    "to_task": "FA-R02.1",
     "fa_r00": "accepted",
     "g0": "accepted",
+    "fa_r01": "accepted",
     "fa_r01_1": "accepted",
     "fa_r01_2": "accepted",
-    "fa_r01_3": "accepted"
+    "fa_r01_3": "accepted",
+    "fa_r01_4": "accepted",
+    "fa_r02_started": false
   },
   "fa_r01_1_acceptance": {
     "accepted_product_sha": "e70612da585c4718881b2ab30acc9bbf74702e2a",
@@ -1174,7 +1188,7 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R01.1 accepted (e70612d). FA-R01.2 accepted (73319a7, 2026-10-18). FA-R01.3 accepted (7ee85e5, 2026-10-18): mock lifecycle, staging deploy, read/write smoke. current_task FA-R01.4 ready — код только по разрешению. backup/restore локально: pg_dump 5433 refused.",
+  "note": "FA-R01 accepted (verification 3044376, product 7ee85e5, 2026-10-18): Playwright E2E A–D на finpilot_test. Handoff FA-R02.1 planned, не in_progress. FA-R02 реализация — только по отдельному разрешению.",
   "updated_at": "2026-10-18",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",

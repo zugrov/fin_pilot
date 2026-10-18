@@ -1,6 +1,6 @@
 # FA-R01 · Безопасный сквозной пользовательский путь
 
-Статус этапа: **in_progress** (G0 принят; FA-R01.1 accepted; **FA-R01.2 accepted** на `73319a7`; **FA-R01.3 accepted** на `7ee85e5`, 2026-10-18; **FA-R01.4 in_progress** — Playwright E2E, baseline docs `b165055` / product `7ee85e5`).
+Статус этапа: **accepted** (2026-10-18). Verification SHA **`30443769688f2e476b75e6663a4c5466f4c2483a`** (Playwright/bootstrap). Deployed product **`7ee85e501735efcfa449ad8f44ef11258e5e4cf2`** (без нового deploy в FA-R01.4). FA-R01.1–1.4 приняты; handoff → **FA-R02.1** (planned, не начат).
 
 Зависимость: этап **FA-R00** принят (G0) — контракты и ADR, без обязательной
 реализации delivery.
@@ -96,21 +96,32 @@ FA-R00 (G0)
 
 **Без изменений:** учебные продажи/планы до write-smoke, FA-R01.2 wallets/import/opening, T-BANK `dd1295af-f861-4389-b654-75bdf79aaab0`, smoke wallet `6337cbaf-5800-4273-8dcd-3c064caaf822`.
 
-### FA-R01.4 · Playwright E2E (in_progress, baseline `b165055` / product `7ee85e5`)
+### FA-R01.4 · Playwright E2E · принят (verification `3044376`, product `7ee85e5`, 2026-10-18)
 
-**Контур:** настоящий FastAPI (`tests.e2e.run_api`) + Vite dev-server (proxy `/api`); PostgreSQL **только** `finpilot_test` (локально `:5432`, CI `:5433`). Seed через `tests.e2e.prepare`: verified owner, workspace, **две** оплаченные фирмы (FakeYooKassa/test billing), без staging-артефактов.
+**Приёмка владельцем:** сквозной browser-путь на настоящем backend и test PostgreSQL; CI/E2E на verification SHA.
 
-**Группы:** A основной UI-путь (wallet/opening, cash+balances import, sale/plan, partial matches); B две фирмы + stale GET; C unknown-result/replay (create+match) + double-click; D invalid balances preview без commit.
+**CI [39152836527](https://github.com/zugrov/fin_pilot/actions/runs/39152836527):** backend **281 passed**, Ruff/Mypy OK; frontend **89 passed** + build.
 
-**C (lost-response):** первый POST обрабатывается backend (`route.fetch()`), ответ клиенту не доставляется (`abort`); до «Повторить» запись/связь уже в БД; replay с тем же ключом не дублирует audit/counts. Отдельно в helpers — `abortFirstPostBeforeBackend` (чистый сетевой отказ).
+**E2E [39152836529](https://github.com/zugrov/fin_pilot/actions/runs/39152836529):** **6 passed**, 0 failed/skipped — setup auth + **A** + **B** + **C×2** + **D**.
 
-**D (UX):** при ошибках preview кнопка «Провести» может оставаться enabled; тест кликает commit и ждёт **409** «ошибки строк» — production UI в этом пакете не меняется.
+**Контур:** FastAPI `tests.e2e.run_api` + Vite; `finpilot_test` (5432/5433); seed — две оплаченные фирмы, без staging-артефактов.
 
-**Серверы:** Playwright `webServer`: `tests.e2e.seed` (prepare+seed) затем `run_api`, Vite dev; readiness `/health/ready`; `reuseExistingServer: false`.
+| Группа | Проверка |
+| --- | --- |
+| A | wallet/opening, cash+balances import, sale/plan, partial matches |
+| B | две фирмы, изоляция, stale GET |
+| C | lost-response после commit; replay без дубля записи/audit; matched/remaining |
+| D | invalid balances preview; commit **409**, opening не меняется |
 
-**Bootstrap:** `validate_e2e_target_config` (до подключения) → `ensure_finpilot_test_database` → `verify_live_finpilot_test` → migrate/roles → truncate → seed. `test_bootstrap.py` в общем pytest.
+**C:** `route.fetch()` + `abort`; запись/связь в БД до «Повторить»; повтор с тем же key/payload.
 
-**Запуск:** `cd frontend && npm run test:e2e`. CI: **`e2e.yml`** + **`ci.yml`** (bootstrap на :5433).
+**D (известное UX, не продуктовый фикс):** при ошибке строк preview кнопка «Провести» **может оставаться enabled**; тест проверяет **409** и отсутствие финансовых записей, **не** disabled-кнопку.
+
+**Bootstrap:** validate config → CREATE `finpilot_test` → verify live → migrate/roles → truncate → seed; webServer `seed`→`run_api`; teardown автоматический; cold-start подтверждён CI.
+
+**Локально:** полный E2E **×2** (6/6); bootstrap **5/5**.
+
+**Без изменений:** staging baseline FA-R01.3, приёмочные артефакты R01.1–1.3, синтетические регрессионные fixtures (20000.00 и т.д.).
 
 ### FA-R01.3 · контракт legacy Idempotency-Key
 
