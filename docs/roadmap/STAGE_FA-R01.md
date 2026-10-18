@@ -247,6 +247,12 @@ wallet/opening на существующей таблице `idempotency_records
 
 **GitHub Actions `recovery-image-smoke` (workflow_dispatch):** сборка `linux/amd64` из `git archive ff96bc5`, offline image smoke без БD/registry, artifact `finpilot-api-recovery-ff96bc5-linux-amd64` (7 дней). **Не** HTTP/DB E2E; integration — CI `39056569658`.
 
+**VPS preflight 2026-10-17 (без deploy):** staging `93428b7`, alembic `20261014_0009`, health 8090 OK; artifact SHA `1d31b72c…`, `docker load` → `finpilot-api:recovery-ff96bc5`. **Image ID:** config `05a8e7ae…` vs manifest `00c26a99…` — один OCI-артефакт run `39057488669`.
+
+**Staging deploy 2026-10-18 (ff96bc5, balances=false):** свежий encrypted backup `finpilot-staging-pre-balances-20261018T093953Z.tar.enc` (SHA `d1970ecd…`, 5 вложений, verify без полного restore); offsite Mac; passphrase-файл удалён после копии. Миграция `20261017_0010`; api `recovery-ff96bc5`, frontend `release-ff96bc5`, override `/var/tmp/finpilot-release-ff96bc5/compose.override.yml`; rollback-теги `*-pre-ff96bc5-20261018T094029Z`; worker/beat не пересоздавались (образ `c7ff510`). Read-only smoke OK; gate 503 на create balances source. **Пакет 2 не accepted**; `BALANCES_IMPORT_ENABLED` не включали.
+
+**Корректирующий пакет (локально, post-deploy):** дефект — `refresh-preview` для balances пересчитывал строки через `_amount_from_raw`/`_date_from_raw` (тихое `money()` округление, `errors=()`). **Исправлено:** единая `normalize_balances_line` для upload/refresh; строгая дата `YYYY-MM-DD`; NaN/Inf; отрицательные суммы как opening `positive=False`; preview API/UI: `wallet_code`, `currency`, `company_timezone`, before/after `effective_at` с серверным offset. Staging/deploy/balances gate **не** менялись.
+
 **Целевой артеfact (локально, когда Docker доступен):**
 
 - Context: `git archive ff96bc5 -- backend/` (без `.env`, `.venv`, uncommitted).

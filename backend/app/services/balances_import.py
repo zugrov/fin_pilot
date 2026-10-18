@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from app.domain.imports.balances_reader import BalancesLine
+from app.domain.imports.balances_reader import BalancesLine, normalize_balances_line
 from app.errors import AppError
 from app.models.cash import OpeningBalance, Wallet
 from app.models.identity import Company, Membership, User
@@ -142,6 +142,9 @@ def prepare_balances(
     action = "skip" if errors else "create"
     normalized: dict = {
         "values": line.canonical(),
+        "wallet_code": line.wallet_code,
+        "currency": line.currency,
+        "company_timezone": company.timezone,
         "wallet_id": wallet_id,
         "effective_at": None if effective_at is None else effective_at.isoformat(),
         "intent": intent if not errors else "invalid",
@@ -226,46 +229,13 @@ def refresh_balances_rows(
 ) -> None:
     dupes = duplicate_wallet_codes_from_rows(rows)
     for row in rows:
-        line = BalancesLine(
-            row_number=row.row_number,
-            wallet_code=(row.raw_payload or {}).get("wallet_code", "").strip(),
-            as_of=_date_from_raw(row.raw_payload or {}),
-            balance=_amount_from_raw(row.raw_payload or {}),
-            currency=(row.raw_payload or {}).get("currency", "").strip().upper(),
-            errors=(),
-            raw=dict(row.raw_payload or {}),
-        )
+        raw = dict(row.raw_payload or {})
+        line = normalize_balances_line(raw, row.row_number)
         prepared = prepare_balances(session, company, line, file_duplicate_codes=dupes)
         row.normalized_payload = prepared["normalized"]
         row.validation_errors = prepared["errors"]
         row.duplicate_status = prepared["duplicate_status"]
         row.proposed_action = prepared["proposed_action"]
-
-
-def _date_from_raw(raw: dict) -> date | None:
-    value = raw.get("as_of", "").strip()
-    if not value:
-        return None
-    try:
-        parts = value.split("-")
-        return date(int(parts[0]), int(parts[1]), int(parts[2]))
-    except (ValueError, IndexError, TypeError):
-        return None
-
-
-def _amount_from_raw(raw: dict) -> Decimal | None:
-    from decimal import InvalidOperation
-
-    from app.domain.money import money
-
-    value = raw.get("balance", "").strip()
-    if not value:
-        return None
-    try:
-        amount = Decimal(value)
-        return money(amount)
-    except InvalidOperation:
-        return None
 
 
 def validate_stale_before_write(
@@ -390,6 +360,9 @@ def commit_balances_batch(
 
 def row_preview_public(row: RawImportRow) -> dict:
     data = row.normalized_payload or {}
+    raw_values = data.get("values")
+    values: dict = raw_values if isinstance(raw_values, dict) else {}
+    ctx = (data.get("stale_guard") or {}).get("wallet_context") or {}
     return {
         "row_number": row.row_number,
         "external_id": row.external_id,
@@ -397,6 +370,11 @@ def row_preview_public(row: RawImportRow) -> dict:
         "proposed_action": row.proposed_action,
         "errors": list(row.validation_errors or []),
         "intent": data.get("intent"),
+        "wallet_code": (
+            data.get("wallet_code") or values.get("wallet_code") or ctx.get("wallet_code")
+        ),
+        "currency": data.get("currency") or values.get("currency") or ctx.get("currency"),
+        "company_timezone": data.get("company_timezone") or ctx.get("company_timezone"),
         "before": data.get("before"),
         "after": data.get("after"),
     }

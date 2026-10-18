@@ -23,6 +23,13 @@ import {
   useWritableCompanySelection,
 } from "../lib/companySelection";
 
+function formatServerMoment(iso: string | undefined, timezone: string | undefined): string {
+  if (!iso) {
+    return "—";
+  }
+  return timezone ? `${iso} (${timezone})` : iso;
+}
+
 export function ImportPage() {
   const [dataset, setDataset] = useState<"cash" | "revenue" | "plan" | "budget" | "balances">(
     "budget",
@@ -270,9 +277,19 @@ export function ImportPage() {
             <ul className="mt-2 list-disc pl-5">
               {uploadPreview.rows.map((row) => (
                 <li key={row.row_number}>
-                  Строка {row.row_number}: {row.intent ?? "—"}
-                  {row.before || row.after
-                    ? ` · было ${row.before?.amount ?? "—"} → ${row.after?.amount ?? "—"}`
+                  Счёт {row.wallet_code ?? "—"} · действие {row.intent ?? "—"}
+                  {row.currency ? ` · ${row.currency}` : null}
+                  {row.before
+                    ? ` · до ${row.before.amount ?? "—"} @ ${formatServerMoment(
+                        row.before.effective_at,
+                        row.company_timezone,
+                      )}`
+                    : null}
+                  {row.after
+                    ? ` · после ${row.after.amount ?? "—"} @ ${formatServerMoment(
+                        row.after.effective_at,
+                        row.company_timezone,
+                      )}`
                     : null}
                   {row.errors.length ? ` · ${row.errors.join(", ")}` : null}
                 </li>

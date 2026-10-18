@@ -229,6 +229,9 @@ export type ImportPreviewRow = {
   row_number: number;
   errors: string[];
   intent?: string;
+  wallet_code?: string;
+  currency?: string;
+  company_timezone?: string;
   before?: { opening_id?: string; amount?: string; effective_at?: string } | null;
   after?: { amount?: string; effective_at?: string } | null;
 };

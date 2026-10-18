@@ -1,4 +1,5 @@
 import csv
+import re
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -9,6 +10,10 @@ from app.domain.imports.normalize import decode_text
 from app.domain.money import money
 
 BALANCES_COLUMNS = ("wallet_code", "as_of", "balance", "currency")
+STRICT_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_INVALID_AMOUNT_TOKENS = frozenset(
+    {"nan", "+nan", "-nan", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity"}
+)
 
 
 @dataclass(frozen=True)
@@ -49,8 +54,13 @@ def read_balances_csv(content: bytes, *, encoding: str, max_rows: int) -> list[B
             raise ImportFormatError("unsupported_format", "Слишком много строк")
         padded = list(row) + [""] * (len(BALANCES_COLUMNS) - len(row))
         raw = {column: padded[pos].strip() for pos, column in enumerate(BALANCES_COLUMNS)}
-        lines.append(_normalize(raw, index))
+        lines.append(normalize_balances_line(raw, index))
     return lines
+
+
+def normalize_balances_line(raw: dict[str, str], row_number: int) -> BalancesLine:
+    cleaned = {column: str(raw.get(column, "")).strip() for column in BALANCES_COLUMNS}
+    return _normalize(cleaned, row_number)
 
 
 def duplicate_wallet_codes(lines: list[BalancesLine]) -> set[str]:
@@ -94,14 +104,19 @@ def _parse_date(raw: str, errors: list[str]) -> date | None:
     if not value:
         errors.append("missing_date")
         return None
+    if not STRICT_DATE.match(value):
+        errors.append("invalid_date")
+        return None
     try:
         parts = value.split("-")
-        if len(parts) != 3:
-            raise ValueError("bad date")
-        return date(int(parts[0]), int(parts[1]), int(parts[2]))
+        parsed = date(int(parts[0]), int(parts[1]), int(parts[2]))
     except (ValueError, TypeError):
         errors.append("invalid_date")
         return None
+    if parsed.isoformat() != value:
+        errors.append("invalid_date")
+        return None
+    return parsed
 
 
 def _parse_balance(raw: str, errors: list[str]) -> Decimal | None:
@@ -109,7 +124,11 @@ def _parse_balance(raw: str, errors: list[str]) -> Decimal | None:
     if not value:
         errors.append("missing_amount")
         return None
-    if "e" in value.lower():
+    token = value.lower()
+    if token in _INVALID_AMOUNT_TOKENS:
+        errors.append("invalid_amount")
+        return None
+    if "e" in token:
         errors.append("invalid_amount")
         return None
     try:
@@ -117,10 +136,10 @@ def _parse_balance(raw: str, errors: list[str]) -> Decimal | None:
     except InvalidOperation:
         errors.append("invalid_amount")
         return None
+    if not amount.is_finite():
+        errors.append("invalid_amount")
+        return None
     if amount != money(amount):
         errors.append("invalid_amount_precision")
-        return None
-    if amount < 0:
-        errors.append("negative_amount")
         return None
     return money(amount)

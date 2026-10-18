@@ -517,6 +517,118 @@ def test_balances_stale_on_timezone_and_code_change(
     assert _commit(client, batch_id, token).status_code == 409
 
 
+def test_balances_refresh_keeps_invalid_precision(client, admin, app, fake, tmp_path) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "b-refprec@example.com")
+    source = _balances_source(client, company_id)
+    content = BAL_HEADER.encode() + b"main,2026-10-01,1.001,RUB\n"
+    uploaded = _upload(client, company_id, source["id"], content, "prec.csv", "b-refprec")
+    batch_id = uploaded.json()["id"]
+    assert "invalid_amount_precision" in uploaded.json()["rows"][0]["errors"]
+    refreshed = client.post(f"/api/v1/imports/{batch_id}/refresh-preview")
+    assert refreshed.status_code == 200, refreshed.text
+    row = refreshed.json()["rows"][0]
+    assert "invalid_amount_precision" in row["errors"]
+    assert row.get("before") is None and row.get("after") is None
+    assert _opening_count(admin, wallet_id) == 0
+    assert _audit_opening_count(admin, wallet_id) == 0
+    assert _commit(client, batch_id, refreshed.json()["preview_token"]).status_code == 409
+
+
+def test_balances_refresh_keeps_missing_date(client, admin, app, fake, tmp_path) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "b-refdate@example.com")
+    source = _balances_source(client, company_id)
+    content = BAL_HEADER.encode() + b"main,,1.00,RUB\n"
+    uploaded = _upload(client, company_id, source["id"], content, "nodate.csv", "b-refdate")
+    batch_id = uploaded.json()["id"]
+    assert "missing_date" in uploaded.json()["rows"][0]["errors"]
+    refreshed = client.post(f"/api/v1/imports/{batch_id}/refresh-preview")
+    assert refreshed.status_code == 200, refreshed.text
+    row = refreshed.json()["rows"][0]
+    assert "missing_date" in row["errors"]
+    assert row.get("after") is None
+    assert _opening_count(admin, wallet_id) == 0
+
+
+def test_balances_nan_amount_controlled(client, admin, app, fake, tmp_path) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "b-nan@example.com")
+    source = _balances_source(client, company_id)
+    content = BAL_HEADER.encode() + b"main,2026-10-01,nan,RUB\n"
+    uploaded = _upload(client, company_id, source["id"], content, "nan.csv", "b-nan")
+    assert uploaded.status_code == 200, uploaded.text
+    assert "invalid_amount" in uploaded.json()["rows"][0]["errors"]
+    assert _commit(client, uploaded.json()["id"], uploaded.json()["preview_token"]).status_code == 409
+    assert _opening_count(admin, wallet_id) == 0
+
+
+def test_balances_negative_amount_upload_and_refresh(
+    client, admin, app, fake, tmp_path
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "b-neg@example.com")
+    source = _balances_source(client, company_id)
+    content = BAL_HEADER.encode() + b"main,2026-10-01,-10.50,RUB\n"
+    uploaded = _upload(client, company_id, source["id"], content, "neg.csv", "b-neg")
+    assert uploaded.status_code == 200, uploaded.text
+    up_row = uploaded.json()["rows"][0]
+    assert up_row["errors"] == []
+    assert up_row["intent"] == "create"
+    batch_id = uploaded.json()["id"]
+    refreshed = client.post(f"/api/v1/imports/{batch_id}/refresh-preview")
+    assert refreshed.status_code == 200, refreshed.text
+    ref_row = refreshed.json()["rows"][0]
+    assert ref_row["errors"] == []
+    assert ref_row["intent"] == "create"
+    assert ref_row["after"]["amount"] == "-10.50"
+    token = refreshed.json()["preview_token"]
+    assert _commit(client, batch_id, token).status_code == 200
+    with admin.connect() as connection:
+        amount = connection.execute(
+            text(
+                "SELECT amount FROM opening_balances "
+                "WHERE wallet_id = :wid AND status = 'active'"
+            ),
+            {"wid": wallet_id},
+        ).scalar_one()
+    assert str(amount) == "-10.50"
+
+
+def test_balances_refresh_currency_mismatch_still_blocked(
+    client, admin, app, fake, tmp_path
+) -> None:
+    company_id, _ = _ready(client, admin, app, fake, tmp_path, "b-refcur@example.com")
+    source = _balances_source(client, company_id)
+    content = BAL_HEADER.encode() + b"main,2026-10-01,1.00,USD\n"
+    uploaded = _upload(client, company_id, source["id"], content, "usd.csv", "b-refcur")
+    batch_id = uploaded.json()["id"]
+    assert "unsupported_currency" in uploaded.json()["rows"][0]["errors"]
+    refreshed = client.post(f"/api/v1/imports/{batch_id}/refresh-preview")
+    assert refreshed.status_code == 200, refreshed.text
+    row = refreshed.json()["rows"][0]
+    assert "unsupported_currency" in row["errors"]
+    assert _commit(client, batch_id, refreshed.json()["preview_token"]).status_code == 409
+
+
+def test_balances_preview_fields_wallet_currency_timezone(
+    client, admin, app, fake, tmp_path
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "b-fields@example.com")
+    source = _balances_source(client, company_id)
+    client.post(
+        f"/api/v1/wallets/{wallet_id}/opening-balance",
+        json={"effective_at": "2026-10-01T00:00:00+03:00", "amount": "100.00"},
+        headers={"Idempotency-Key": uuid4().hex},
+    )
+    content = BAL_HEADER.encode() + b"main,2026-10-02,200.00,RUB\n"
+    uploaded = _upload(client, company_id, source["id"], content, "fields.csv", "b-fields")
+    row = uploaded.json()["rows"][0]
+    assert row["wallet_code"] == "main"
+    assert row["currency"] == "RUB"
+    assert row["company_timezone"] == "Europe/Moscow"
+    assert row["before"]["amount"] == "100.00"
+    assert row["before"]["effective_at"]
+    assert row["after"]["amount"] == "200.00"
+    assert row["after"]["effective_at"].endswith("+03:00") or "T" in row["after"]["effective_at"]
+
+
 def test_balances_dashboard_input_revision(client, admin, app, fake, tmp_path) -> None:
     freeze(app, datetime(2026, 10, 16, 12, tzinfo=UTC))
     company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "b-dash@example.com")
