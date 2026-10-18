@@ -935,7 +935,10 @@
       },
       "balances_refresh_preview_fix_2026_10_18": {
         "defect": "refresh-preview balances: отдельный parse без ошибок, money() округлял invalid precision",
-        "status": "fixed_local_pending_ci",
+        "status": "fixed",
+        "product_sha": "73319a7dc13a1bae33d0468a2468047afffed891",
+        "ci_run": "39119642860",
+        "ci_conclusion": "success",
         "scope": "normalize_balances_line upload+refresh; preview wallet_code/currency/timezone; ImportPage",
         "staging_unchanged": true,
         "balances_gate_staging": false,
