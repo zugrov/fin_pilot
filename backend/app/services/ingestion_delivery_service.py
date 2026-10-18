@@ -88,9 +88,6 @@ def resolve_delivery(
                 "delivery_conflict",
                 "Другой состав доставки для того же transport-ключа",
             )
-        existing.transport_status = STATUS_DUPLICATE
-        existing.updated_at = at
-        session.flush()
         return existing
     row = IngestionDelivery(
         id=uuid.uuid4(),
@@ -125,9 +122,6 @@ def resolve_delivery(
                 "delivery_conflict",
                 "Другой состав доставки для того же transport-ключа",
             ) from exc
-        found.transport_status = STATUS_DUPLICATE
-        found.updated_at = at
-        session.flush()
         return found
     return row
 
@@ -198,8 +192,6 @@ def link_part_to_batch(
     part.part_status = part_status
     part.error_code = error_code
     part.updated_at = at
-    if batch.delivery_id is None:
-        batch.delivery_id = part.delivery_id
     session.flush()
 
 
@@ -217,9 +209,7 @@ def refresh_delivery_transport_status(
     ).all()
     if not parts:
         delivery.transport_status = STATUS_REJECTED
-    elif all(item.part_status == PART_SKIPPED for item in parts):
-        delivery.transport_status = STATUS_DUPLICATE
-    elif all(item.part_status in {PART_PREVIEW, PART_SKIPPED} for item in parts):
+    elif all(item.part_status == PART_PREVIEW for item in parts):
         delivery.transport_status = STATUS_COMPLETE
     elif any(item.part_status == PART_PREVIEW for item in parts):
         delivery.transport_status = STATUS_PARTIAL

@@ -18,14 +18,14 @@ As-is уже имеет статусы `ImportBatch` и `EmailIngestion.status`.
 | `transport_complete` | все части байтов на месте |
 | `transport_rejected` | auth, лимит, формат конверта |
 | `content_conflict` | тот же `client_package_id`, другой aggregate hash |
-| `duplicate_transport` | тот же `delivery_key` |
+| `duplicate_transport` | повтор transport-ключа (в R02.1 не перезаписывает persisted status) |
 
 | Из | Событие | В |
 | --- | --- | --- |
 | — | первый POST | `received` |
 | `received` | часть chunk без финала | `partially_received` |
 | `partially_received` | последний chunk | `transport_complete` |
-| * | повтор delivery_key | `duplicate_transport` (вернуть существующий) |
+| * | повтор delivery_key | существующая delivery без смены persisted status |
 | * | package_id hash mismatch | `content_conflict` |
 | * | 401/403/413/422 envelope | `transport_rejected` |
 

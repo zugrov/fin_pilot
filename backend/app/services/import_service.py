@@ -237,6 +237,7 @@ def upload_file(
     if remembered is not None:
         return remembered.response_body
 
+    payload: dict | None = None
     try:
         with session.begin_nested():
             delivery = resolve_delivery(
@@ -260,22 +261,22 @@ def upload_file(
                 if batch is not None:
                     payload = attach_delivery_id(_payload(session, batch), delivery.id)
                     refresh_delivery_transport_status(session, delivery.id, at)
-                    return payload
-            transport = TransportContext(delivery_id=delivery.id, part_id=part.id)
-            payload = receive_import(
-                session,
-                membership,
-                company,
-                user,
-                settings,
-                connection_id=connection_id,
-                content=content,
-                idempotency_key=idempotency_key,
-                at=at,
-                transport=transport,
-                skip_http_idempotency=True,
-            )
-            refresh_delivery_transport_status(session, delivery.id, at)
+            if payload is None:
+                transport = TransportContext(delivery_id=delivery.id, part_id=part.id)
+                payload = receive_import(
+                    session,
+                    membership,
+                    company,
+                    user,
+                    settings,
+                    connection_id=connection_id,
+                    content=content,
+                    idempotency_key=idempotency_key,
+                    at=at,
+                    transport=transport,
+                    skip_http_idempotency=True,
+                )
+                refresh_delivery_transport_status(session, delivery.id, at)
     except AppError:
         raise
     _remember(session, user, company.tenant_id, idempotency_key, fingerprint, payload, at)

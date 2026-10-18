@@ -14,8 +14,8 @@ from app.services.import_service import receive_import
 from app.services.ingestion_delivery_service import (
     PART_FAILED,
     PART_IGNORED,
+    PART_PENDING,
     PART_PREVIEW,
-    PART_SKIPPED,
     TransportContext,
     get_or_create_part,
     group_mail_attachments,
@@ -157,7 +157,8 @@ def _ingest_message(
     )
     touched = False
     for (part_index, digest), attachment in zip(indexed, attachments, strict=True):
-        if _email_attachment_seen(session, connection, attachment, digest):
+        prior = _email_attachment_prior(session, connection, attachment, digest)
+        if prior is not None:
             part = get_or_create_part(
                 session,
                 delivery,
@@ -165,9 +166,7 @@ def _ingest_message(
                 content_hash=digest,
                 at=at,
             )
-            if part.part_status == PART_PREVIEW:
-                part.part_status = PART_SKIPPED
-                part.updated_at = at
+            _apply_prior_email_result(session, part, prior, at)
             continue
         part = get_or_create_part(
             session,
@@ -240,11 +239,11 @@ def _ingest_message(
     return touched
 
 
-def _email_attachment_seen(
+def _email_attachment_prior(
     session, connection: SourceConnection, message: MailAttachment, digest: str
-) -> bool:
-    found = session.scalar(
-        select(EmailIngestion.id).where(
+) -> EmailIngestion | None:
+    return session.scalar(
+        select(EmailIngestion).where(
             EmailIngestion.tenant_id == connection.tenant_id,
             EmailIngestion.connection_id == connection.id,
             EmailIngestion.uidvalidity == message.uidvalidity,
@@ -252,7 +251,43 @@ def _email_attachment_seen(
             EmailIngestion.attachment_hash == digest,
         )
     )
-    return found is not None
+
+
+def _apply_prior_email_result(
+    session: Session,
+    part,
+    prior: EmailIngestion,
+    at,
+) -> None:
+    if prior.status == "preview" and prior.batch_id is not None:
+        batch = session.get(ImportBatch, prior.batch_id)
+        if batch is not None and part.batch_id is None:
+            link_part_to_batch(
+                session,
+                part,
+                batch,
+                part_status=PART_PREVIEW,
+                error_code=None,
+                at=at,
+            )
+        elif part.part_status == PART_PENDING and part.batch_id == prior.batch_id:
+            part.part_status = PART_PREVIEW
+            part.updated_at = at
+            session.flush()
+        return
+    if prior.status == "failed":
+        if part.part_status in {PART_PENDING, PART_PREVIEW} and part.batch_id is None:
+            part.part_status = PART_FAILED
+            part.error_code = "unsupported_format"
+            part.updated_at = at
+            session.flush()
+        return
+    if prior.status == "ignored":
+        if part.part_status == PART_PENDING:
+            part.part_status = PART_IGNORED
+            part.error_code = "ignored_sender"
+            part.updated_at = at
+            session.flush()
 
 
 def _email_row(

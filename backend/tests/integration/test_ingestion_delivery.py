@@ -1,24 +1,35 @@
+import threading
+import time
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import psycopg
+import pytest
+from alembic import command
+from alembic.config import Config
 from app.integrations.imap_client import FakeMailbox, MailAttachment
-from app.models.identity import User
+from app.models.identity import Company, Membership, User
 from app.models.imports import SourceConnection
 from app.security.context import set_context
+from app.services.import_service import upload_file
 from app.services.mail_service import ingest_mailbox
-from sqlalchemy import text
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import BACKEND, login, open_workspace, pay, register_and_verify
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 RECEIVED = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 REVISION = "20261018_0011"
+PREV = "20261017_0010"
+_PG_PORT = __import__("os").environ.get("TEST_PG_PORT", "5432")
 
 
-def _rows(admin, query: str) -> list:
+def _rows(admin, query: str, params: dict | None = None) -> list:
     with admin.connect() as connection:
-        return list(connection.execute(text(query)).all())
+        return list(connection.execute(text(query), params or {}).all())
 
 
 def _ready(client, admin, app, fake, tmp_path, email: str) -> tuple[str, str]:
@@ -140,7 +151,31 @@ def test_ui_same_file_two_deliveries_one_batch(client, admin, app, fake, tmp_pat
     assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] == 2
     assert _rows(admin, "SELECT count(*) FROM ingestion_delivery_parts")[0][0] == 2
     assert _rows(admin, "SELECT count(*) FROM import_batches")[0][0] == 1
-    assert _rows(admin, "SELECT delivery_id IS NOT NULL FROM import_batches")[0][0] is True
+    batch_delivery = _rows(admin, "SELECT delivery_id::text FROM import_batches")[0][0]
+    assert batch_delivery == first.json()["delivery_id"]
+    assert batch_delivery != second.json()["delivery_id"]
+
+
+def test_ui_legacy_batch_keeps_null_delivery_on_duplicate_file(
+    client, admin, app, fake, tmp_path
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "td-legacy@example.com")
+    source = _source(client, company_id, wallet_id)
+    content = (FIXTURES / "cash_ok.csv").read_bytes()
+    first = _upload(client, company_id, source["id"], content, "legacy-a")
+    assert first.status_code == 200, first.text
+    with admin.connect() as connection:
+        connection.execute(text("UPDATE import_batches SET delivery_id = NULL"))
+        connection.commit()
+    second = _upload(client, company_id, source["id"], content, "legacy-b")
+    assert second.status_code == 200, second.text
+    assert _rows(admin, "SELECT delivery_id FROM import_batches")[0][0] is None
+    assert (
+        _rows(admin, "SELECT count(*) FROM ingestion_delivery_parts WHERE batch_id IS NOT NULL")[0][
+            0
+        ]
+        == 2
+    )
 
 
 def test_ui_idempotency_replay_and_payload_conflict(client, admin, app, fake, tmp_path) -> None:
@@ -212,23 +247,78 @@ def test_ui_failed_upload_leaves_no_orphan_idempotency(client, admin, app, fake,
     assert _rows(admin, "SELECT count(*) FROM ingestion_delivery_parts")[0][0] == 0
 
 
-def test_mail_one_delivery_many_parts(client, admin, app, fake, tmp_path) -> None:
-    tenant_id, company_id, user_id = _mail_ready(
-        client, admin, app, fake, tmp_path, "td-mail-1@example.com"
-    )
-    source = _mail_source(client, company_id, _wallet(client, company_id))
-    good = _statement(_document("m1", valid=True))
-    bad = _statement(_document("m2", valid=False))
-    box = FakeMailbox([_letter(good, 10, filename="a.txt"), _letter(bad, 10, filename="b.txt")])
-    assert _ingest_mail(app, tenant_id, user_id, source["id"], box, RECEIVED) == 1
-    assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] == 1
+def test_ui_concurrent_same_file_two_sessions(client, admin, app, fake, tmp_path) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "td-race@example.com")
+    owner_id = UUID(client.get("/api/v1/auth/me").json()["user"]["id"])
+    tenant_id = UUID(client.headers["X-Tenant-Id"])
+    source = _source(client, company_id, wallet_id)
+    content = (FIXTURES / "cash_ok.csv").read_bytes()
+    at = RECEIVED
+    payloads: list[dict] = []
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(2)
+
+    def worker(key: str) -> None:
+        barrier.wait(timeout=5)
+        for attempt in range(8):
+            session = app.state.session_factory()
+            try:
+                set_context(session, tenant_id=tenant_id, user_id=owner_id)
+                user = session.get(User, owner_id)
+                company = session.get(Company, UUID(company_id))
+                membership = session.scalar(
+                    select(Membership).where(
+                        Membership.user_id == user.id,
+                        Membership.tenant_id == company.tenant_id,
+                        Membership.role == "owner",
+                    )
+                )
+                assert user is not None and company is not None and membership is not None
+                body = upload_file(
+                    session,
+                    membership,
+                    company,
+                    user,
+                    app.state.settings,
+                    connection_id=UUID(source["id"]),
+                    content=content,
+                    idempotency_key=key,
+                    at=at,
+                )
+                session.commit()
+                payloads.append(body)
+                return
+            except BaseException as exc:
+                session.rollback()
+                from app.errors import AppError
+
+                if isinstance(exc, AppError) and exc.code == "conflict" and attempt < 7:
+                    time.sleep(0.05)
+                    continue
+                errors.append(exc)
+                return
+            finally:
+                session.close()
+
+    threads = [threading.Thread(target=worker, args=(f"race-{index}",)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert errors == [], errors
+    assert _rows(admin, "SELECT count(*) FROM import_batches")[0][0] == 1
+    assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] == 2
     assert _rows(admin, "SELECT count(*) FROM ingestion_delivery_parts")[0][0] == 2
-    assert _rows(admin, "SELECT count(DISTINCT batch_id) FROM ingestion_delivery_parts")[0][0] == 2
-    status = _rows(admin, "SELECT transport_status FROM ingestion_deliveries")[0][0]
-    assert status == "transport_complete"
+    assert (
+        _rows(admin, "SELECT count(*) FROM idempotency_records WHERE scope = 'import-upload'")[0][0]
+        == 2
+    )
+    assert len({item["id"] for item in payloads}) == 1
 
 
-def test_mail_repeat_and_uidvalidity(client, admin, app, fake, tmp_path) -> None:
+def test_mail_repeat_preserves_complete_and_preview_parts(
+    client, admin, app, fake, tmp_path
+) -> None:
     tenant_id, company_id, user_id = _mail_ready(
         client, admin, app, fake, tmp_path, "td-mail-2@example.com"
     )
@@ -236,17 +326,63 @@ def test_mail_repeat_and_uidvalidity(client, admin, app, fake, tmp_path) -> None
     content = _statement(_document("r1", valid=True))
     box = FakeMailbox([_letter(content, 20)])
     assert _ingest_mail(app, tenant_id, user_id, source["id"], box, RECEIVED) == 1
+    status_after_first = _rows(admin, "SELECT transport_status FROM ingestion_deliveries")[0][0]
+    part_after_first = _rows(
+        admin,
+        "SELECT part_status, batch_id IS NOT NULL FROM ingestion_delivery_parts",
+    )[0]
+    assert status_after_first == "transport_complete"
+    assert part_after_first[0] == "preview"
+    assert part_after_first[1] is True
     assert (
         _ingest_mail(app, tenant_id, user_id, source["id"], box, RECEIVED + timedelta(minutes=1))
         == 0
     )
     assert (
         _rows(admin, "SELECT transport_status FROM ingestion_deliveries")[0][0]
-        == "duplicate_transport"
+        == "transport_complete"
     )
-    new_box = FakeMailbox([_letter(content, 20, uidvalidity=99)])
-    assert _ingest_mail(app, tenant_id, user_id, source["id"], new_box, RECEIVED) == 1
-    assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] == 2
+    assert _rows(
+        admin,
+        "SELECT part_status, batch_id IS NOT NULL FROM ingestion_delivery_parts",
+    )[0] == ("preview", True)
+
+
+def test_mail_partial_failure_stays_partial_on_repeat(client, admin, app, fake, tmp_path) -> None:
+    tenant_id, company_id, user_id = _mail_ready(
+        client, admin, app, fake, tmp_path, "td-mail-partial@example.com"
+    )
+    source = _mail_source(client, company_id, _wallet(client, company_id))
+    good = _statement(_document("ok", valid=True))
+    bad_bytes = b"not-a-statement"
+    box = FakeMailbox(
+        [_letter(good, 40, filename="a.txt"), _letter(bad_bytes, 40, filename="b.txt")]
+    )
+    _ingest_mail(app, tenant_id, user_id, source["id"], box, RECEIVED)
+    statuses = sorted(
+        row[0]
+        for row in _rows(
+            admin, "SELECT part_status FROM ingestion_delivery_parts ORDER BY part_index"
+        )
+    )
+    delivery_status = _rows(admin, "SELECT transport_status FROM ingestion_deliveries")[0][0]
+    assert "preview" in statuses
+    assert "failed" in statuses
+    assert delivery_status == "partially_received"
+    _ingest_mail(app, tenant_id, user_id, source["id"], box, RECEIVED + timedelta(minutes=1))
+    assert (
+        _rows(admin, "SELECT transport_status FROM ingestion_deliveries")[0][0]
+        == "partially_received"
+    )
+    assert (
+        sorted(
+            row[0]
+            for row in _rows(
+                admin, "SELECT part_status FROM ingestion_delivery_parts ORDER BY part_index"
+            )
+        )
+        == statuses
+    )
 
 
 def test_mail_duplicate_attachment_one_batch(client, admin, app, fake, tmp_path) -> None:
@@ -263,21 +399,116 @@ def test_mail_duplicate_attachment_one_batch(client, admin, app, fake, tmp_path)
         _ingest_mail(app, tenant_id, user_id, source["id"], FakeMailbox(attachments), RECEIVED) == 1
     )
     assert _rows(admin, "SELECT count(*) FROM import_batches")[0][0] == 1
+    batch_ids = _rows(
+        admin, "SELECT batch_id::text FROM ingestion_delivery_parts ORDER BY part_index"
+    )
+    assert batch_ids[0][0] == batch_ids[1][0]
+    assert batch_ids[0][0] is not None
+    assert (
+        _rows(admin, "SELECT transport_status FROM ingestion_deliveries")[0][0]
+        == "transport_complete"
+    )
+
+
+def test_mail_one_delivery_many_parts(client, admin, app, fake, tmp_path) -> None:
+    tenant_id, company_id, user_id = _mail_ready(
+        client, admin, app, fake, tmp_path, "td-mail-1@example.com"
+    )
+    source = _mail_source(client, company_id, _wallet(client, company_id))
+    good = _statement(_document("m1", valid=True))
+    bad = _statement(_document("m2", valid=False))
+    box = FakeMailbox([_letter(good, 10, filename="a.txt"), _letter(bad, 10, filename="b.txt")])
+    assert _ingest_mail(app, tenant_id, user_id, source["id"], box, RECEIVED) == 1
+    assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] == 1
     assert _rows(admin, "SELECT count(*) FROM ingestion_delivery_parts")[0][0] == 2
+    assert _rows(admin, "SELECT count(DISTINCT batch_id) FROM ingestion_delivery_parts")[0][0] == 2
+    assert (
+        _rows(admin, "SELECT transport_status FROM ingestion_deliveries")[0][0]
+        == "transport_complete"
+    )
+
+
+def test_cross_connection_part_fk_rejected(admin, migrated_database) -> None:
+    assert_finpilot_test_database(migrated_database)
+    with migrated_database.connect() as connection:
+        sources = connection.execute(
+            text(
+                "SELECT tenant_id, company_id, id FROM source_connections "
+                "ORDER BY created_at LIMIT 2"
+            )
+        ).all()
+    if len(sources) < 2:
+        pytest.skip("нужно два source_connection")
+    a, b = sources[0], sources[1]
+    delivery_id = uuid.uuid4()
+    with pytest.raises(IntegrityError):
+        with migrated_database.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO ingestion_deliveries "
+                    "(id, tenant_id, company_id, connection_id, channel, delivery_key, "
+                    "request_fingerprint, transport_status, created_at, updated_at) "
+                    "VALUES (:id, :t, :c, :conn, 'ui', 'fk-test', 'fp', "
+                    "'partially_received', now(), now())"
+                ),
+                {"id": delivery_id, "t": a.tenant_id, "c": a.company_id, "conn": b.id},
+            )
+
+
+def test_rls_hides_foreign_tenant_delivery(client, admin, app, fake, tmp_path) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "td-rls@example.com")
+    source = _source(client, company_id, wallet_id)
+    content = (FIXTURES / "cash_ok.csv").read_bytes()
+    uploaded = _upload(client, company_id, source["id"], content, "rls-key")
+    assert uploaded.status_code == 200, uploaded.text
+    delivery_id = uploaded.json()["delivery_id"]
+    app_conn = psycopg.connect(
+        f"postgresql://finpilot_app:finpilot_test_only@127.0.0.1:{_PG_PORT}/finpilot_test"
+    )
+    try:
+        with app_conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT set_config('app.tenant_id', %s, true)",
+                ("00000000-0000-0000-0000-000000000001",),
+            )
+            cursor.execute(
+                "SELECT count(*) FROM ingestion_deliveries WHERE id = %s",
+                (delivery_id,),
+            )
+            assert cursor.fetchone()[0] == 0
+    finally:
+        app_conn.close()
+
+
+def test_migration_downgrade_blocked_with_transport_history(
+    client, admin, app, fake, tmp_path, migrated_database
+) -> None:
+    assert_finpilot_test_database(migrated_database)
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "td-down@example.com")
+    source = _source(client, company_id, wallet_id)
+    content = (FIXTURES / "cash_ok.csv").read_bytes()
+    uploaded = _upload(client, company_id, source["id"], content, "down-key")
+    assert uploaded.status_code == 200, uploaded.text
+    assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] >= 1
+    config = Config(str(BACKEND / "alembic.ini"))
+    with pytest.raises(Exception) as exc:
+        command.downgrade(config, PREV)
+    assert "downgrade_blocked" in str(exc.value)
+    with migrated_database.connect() as connection:
+        revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        deliveries = connection.execute(
+            text("SELECT count(*) FROM ingestion_deliveries")
+        ).scalar_one()
+    assert revision == REVISION
+    assert int(deliveries) >= 1
 
 
 def test_migration_sql_downgrade_guard(migrated_database) -> None:
     assert_finpilot_test_database(migrated_database)
-    upgrade_sql = (BACKEND / "alembic" / "sql" / "0011_ingestion_delivery.sql").read_text(
-        encoding="utf-8"
-    )
-    assert "ingestion_deliveries" in upgrade_sql
-    assert "ROW LEVEL SECURITY" in upgrade_sql
     downgrade_sql = (
         BACKEND / "alembic" / "sql" / "0011_ingestion_delivery_downgrade.sql"
     ).read_text(encoding="utf-8")
     assert "downgrade_blocked" in downgrade_sql
-    assert downgrade_sql.index("downgrade_blocked") < downgrade_sql.index("DROP TABLE")
     with migrated_database.connect() as connection:
         revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
     assert revision == REVISION

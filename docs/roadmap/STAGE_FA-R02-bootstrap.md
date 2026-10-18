@@ -31,7 +31,7 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 - Материализованы `ingestion_deliveries`, `ingestion_delivery_parts`, nullable `import_batches.delivery_id` (только для **нового** batch), nullable `email_ingestions.delivery_id`.
 - UI: `delivery_key = ui:{user_id}:{Idempotency-Key}`; HTTP idempotency до delivery; `delivery_id` в ответе upload — текущая доставка.
-- Mail: delivery на `connection+UIDVALIDITY+UID`; fingerprint — manifest частей с полными SHA-256; повтор → `duplicate_transport`, успешные parts не дублируются.
+- Mail: delivery на `connection+UIDVALIDITY+UID`; fingerprint — manifest частей с полными SHA-256; повтор не меняет persisted `transport_complete` и preview-parts; `batch.delivery_id` только при создании batch.
 - Downgrade 0011: guard при непустой `ingestion_deliveries`; balances guards не ослаблены.
 
 **Риски.** Deadlock на unique file_hash + delivery insert; RLS на новой таблице.
