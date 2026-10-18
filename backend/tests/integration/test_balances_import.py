@@ -556,7 +556,9 @@ def test_balances_nan_amount_controlled(client, admin, app, fake, tmp_path) -> N
     uploaded = _upload(client, company_id, source["id"], content, "nan.csv", "b-nan")
     assert uploaded.status_code == 200, uploaded.text
     assert "invalid_amount" in uploaded.json()["rows"][0]["errors"]
-    assert _commit(client, uploaded.json()["id"], uploaded.json()["preview_token"]).status_code == 409
+    batch_id = uploaded.json()["id"]
+    token = uploaded.json()["preview_token"]
+    assert _commit(client, batch_id, token).status_code == 409
     assert _opening_count(admin, wallet_id) == 0
 
 
