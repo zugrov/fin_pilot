@@ -11,7 +11,6 @@ export default defineConfig({
   timeout: 120_000,
   expect: { timeout: 20_000 },
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"], ["html", { open: "never" }]],
-  globalSetup: "./e2e/global-setup.ts",
   use: {
     baseURL: "http://127.0.0.1:5173",
     trace: "retain-on-failure",
@@ -32,10 +31,11 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: "bash -c 'cd ../backend && uv run python -m tests.e2e.run_api'",
+      command:
+        "bash -c 'cd ../backend && uv run python -m tests.e2e.seed && uv run python -m tests.e2e.run_api'",
       url: "http://127.0.0.1:8000/health/ready",
       reuseExistingServer: false,
-      timeout: 120_000,
+      timeout: 180_000,
     },
     {
       command: "npm run dev -- --host 127.0.0.1 --port 5173",

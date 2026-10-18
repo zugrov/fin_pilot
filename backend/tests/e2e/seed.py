@@ -18,8 +18,18 @@ from tests.e2e.constants import (
     E2E_OWNER_EMAIL,
     E2E_WORKSPACE,
 )
-from tests.e2e.database import ensure_database_and_roles, truncate_all
-from tests.e2e.env import apply_e2e_env, assert_finpilot_test_only
+from tests.e2e.database import (
+    ensure_finpilot_test_database,
+    run_migrations_and_roles,
+    truncate_all,
+)
+from tests.e2e.env import (
+    E2E_DATABASE,
+    E2E_HOST,
+    apply_e2e_env,
+    validate_e2e_target_config,
+    verify_live_finpilot_test,
+)
 from tests.e2e.settings import E2ESettings
 from tests.integration.conftest import (
     login,
@@ -30,6 +40,17 @@ from tests.integration.conftest import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2].parent
 META_PATH = REPO_ROOT / "frontend" / "e2e" / "fixtures" / "seed-meta.json"
+
+
+def prepare_e2e_environment() -> str:
+    """Общий порядок: env → validate → ensure DB → verify → migrate/roles → truncate."""
+    port = apply_e2e_env()
+    validate_e2e_target_config(port)
+    ensure_finpilot_test_database(port)
+    verify_live_finpilot_test(port)
+    run_migrations_and_roles(port)
+    truncate_all(port)
+    return port
 
 
 def _company_id(admin_url: str, name: str) -> str:
@@ -44,10 +65,7 @@ def _company_id(admin_url: str, name: str) -> str:
 
 
 def run_seed() -> dict:
-    port = apply_e2e_env()
-    assert_finpilot_test_only(port)
-    ensure_database_and_roles(port)
-    truncate_all(port)
+    port = prepare_e2e_environment()
 
     settings = E2ESettings()
     app = create_app(settings)
@@ -58,7 +76,7 @@ def run_seed() -> dict:
     fake = FakeYooKassa(shop_id="shop-test")
     app.state.payment_provider_factory = lambda: fake
 
-    admin_url = f"postgresql+psycopg://127.0.0.1:{port}/finpilot_test"
+    admin_url = f"postgresql+psycopg://{E2E_HOST}:{port}/{E2E_DATABASE}"
     engine = create_engine(admin_url)
 
     with TestClient(app) as client:

@@ -179,11 +179,11 @@
           "product_sha_baseline": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
           "docs_sha_baseline": "b165055fa6c40fba7f223eb77bccf34cb5459c66",
           "evidence": [
-            "локальная реализация пакета: Playwright @playwright/test, frontend/e2e (группы A–D), backend/tests/e2e bootstrap/seed/db_assert",
-            "контур: 127.0.0.1 FastAPI + Vite proxy, finpilot_test (5432 local / 5433 CI), APP_ENV=test без .env; webServer reuseExistingServer=false, readiness /health/ready",
-            "группа C: lost-response = route.fetch() + abort; до retry проверка записи/audit в БД; baseline counts внутри теста",
-            "workflow .github/workflows/e2e.yml — отдельный job, Chromium, без изменений ci.yml",
-            "локально 2026-10-18: C/B отдельно OK; npm run test:e2e 6/6 ×2 (~57s); bootstrap pytest OK; vitest 89; build OK; ruff tests/e2e OK; mypy app OK; commit/CI — после push"
+            "локальная реализация: Playwright A–D, backend/tests/e2e bootstrap/seed/db_assert",
+            "контур: 127.0.0.1, finpilot_test (5432/5433), prepare в webServer (seed→run_api), без globalSetup",
+            "guard: validate_e2e_target_config до DDL; verify_live после CREATE finpilot_test",
+            "CI 182e27b: ci — test_bootstrap ERROR (finpilot_test отсутствует до assert); e2e — webServer API до prepare",
+            "исправление bootstrap: единый prepare_e2e_environment; локально bootstrap 5/5, E2E 6/6 ×2; CI после fix-commit"
           ]
         }
       ],

@@ -7,6 +7,7 @@ import psycopg
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
+from tests.e2e.env import E2E_DATABASE, E2E_HOST
 
 BACKEND = Path(__file__).resolve().parents[2]
 
@@ -31,30 +32,43 @@ verification_tokens, sessions, users
 
 
 def admin_connect(port: str):
-    return psycopg.connect(f"postgresql://127.0.0.1:{port}/postgres", autocommit=True)
+    return psycopg.connect(f"postgresql://{E2E_HOST}:{port}/postgres", autocommit=True)
 
 
-def ensure_database_and_roles(port: str) -> None:
+def ensure_finpilot_test_database(port: str) -> None:
+    """Создать finpilot_test через admin, если её ещё нет."""
     admin = admin_connect(port)
-    exists = admin.execute("SELECT 1 FROM pg_database WHERE datname = 'finpilot_test'").fetchone()
-    if exists is None:
-        admin.execute("CREATE DATABASE finpilot_test")
+    try:
+        exists = admin.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s",
+            (E2E_DATABASE,),
+        ).fetchone()
+        if exists is None:
+            admin.execute(f'CREATE DATABASE "{E2E_DATABASE}"')
+    finally:
+        admin.close()
+
+
+def run_migrations_and_roles(port: str) -> None:
     config = Config(str(BACKEND / "alembic.ini"))
     previous = os.getcwd()
     os.chdir(BACKEND)
     try:
-        # E2E: только head + truncate; downgrade/base ломается при balances sources в данных.
+        # E2E: только head; downgrade/base ломается при balances sources в данных.
         command.upgrade(config, "head")
     finally:
         os.chdir(previous)
-    admin.execute("ALTER ROLE finpilot_app WITH LOGIN PASSWORD 'finpilot_test_only'")
-    admin.execute("ALTER ROLE finpilot_worker WITH LOGIN PASSWORD 'finpilot_test_only'")
-    admin.execute("GRANT CONNECT ON DATABASE finpilot_test TO finpilot_app, finpilot_worker")
-    admin.close()
+    admin = admin_connect(port)
+    try:
+        admin.execute("ALTER ROLE finpilot_app WITH LOGIN PASSWORD 'finpilot_test_only'")
+        admin.execute("ALTER ROLE finpilot_worker WITH LOGIN PASSWORD 'finpilot_test_only'")
+        admin.execute(f"GRANT CONNECT ON DATABASE {E2E_DATABASE} TO finpilot_app, finpilot_worker")
+    finally:
+        admin.close()
 
 
 def truncate_all(port: str) -> None:
-    url = f"postgresql+psycopg://127.0.0.1:{port}/finpilot_test"
+    url = f"postgresql+psycopg://{E2E_HOST}:{port}/{E2E_DATABASE}"
     engine = create_engine(url)
     with engine.begin() as connection:
         connection.execute(text(f"TRUNCATE {TRUNCATE} RESTART IDENTITY CASCADE"))

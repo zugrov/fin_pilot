@@ -106,9 +106,11 @@ FA-R00 (G0)
 
 **D (UX):** при ошибках preview кнопка «Провести» может оставаться enabled; тест кликает commit и ждёт **409** «ошибки строк» — production UI в этом пакете не меняется.
 
-**Серверы:** Playwright `webServer` поднимает API и Vite, readiness API — `/health/ready`; `reuseExistingServer: false` — процессы завершаются после прогона.
+**Серверы:** Playwright `webServer`: `tests.e2e.seed` (prepare+seed) затем `run_api`, Vite dev; readiness `/health/ready`; `reuseExistingServer: false`.
 
-**Запуск:** `cd frontend && npm run test:e2e` (Chromium через `npx playwright install chromium`; `globalSetup` вызывает `tests.e2e.prepare`). CI: workflow **`e2e.yml`** (отдельно от `ci.yml`).
+**Bootstrap:** `validate_e2e_target_config` (до подключения) → `ensure_finpilot_test_database` → `verify_live_finpilot_test` → migrate/roles → truncate → seed. `test_bootstrap.py` в общем pytest.
+
+**Запуск:** `cd frontend && npm run test:e2e`. CI: **`e2e.yml`** + **`ci.yml`** (bootstrap на :5433).
 
 ### FA-R01.3 · контракт legacy Idempotency-Key
 
