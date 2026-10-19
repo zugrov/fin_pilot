@@ -17,9 +17,9 @@
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
   "current_stage": "FA-R02",
-  "current_task": "FA-R02.1",
-  "status": "in_progress",
-  "allowed_next_action": "FA-R02.1: wallet POST commit fix; ожидание CI/E2E на push-SHA. accepted не ставить.",
+  "current_task": "FA-R02.2",
+  "status": "ready",
+  "allowed_next_action": "FA-R02.2 не стартовать без отдельного разрешения. Разрешён только read-only аудит общего риска get_db: граница commit/HTTP response и commit failure на write-endpoints (кроме доказанного POST wallet create).",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -212,10 +212,25 @@
         {
           "id": "FA-R02.1",
           "title": "Оболочка и адаптация старого",
-          "status": "local_verified",
+          "status": "accepted",
+          "accepted_at": "2026-10-19",
+          "accepted_product_sha": "9fe5c06d8778b56556baa40932aa189c231696c1",
           "evidence": [
-            "backend/alembic/versions/20261018_0011_ingestion_delivery.py",
-            "backend/tests/integration/test_ingestion_delivery.py"
+            "принятый product SHA 9fe5c06 (repo); staging deployed baseline 7ee85e5 без изменений — R02.1, 0011/0012 и wallet fix на staging не применены",
+            "delivery/parts: UI file + mail адаптеры; message-level delivery; N вложений → parts; transport idempotency delivery_key; persisted transport_complete/partial при повторе; legacy batch.delivery_id=NULL; первоначальная delivery batch; общий batch у разных delivery; без повторных финансовых записей",
+            "конкурентность: две Session, разные Idempotency-Key, один файл; barrier без retry; 20× stress; 1 batch, 2 delivery, 2 part, 2 idempotency, 1 import_received audit",
+            "file dedup race: fix 8d34486 parent c30e5a9; SAVEPOINT batch insert; import_batches_file_uq",
+            "DB scope: миграции 20261018_0011 + 20261019_0012; negative FK tests без skip; RLS; downgrade guards; test_wallet_response_commit",
+            "wallet fix 9fe5c06: FastAPI 0.143.0; get_db commit после yield; ASGI probe — на 21afe3b wallet не виден на http.response.start; post_wallet commit до HTTP success; idempotency replay/conflict; commit failure rollback",
+            "CI 39212706594 @ 9fe5c06: backend 328 passed 0 skipped; frontend 89 unit + build; Ruff/Mypy green",
+            "E2E 39212706567 @ 9fe5c06: attempt 1, 6 passed (group-c revenue match)",
+            "локально: backend 328 passed + 1 failed test_backup_restore (pg_dump 127.0.0.1:5433 refused); не считать локальный backend полностью зелёным",
+            "docs/roadmap/STAGE_FA-R02-bootstrap.md",
+            "backend/tests/integration/test_ingestion_delivery.py",
+            "backend/tests/integration/test_wallet_response_commit.py"
+          ],
+          "residual_risks": [
+            "get_db не менялся: commit-after-yield для всех write-endpoints. Commit-before-success доказан только для POST /companies/{id}/wallets. Остальные write-endpoints требуют отдельного аудита границы commit/HTTP response и обработки commit failure до допуска к пилоту/расширению эксплуатации; без аудита не утверждать, что каждый другой endpoint обязательно неисправен."
           ]
         },
         {
@@ -710,11 +725,11 @@
     }
   ],
   "last_handoff": {
-    "at": "2026-10-18",
-    "from_stage": "FA-R01",
+    "at": "2026-10-19",
+    "from_stage": "FA-R02",
     "to_stage": "FA-R02",
-    "from_task": "FA-R01.4",
-    "to_task": "FA-R02.1",
+    "from_task": "FA-R02.1",
+    "to_task": "FA-R02.2",
     "fa_r00": "accepted",
     "g0": "accepted",
     "fa_r01": "accepted",
@@ -722,7 +737,9 @@
     "fa_r01_2": "accepted",
     "fa_r01_3": "accepted",
     "fa_r01_4": "accepted",
-    "fa_r02_started": false
+    "fa_r02_1": "accepted",
+    "fa_r02_1_accepted_product_sha": "9fe5c06d8778b56556baa40932aa189c231696c1",
+    "fa_r02_started": true
   },
   "fa_r01_1_acceptance": {
     "accepted_product_sha": "e70612da585c4718881b2ab30acc9bbf74702e2a",

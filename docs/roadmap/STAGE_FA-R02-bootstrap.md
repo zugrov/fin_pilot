@@ -1,6 +1,8 @@
 # FA-R02 · Первые задачи (bootstrap после FA-R01)
 
-Статус: **in_progress** (FA-R02.1 local_verified, 2026-10-18). FA-R01 accepted; deploy сервера этим пакетом не входит.
+Статус: **in_progress** (этап). **FA-R02.1 accepted** 2026-10-19, product SHA `9fe5c06d8778b56556baa40932aa189c231696c1`. **FA-R02.2–R02.4** — planned. FA-R01 accepted; deploy staging этим пакетом не входит.
+
+**Snapshot vs deploy.** Принятый код в репозитории — `9fe5c06…`. Staging deployed baseline остаётся `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`; миграции 0011/0012 и wallet fix на staging **не** применены.
 
 Опора: ADR-001-B, `contracts/*`.
 
@@ -42,7 +44,34 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 **Wallet POST commit (2026-10-19).** `post_wallet`: `session.commit()` до HTTP success (FastAPI 0.143 / get_db commit после yield); regression `test_wallet_response_commit.py` (ASGI probe на `http.response.start`).
 
+### FA-R02.1 · приёмка владельцем (2026-10-19)
+
+**Product SHA:** `9fe5c06d8778b56556baa40932aa189c231696c1`.
+
+**Delivery и parts:** file/mail адаптеры; message-level delivery; несколько вложений → parts; transport idempotency по `delivery_key`; persisted `transport_complete` / partial при повторе; legacy `batch.delivery_id = NULL`; первоначальная delivery batch; общий batch у разных delivery; без повторных финансовых записей.
+
+**Конкурентность:** реальная гонка двух `Session`; stress ×20; один batch, два part, две delivery, два idempotency record, один `import_received` audit.
+
+**DB scope:** миграции `20261018_0011`, `20261019_0012`; самостоятельные negative FK tests; RLS и downgrade safety; обязательные проверки без skipped.
+
+**Wallet fix:** воспроизведение success-before-commit на предыдущем snapshot; commit до HTTP success в `post_wallet`; независимое чтение, replay/conflict, rollback при commit failure.
+
+**Workflows на 9fe5c06:**
+
+| Run | Результат |
+|-----|-----------|
+| CI 39212706594 | backend 328 passed, 0 skipped; frontend 89 unit + build; Ruff/Mypy green |
+| E2E 39212706567 | attempt 1, 6 passed |
+
+**Локально:** backend 328 passed + **1 failed** `test_backup_restore` (pg_dump `127.0.0.1:5433` refused) — локальный backend-прогон **не** полностью зелёный.
+
+**Открытый риск (не закрыт):** общий `get_db` не менялся; гарантия commit-before-success доказана **только** для POST создания кошелька. Остальные write-endpoints требуют отдельного read-only аудита фактической границы commit/HTTP response и обработки commit failure до допуска к пилоту или расширению эксплуатации. Без аудита не утверждать, что каждый другой endpoint обязательно неисправен.
+
+**Handoff:** `current_task` → FA-R02.2 (planned). Реализация R02.2 без отдельного разрешения не начинать; разрешён только read-only аудит риска `get_db`.
+
 ## FA-R02.2 · Ревизии, entity id, unpost (минимум)
+
+**Статус:** planned.
 
 **Цель.** `source_entity_id` / revision order; строки unpost → review, не auto void.
 
