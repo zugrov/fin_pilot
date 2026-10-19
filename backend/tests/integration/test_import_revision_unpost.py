@@ -1,6 +1,9 @@
+import csv
+import io
 import os
 import threading
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -23,11 +26,23 @@ from tests.integration.conftest import (
 )
 
 META = ",source_entity_id,source_revision,operation"
-CASH_HEADER = (
-    "external_id,wallet_code,business_date,direction,amount,currency,"
-    "counterparty_inn,counterparty_name,description,document_number,category_code,direction_code"
-    + META
+CASH_BASE_COLUMNS = (
+    "external_id",
+    "wallet_code",
+    "business_date",
+    "direction",
+    "amount",
+    "currency",
+    "counterparty_inn",
+    "counterparty_name",
+    "description",
+    "document_number",
+    "category_code",
+    "direction_code",
 )
+CASH_META_COLUMNS = ("source_entity_id", "source_revision", "operation")
+CASH_HEADER = ",".join(CASH_BASE_COLUMNS + CASH_META_COLUMNS)
+CASH_LEGACY_HEADER = ",".join(CASH_BASE_COLUMNS)
 REVENUE_HEADER = (
     "external_id,recognition_date,document_number,counterparty_inn,amount_ex_vat,vat_amount,"
     "amount_inc_vat,entry_type,direction_code" + META
@@ -132,6 +147,58 @@ def _financial_count(admin, table: str) -> int:
         return int(connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one())
 
 
+def _cash_amount(admin, external_id: str) -> Decimal:
+    with admin.connect() as connection:
+        value = connection.execute(
+            text(
+                "SELECT t.amount FROM cash_transactions t "
+                "JOIN source_identities si ON si.canonical_entity_id = t.id "
+                "WHERE si.external_id = :id"
+            ),
+            {"id": external_id},
+        ).scalar_one()
+    return Decimal(str(value))
+
+
+def _identity_payload_hash(admin, external_id: str) -> str:
+    with admin.connect() as connection:
+        return str(
+            connection.execute(
+                text("SELECT payload_hash FROM source_identities WHERE external_id = :id"),
+                {"id": external_id},
+            ).scalar_one()
+        )
+
+
+def _tx_revision_count(admin, external_id: str) -> int:
+    with admin.connect() as connection:
+        return int(
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM transaction_revisions tr "
+                    "JOIN cash_transactions t ON t.id = tr.transaction_id "
+                    "JOIN source_identities si ON si.canonical_entity_id = t.id "
+                    "WHERE si.external_id = :id"
+                ),
+                {"id": external_id},
+            ).scalar_one()
+        )
+
+
+def _financial_audit_count(admin, action: str, external_id: str) -> int:
+    with admin.connect() as connection:
+        return int(
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM audit_log a "
+                    "JOIN source_identities si ON si.canonical_entity_id = a.entity_id "
+                    "WHERE si.external_id = :id AND a.action = :action"
+                ),
+                {"id": external_id, "action": action},
+            ).scalar_one()
+        )
+
+
 def _batch_status(admin, batch_id: str) -> str:
     with admin.connect() as connection:
         return str(
@@ -155,10 +222,53 @@ def _tenant_id(client) -> UUID:
     return UUID(client.headers["X-Tenant-Id"])
 
 
-def _cash_line(external_id: str, amount: str, revision: int) -> str:
-    return (
-        f"{external_id},main,2026-10-10,in,{amount},RUB,,,Rev,,,,,{revision},upsert\n"
+def _csv_body(header: str, rows: list[tuple[str, ...]]) -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(header.split(","))
+    for row in rows:
+        writer.writerow(row)
+    return buffer.getvalue()
+
+
+def _cash_row(
+    external_id: str,
+    amount: str,
+    *,
+    revision: int | None = None,
+    operation: str = "upsert",
+    with_meta: bool = True,
+) -> tuple[str, ...]:
+    base: tuple[str, ...] = (
+        external_id,
+        "main",
+        "2026-10-10",
+        "in",
+        amount,
+        "RUB",
+        "",
+        "",
+        "Rev",
+        "",
+        "",
+        "",
     )
+    if not with_meta:
+        return base
+    rev = "" if revision is None else str(revision)
+    return base + ("", rev, operation)
+
+
+def _cash_file(*rows: tuple[str, ...]) -> str:
+    return _csv_body(CASH_HEADER, list(rows))
+
+
+def _cash_line(external_id: str, amount: str, revision: int) -> str:
+    buffer = io.StringIO()
+    csv.writer(buffer, lineterminator="\n").writerow(
+        _cash_row(external_id, amount, revision=revision)
+    )
+    return buffer.getvalue()
 
 
 def _revenue_line(external_id: str, amount_ex: str, revision: int) -> str:
@@ -199,6 +309,7 @@ def _parallel_commit(
 ) -> list[tuple[int, int, dict]]:
     barrier = threading.Barrier(len(batch_ids))
     results: list[tuple[int, int, dict]] = []
+    failures: list[BaseException] = []
     lock = threading.Lock()
 
     def worker(slot: int, batch_id: str) -> None:
@@ -225,6 +336,10 @@ def _parallel_commit(
                 with lock:
                     results.append((slot, exc.status_code, body))
                 return
+            except BaseException as exc:
+                with lock:
+                    failures.append(exc)
+                return
             with lock:
                 results.append((slot, 200, body))
         finally:
@@ -239,6 +354,8 @@ def _parallel_commit(
     for thread in threads:
         thread.join(timeout=120)
         assert not thread.is_alive(), "commit thread did not finish"
+    if failures:
+        raise failures[0]
     return sorted(results, key=lambda item: item[0])
 
 
@@ -348,6 +465,7 @@ def test_concurrent_first_identity_single_financial_row(
     assert all(status == 200 for _, status, _ in results)
     assert _financial_count(admin, case.financial_table) == 1
     assert _watermark(admin, external_id) == 2
+    assert _identity_payload_hash(admin, external_id)
 
 
 def test_concurrent_existing_identity_keeps_max_revision(
@@ -386,13 +504,14 @@ def test_concurrent_existing_identity_keeps_max_revision(
         _user_id(admin, email),
         [batch_mid.json()["id"], batch_high.json()["id"]],
     )
-    codes = {body["code"] for _, _, body in results}
     statuses = {status for _, status, _ in results}
-    assert statuses == {200}
+    codes = {body["code"] for _, _, body in results if body["code"]}
+    assert statuses <= {200, 409}
     assert _watermark(admin, external_id) == 3
     assert _financial_count(admin, case.financial_table) == 1
+    assert _cash_amount(admin, external_id) == Decimal("300.00")
     if 409 in statuses:
-        assert "stale_revision" in codes
+        assert codes == {"stale_revision"}
 
 
 def test_sequential_revision_1_then_2_both_success(client, admin, app, fake, tmp_path) -> None:
@@ -469,13 +588,19 @@ def test_late_row_conflict_rolls_back_batch(client, admin, app, fake, tmp_path) 
         + _line_for(case, external_id, "400.00", 3),
         "late-batch",
     ).json()["id"]
-    before_tx = _financial_count(admin, case.financial_table)
+    before_amount = _cash_amount(admin, external_id)
+    before_hash = _identity_payload_hash(admin, external_id)
     before_wm = _watermark(admin, external_id)
+    before_revisions = _tx_revision_count(admin, external_id)
+    before_imported = _financial_audit_count(admin, "transaction_imported", external_id)
     failed = _commit(client, batch_id)
     assert failed.status_code == 409
     assert failed.json()["code"] == "revision_payload_conflict"
-    assert _financial_count(admin, case.financial_table) == before_tx
+    assert _cash_amount(admin, external_id) == before_amount
+    assert _identity_payload_hash(admin, external_id) == before_hash
     assert _watermark(admin, external_id) == before_wm
+    assert _tx_revision_count(admin, external_id) == before_revisions
+    assert _financial_audit_count(admin, "transaction_imported", external_id) == before_imported
     assert _batch_status(admin, batch_id) == "preview_ready"
     with admin.connect() as connection:
         audit = connection.execute(
@@ -539,6 +664,69 @@ def test_identity_type_conflict(client, admin, app, fake, tmp_path) -> None:
             {"id": external_id},
         ).scalar_one()
     assert identities == 1
+
+
+def test_identity_type_conflict_commit_gate_after_preview(
+    client, admin, app, fake, tmp_path
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "type-gate@example.com")
+    cash_case = DATASET_CASES[0]
+    revenue_source = _source(
+        client,
+        company_id,
+        wallet_id,
+        DATASET_CASES[1],
+        namespace="sales-gate",
+    )
+    rev_only = "rev-only"
+    rev_body = REVENUE_HEADER + "\n" + _revenue_line(rev_only, "100000.00", 1)
+    assert _commit(
+        client,
+        _upload(client, company_id, revenue_source["id"], rev_body, "type-gate-rev").json()["id"],
+    ).status_code == 200
+    cash_source = _source(client, company_id, wallet_id, cash_case)
+    external_id = "gate-ext"
+    cash_batch = _upload(
+        client,
+        company_id,
+        cash_source["id"],
+        _cash_file(_cash_row(external_id, "100.00", revision=1)),
+        "type-gate-cash",
+    )
+    assert cash_batch.status_code == 200, cash_batch.text
+    preview = cash_batch.json()
+    assert preview["counts"]["new"] == 1
+    with admin.begin() as connection:
+        row = connection.execute(
+            text(
+                "SELECT tenant_id, company_id, revenue_entry_id, payload_hash "
+                "FROM source_identities WHERE external_id = :id AND namespace = :ns"
+            ),
+            {"id": rev_only, "ns": "sales-gate"},
+        ).one()
+        connection.execute(
+            text(
+                "INSERT INTO source_identities "
+                "(id, tenant_id, company_id, connection_id, namespace, entity_type, "
+                "external_id, revenue_entry_id, payload_hash, last_source_revision, created_at) "
+                "VALUES (:id, :tenant, :company, :conn, :ns, 'revenue_entry', :ext, "
+                ":rev_id, :hash, 1, now())"
+            ),
+            {
+                "id": uuid4(),
+                "tenant": row.tenant_id,
+                "company": row.company_id,
+                "conn": cash_source["id"],
+                "ns": cash_case.namespace,
+                "ext": external_id,
+                "rev_id": row.revenue_entry_id,
+                "hash": row.payload_hash,
+            },
+        )
+    blocked = _commit(client, preview["id"])
+    assert blocked.status_code == 409
+    assert blocked.json()["code"] == "identity_type_conflict"
+    assert _tx_count(admin) == 0
 
 
 def test_runtime_downgrade_0013_blocked_with_revision_data(
@@ -615,59 +803,174 @@ def test_higher_revision_same_payload_advances_watermark_only(
         case.header + "\n" + _line_for(case, external_id, "100.00", 2),
         "wm-2",
     )
+    before_hash = _identity_payload_hash(admin, external_id)
     assert _commit(client, repeat.json()["id"]).status_code == 200
     assert _watermark(admin, external_id) == 2
     assert _financial_count(admin, case.financial_table) == 1
+    assert _cash_amount(admin, external_id) == Decimal("100.00")
+    assert _identity_payload_hash(admin, external_id) == before_hash
+    assert _tx_revision_count(admin, external_id) == 0
+    assert _financial_audit_count(admin, "transaction_imported", external_id) == 1
 
 
 def test_legacy_to_versioned_keeps_first_financial_revision(
     client, admin, app, fake, tmp_path
 ) -> None:
     company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "legacy@example.com")
-    legacy_header = CASH_HEADER.replace(META, "")
     source = _source(client, company_id, wallet_id, DATASET_CASES[0])
     external_id = "legacy-v"
-    legacy_line = f"{external_id},main,2026-10-10,in,100.00,RUB,,,Legacy,,,,\n"
-    first = _upload(client, company_id, source["id"], legacy_header + "\n" + legacy_line, "leg-1")
+    first = _upload(
+        client,
+        company_id,
+        source["id"],
+        _csv_body(CASH_LEGACY_HEADER, [_cash_row(external_id, "100.00", with_meta=False)]),
+        "leg-1",
+    )
     assert _commit(client, first.json()["id"]).status_code == 200
+    before_hash = _identity_payload_hash(admin, external_id)
     versioned = _upload(
         client,
         company_id,
         source["id"],
-        CASH_HEADER + "\n" + _cash_line(external_id, "100.00", 1),
+        _cash_file(_cash_row(external_id, "100.00", revision=1)),
         "leg-2",
     )
     assert _commit(client, versioned.json()["id"]).status_code == 200
     assert _financial_count(admin, "cash_transactions") == 1
     assert _watermark(admin, external_id) == 1
+    assert _cash_amount(admin, external_id) == Decimal("100.00")
+    assert _identity_payload_hash(admin, external_id) == before_hash
+    assert _tx_revision_count(admin, external_id) == 0
 
 
-def test_missing_revision_after_versioned_does_not_change_financial_payload(
+def test_missing_revision_after_versioned_rejects_changed_payload(
     client, admin, app, fake, tmp_path
 ) -> None:
     company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "miss-rev@example.com")
     source = _source(client, company_id, wallet_id, DATASET_CASES[0])
     external_id = "miss-rev"
-    first = _upload(
+    versioned = _upload(
         client,
         company_id,
         source["id"],
-        CASH_HEADER + "\n" + _cash_line(external_id, "100.00", 1),
-        "miss-v1",
+        _cash_file(_cash_row(external_id, "100.00", revision=1)),
+        "miss-v",
     )
-    second = _upload(
+    assert _commit(client, versioned.json()["id"]).status_code == 200
+    before_amount = _cash_amount(admin, external_id)
+    before_wm = _watermark(admin, external_id)
+    legacy = _upload(
         client,
         company_id,
         source["id"],
-        CASH_HEADER + "\n" + _cash_line(external_id, "100.00", 1),
-        "miss-v2",
+        _csv_body(CASH_LEGACY_HEADER, [_cash_row(external_id, "200.00", with_meta=False)]),
+        "miss-l",
     )
-    assert first.status_code == second.status_code == 200
-    assert _commit(client, first.json()["id"]).status_code == 200
-    repeated = _commit(client, second.json()["id"])
+    assert legacy.status_code == 200, legacy.text
+    preview = legacy.json()["rows"][0]
+    assert preview["proposed_action"] == "review"
+    assert preview["review_reason"] == "revision_required"
+    assert preview["duplicate_status"] == "changed"
+    with admin.connect() as connection:
+        stored_revision = connection.execute(
+            text("SELECT source_revision FROM raw_import_rows WHERE batch_id = :id"),
+            {"id": legacy.json()["id"]},
+        ).scalar_one()
+    assert stored_revision is None
+    failed = _commit(client, legacy.json()["id"])
+    assert failed.status_code == 409
+    assert failed.json()["code"] == "revision_required"
+    assert _cash_amount(admin, external_id) == before_amount
+    assert _watermark(admin, external_id) == before_wm
+
+
+def test_missing_revision_same_payload_skips_without_lowering_watermark(
+    client, admin, app, fake, tmp_path
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "miss-skip@example.com")
+    source = _source(client, company_id, wallet_id, DATASET_CASES[0])
+    external_id = "miss-skip"
+    versioned = _upload(
+        client,
+        company_id,
+        source["id"],
+        _cash_file(_cash_row(external_id, "100.00", revision=1)),
+        "miss-skip-v",
+    )
+    assert _commit(client, versioned.json()["id"]).status_code == 200
+    legacy = _upload(
+        client,
+        company_id,
+        source["id"],
+        _csv_body(CASH_LEGACY_HEADER, [_cash_row(external_id, "100.00", with_meta=False)]),
+        "miss-skip-l",
+    )
+    assert legacy.status_code == 200, legacy.text
+    row = legacy.json()["rows"][0]
+    assert row["duplicate_status"] == "repeated"
+    assert row["proposed_action"] == "skip"
+    repeated = _commit(client, legacy.json()["id"])
     assert repeated.status_code == 200
-    assert _financial_count(admin, "cash_transactions") == 1
+    assert _cash_amount(admin, external_id) == Decimal("100.00")
     assert _watermark(admin, external_id) == 1
+
+
+@pytest.mark.parametrize("case", DATASET_CASES, ids=[item.name for item in DATASET_CASES])
+def test_stale_preview_after_versioned_commit(
+    client, admin, app, fake, tmp_path, case: DatasetCase
+) -> None:
+    email = f"prev-stale-{case.name}@example.com"
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, email)
+    source = _source(client, company_id, wallet_id, case)
+    external_id = "prev-stale" if case.dataset != "budget" else "bud-rev-1"
+    seed = _upload(
+        client,
+        company_id,
+        source["id"],
+        case.header + "\n" + _line_for(case, external_id, "200.00", 2),
+        f"prev-stale-seed-{case.name}",
+    )
+    assert _commit(client, seed.json()["id"]).status_code == 200
+    uploaded = _upload(
+        client,
+        company_id,
+        source["id"],
+        case.header + "\n" + _line_for(case, external_id, "100.00", 1),
+        f"prev-stale-old-{case.name}",
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    row = uploaded.json()["rows"][0]
+    assert row["duplicate_status"] == "repeated"
+    assert row["proposed_action"] == "review"
+    assert row["review_reason"] == "stale_revision"
+    assert _commit(client, uploaded.json()["id"]).status_code == 409
+
+
+def test_stale_preview_prepared_before_other_commit(
+    client, admin, app, fake, tmp_path
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "prev-order@example.com")
+    source = _source(client, company_id, wallet_id, DATASET_CASES[0])
+    external_id = "prev-order"
+    old = _upload(
+        client,
+        company_id,
+        source["id"],
+        _cash_file(_cash_row(external_id, "100.00", revision=1)),
+        "prev-order-old",
+    )
+    new = _upload(
+        client,
+        company_id,
+        source["id"],
+        _cash_file(_cash_row(external_id, "200.00", revision=2)),
+        "prev-order-new",
+    )
+    assert old.status_code == new.status_code == 200
+    assert _commit(client, new.json()["id"]).status_code == 200
+    stale = _commit(client, old.json()["id"])
+    assert stale.status_code == 409
+    assert stale.json()["code"] == "stale_revision"
 
 
 def test_equal_revision_different_payload_conflicts(client, admin, app, fake, tmp_path) -> None:
@@ -678,18 +981,23 @@ def test_equal_revision_different_payload_conflicts(client, admin, app, fake, tm
         client,
         company_id,
         source["id"],
-        CASH_HEADER + "\n" + _cash_line(external_id, "100.00", 1),
+        _cash_file(_cash_row(external_id, "100.00", revision=1)),
         "eq-a",
     )
+    assert first.status_code == 200, first.text
+    assert _commit(client, first.json()["id"]).status_code == 200
     conflict = _upload(
         client,
         company_id,
         source["id"],
-        CASH_HEADER + "\n" + _cash_line(external_id, "200.00", 1),
+        _cash_file(_cash_row(external_id, "200.00", revision=1)),
         "eq-b",
     )
-    assert first.status_code == conflict.status_code == 200
-    assert _commit(client, first.json()["id"]).status_code == 200
+    assert conflict.status_code == 200, conflict.text
+    preview = conflict.json()["rows"][0]
+    assert preview["duplicate_status"] == "changed"
+    assert preview["proposed_action"] == "review"
+    assert preview["review_reason"] == "revision_payload_conflict"
     failed = _commit(client, conflict.json()["id"])
     assert failed.status_code == 409
     assert failed.json()["code"] == "revision_payload_conflict"

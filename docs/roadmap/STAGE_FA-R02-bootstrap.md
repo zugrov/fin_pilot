@@ -100,11 +100,13 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 ### FA-R02.2 · verification pass (2026-10-19, parent `85c39b1`, не accepted)
 
-**Auth CI failure (диагностика).** `test_auth1_normalized_email_is_unique`: `count(users)==2` при ожидании 1. Воспроизведение: `tests/e2e/test_bootstrap.py` (seed `e2e-owner@example.com`) → integration auth1; до первого POST в БД уже **1** user, после двух register — **2**; `normalized_email` у auth-пары совпадает (`a.b+tag@example.com`). Причина: `clean_tables` делал TRUNCATE только **после** теста, не **до**; pytest collect — `tests/e2e` раньше `tests/integration`. Fix (tests-only): `truncate_integration_tables()` в setup/teardown + guard `users==0` в auth1.
+**Auth CI failure (исправлено tests-only, `84d8e04`).** E2e seed оставлял user до integration; `truncate_integration_tables()` setup/teardown + guard в auth1.
 
-**DB regression R02.2 (добавлено в `test_import_revision_unpost.py`).** Concurrent first/existing identity (2×Session, Barrier); late-row batch rollback (`revision_payload_conflict`); identity_type на preview; runtime downgrade 0013 с watermark; wiring watermark/legacy/repeat/conflict; parametrized cash/revenue/plan/budget create+revise.
+**Preview revision conflicts (исправлено product, после `84d8e04`).** До fix: `_reject` писал `duplicate_status=review` → CHECK `raw_import_rows_status_ck` / 500 на upload. После fix: `duplicate_status` ∈ {`repeated`,`changed`}, `proposed_action=review`, `review_reason` = stale / payload / revision_required; commit → 409; batch остаётся `preview_ready`. Regression: `test_stale_preview_*`, `test_missing_revision_*`, parametrized stale preview по 4 dataset.
 
-**Ограничения / product gaps (не чинились в этом проходе).** Preview с `duplicate_status=review` (stale/revision_required/payload conflict при уже применённом watermark) **не** проходит CHECK `raw_import_rows_status_ck` — такие строки нельзя materialize в одном upload; stale/payload-conflict проверяются **разными batch** до/после commit (как `test_stale_revision_*`). `identity_type_conflict` на commit → **invalid row + partial import**, не HTTP 409. Legacy CSV без revision после versioned identity с **другим** payload на upload не доводится до commit (review/status ck); повтор versioned/legacy с тем же payload — skip без новой финансовой строки.
+**DB regression R02.2 (`test_import_revision_unpost.py`).** Concurrent first/existing (оба порядка revision); late-row rollback с amount/hash/watermark/revisions; identity_type preview + commit gate; runtime downgrade 0013; wiring legacy/same-payload/watermark-only; 4× dataset create+revise.
+
+**Оставшиеся ограничения.** `identity_type_conflict` на preview по-прежнему **invalid row + partial import** (не 409); commit-time 409 только если слот появился **после** чистого preview (`test_identity_type_conflict_commit_gate_after_preview`). `identity_type` на preview до upload — invalid, commit без проведения.
 
 ## FA-R02.3 · HTTP proposed ingest (отложено сразу после R02.1)
 

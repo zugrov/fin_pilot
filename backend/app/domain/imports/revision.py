@@ -32,7 +32,7 @@ def evaluate_revision(
     if applied_revision is not None and incoming_revision is None:
         if same_hash:
             return _outcome("skip", None, False, "repeated", "skip", None)
-        return _reject("revision_required", at_commit, "review", "revision_required")
+        return _reject("revision_required", at_commit, "revision_required")
 
     if incoming_revision is None:
         return None
@@ -45,14 +45,13 @@ def evaluate_revision(
         return _outcome("create", None, False, "new", "create", None)
 
     if incoming_revision < applied_revision:
-        return _reject("stale_revision", at_commit, "review", "stale_revision")
+        return _reject("stale_revision", at_commit, "stale_revision")
     if incoming_revision == applied_revision:
         if same_hash:
             return _outcome("skip", None, False, "repeated", "skip", None)
         return _reject(
             "revision_payload_conflict",
             at_commit,
-            "review",
             "revision_payload_conflict",
         )
     if same_hash:
@@ -161,10 +160,11 @@ def _commit_action(classify_action: str, preview_action: str) -> CommitAction:
     return "skip"
 
 
-def _reject(code: str, at_commit: bool, status: str, review_reason: str) -> RevisionOutcome:
+def _reject(code: str, at_commit: bool, review_reason: str) -> RevisionOutcome:
+    duplicate_status = "repeated" if code == "stale_revision" else "changed"
     if at_commit:
-        return _outcome("reject", code, False, status, "review", review_reason)
-    return _outcome("skip", None, False, status, "review", review_reason)
+        return _outcome("reject", code, False, duplicate_status, "review", review_reason)
+    return _outcome("skip", None, False, duplicate_status, "review", review_reason)
 
 
 def _outcome(
