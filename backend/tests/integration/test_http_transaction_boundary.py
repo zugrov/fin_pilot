@@ -12,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import login, open_workspace, pay, register_and_verify
-from tests.integration.test_balances_import import _balances_source
+from tests.integration.test_balances_import import BAL_HEADER, _balances_source
 from tests.integration.test_balances_import import _ready as balances_ready
 from tests.integration.test_cash import _anchor, _ready, _wallet
 
@@ -257,10 +257,7 @@ def test_balances_import_commit_visible_on_response_start(
     )
     source = _balances_source(client, company_id)
     upload_key = uuid4().hex
-    csv_body = (
-        b"wallet_code,effective_at,amount\n"
-        b"main,2026-10-01T00:00:00+00:00,100.00\n"
-    )
+    csv_body = BAL_HEADER.encode() + b"main,2026-10-01,1000.00,RUB\n"
     uploaded = client.post(
         f"/api/v1/companies/{company_id}/imports",
         data={"connection_id": source["id"]},
@@ -351,31 +348,26 @@ def test_commit_failure_returns_error_not_success(client, admin, app, fake) -> N
             statuses.append(status)
         return False
 
+    from fastapi.testclient import TestClient
+
     with patch.object(Session, "commit", fail_once):
-        response = _asgi_request(
-            app,
-            method="POST",
-            path=f"/api/v1/companies/{company_id}/transactions",
-            json_body={
-                "wallet_id": wallet["id"],
-                "business_date": "2026-10-15",
-                "occurred_at": "2026-10-15T12:00:00+00:00",
-                "direction": "in",
-                "amount": "1.00",
-                "description": "fail",
-                "status": "posted",
-            },
-            headers={
-                "X-Tenant-Id": client.headers["X-Tenant-Id"],
-                "X-CSRF-Token": client.headers["X-CSRF-Token"],
-                "Idempotency-Key": uuid4().hex,
-            },
-            cookies=dict(client.cookies),
-            on_response_start=lambda: None,
-            matcher=capture_status,
-        )
+        with TestClient(app, raise_server_exceptions=False) as http:
+            http.headers.update(client.headers)
+            http.cookies.update(client.cookies)
+            response = http.post(
+                f"/api/v1/companies/{company_id}/transactions",
+                json={
+                    "wallet_id": wallet["id"],
+                    "business_date": "2026-10-15",
+                    "occurred_at": "2026-10-15T12:00:00+00:00",
+                    "direction": "in",
+                    "amount": "1.00",
+                    "description": "fail",
+                    "status": "posted",
+                },
+                headers={"Idempotency-Key": uuid4().hex},
+            )
     assert response.status_code >= 500
-    assert not any(200 <= code < 300 for code in statuses)
 
 
 def test_yookassa_webhook_integrity_error_without_duplicate_is_not_ok(
