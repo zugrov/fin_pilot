@@ -1,7 +1,7 @@
 from datetime import date
 from uuid import UUID
 
-from app.api.deps import current_session, get_db, require_csrf, settings_of, tenant_of
+from app.api.deps import DbSession, current_session, require_csrf, settings_of, tenant_of
 from app.clock import now
 from app.domain.billing.periods import MOSCOW
 from app.errors import AppError
@@ -9,7 +9,7 @@ from app.security.access import BILLING_MANAGER, OPERATOR, companies_for
 from app.services import forecast_service, plan_service
 from app.services.report_service import group_cashflow_payload
 from app.services.wallet_service import open_company
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -92,7 +92,7 @@ def _idempotency(request: Request) -> str:
 
 
 @router.get("/companies/{company_id}/calendar")
-def get_calendar(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_calendar(company_id: UUID, request: Request, session: DbSession):
     _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
     today = now().astimezone(MOSCOW).date()
     return {"events": plan_service.list_events(session, company, today)}
@@ -100,7 +100,7 @@ def get_calendar(company_id: UUID, request: Request, session: Session = Depends(
 
 @router.post("/companies/{company_id}/planned-cash")
 def post_event(
-    company_id: UUID, payload: PlanIn, request: Request, session: Session = Depends(get_db)
+    company_id: UUID, payload: PlanIn, request: Request, session: DbSession
 ):
     user, membership, company = _actor(request, session, company_id, "write", mutate=True)
     return plan_service.create_event(
@@ -126,7 +126,7 @@ def post_event(
 
 @router.patch("/planned-cash/{event_id}")
 def patch_event(
-    event_id: UUID, payload: PlanPatch, request: Request, session: Session = Depends(get_db)
+    event_id: UUID, payload: PlanPatch, request: Request, session: DbSession
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -152,7 +152,7 @@ def patch_event(
 
 @router.post("/planned-cash/{event_id}/cancel")
 def post_cancel(
-    event_id: UUID, payload: CancelIn, request: Request, session: Session = Depends(get_db)
+    event_id: UUID, payload: CancelIn, request: Request, session: DbSession
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -168,7 +168,7 @@ def post_cancel(
 
 
 @router.post("/payment-matches")
-def post_match(payload: MatchIn, request: Request, session: Session = Depends(get_db)):
+def post_match(payload: MatchIn, request: Request, session: DbSession):
     user, membership, company = _actor(
         request, session, payload.company_id, "write", mutate=True
     )
@@ -188,7 +188,7 @@ def post_match(payload: MatchIn, request: Request, session: Session = Depends(ge
 
 @router.post("/companies/{company_id}/recurrence-rules")
 def post_rule(
-    company_id: UUID, payload: RecurrenceIn, request: Request, session: Session = Depends(get_db)
+    company_id: UUID, payload: RecurrenceIn, request: Request, session: DbSession
 ):
     user, membership, company = _actor(request, session, company_id, "write", mutate=True)
     return plan_service.create_recurrence(
@@ -214,7 +214,7 @@ def post_rule(
 
 @router.post("/recurrence-rules/{rule_id}/generate")
 def post_generate(
-    rule_id: UUID, payload: GenerateIn, request: Request, session: Session = Depends(get_db)
+    rule_id: UUID, payload: GenerateIn, request: Request, session: DbSession
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -231,7 +231,7 @@ def post_generate(
 
 @router.post("/companies/{company_id}/obligations")
 def post_obligation(
-    company_id: UUID, payload: ObligationIn, request: Request, session: Session = Depends(get_db)
+    company_id: UUID, payload: ObligationIn, request: Request, session: DbSession
 ):
     user, membership, company = _actor(request, session, company_id, "write", mutate=True)
     return plan_service.create_obligation(
@@ -252,7 +252,7 @@ def post_obligation(
 
 
 @router.get("/companies/{company_id}/forecast")
-def get_forecast(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_forecast(company_id: UUID, request: Request, session: DbSession):
     _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
     as_of = _as_of(request)
     scenario = request.query_params.get("scenario") or "base"
@@ -260,14 +260,14 @@ def get_forecast(company_id: UUID, request: Request, session: Session = Depends(
 
 
 @router.get("/workspaces/{tenant_id}/forecast")
-def get_group_forecast(tenant_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_group_forecast(tenant_id: UUID, request: Request, session: DbSession):
     _membership, chosen = _scope(tenant_id, request, session)
     scenario = request.query_params.get("scenario") or "base"
     return forecast_service.group_forecast(session, chosen, _as_of(request), scenario, now())
 
 
 @router.get("/workspaces/{tenant_id}/cashflow")
-def get_group_cashflow(tenant_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_group_cashflow(tenant_id: UUID, request: Request, session: DbSession):
     _membership, chosen = _scope(tenant_id, request, session)
     moment = now()
     return group_cashflow_payload(session, chosen, moment, _period(request, moment))

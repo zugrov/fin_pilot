@@ -67,7 +67,13 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 **Открытый риск (не закрыт):** общий `get_db` не менялся; гарантия commit-before-success доказана **только** для POST создания кошелька. Остальные write-endpoints требуют отдельного read-only аудита фактической границы commit/HTTP response и обработки commit failure до допуска к пилоту или расширению эксплуатации. Без аудита не утверждать, что каждый другой endpoint обязательно неисправен.
 
-**Handoff:** `current_task` → FA-R02.2 (planned). Реализация R02.2 без отдельного разрешения не начинать; разрешён только read-only аудит риска `get_db`.
+**Handoff:** `current_task` → FA-R02.2 (planned). Реализация R02.2 без отдельного разрешения не начинать.
+
+### FA-R02.1b · HTTP transaction boundary (infra, не accepted)
+
+- `DbSession` = `Depends(get_db, scope="function")` на всех `/api/v1` handlers.
+- Точечный commit в `post_wallet` снят; общий `get_db` — единственный финальный commit.
+- Контракт и regression: `docs/roadmap/HTTP_TRANSACTION_BOUNDARY.md`.
 
 ## FA-R02.2 · Ревизии, entity id, unpost (минимум)
 

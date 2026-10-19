@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from app.api.deps import current_session, get_db, require_csrf, settings_of, tenant_of
+from app.api.deps import DbSession, current_session, require_csrf, settings_of, tenant_of
 from app.clock import now
 from app.domain.money import money_str
 from app.errors import AppError
@@ -34,11 +34,10 @@ from app.services.tenant_service import (
     invite_member,
     update_company,
 )
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 router = APIRouter(tags=["companies"])
@@ -147,7 +146,7 @@ def _company_payload(company: Company) -> dict:
 
 
 @router.post("/workspaces")
-def post_workspace(payload: WorkspaceIn, request: Request, session: Session = Depends(get_db)):
+def post_workspace(payload: WorkspaceIn, request: Request, session: DbSession):
     row, user = current_session(request, session)
     require_csrf(request, row)
     tenant_id = create_workspace(session, user, payload.name, payload.timezone)
@@ -155,7 +154,7 @@ def post_workspace(payload: WorkspaceIn, request: Request, session: Session = De
 
 
 @router.get("/workspaces/{tenant_id}/companies")
-def list_companies(tenant_id: UUID, request: Request, session: Session = Depends(get_db)):
+def list_companies(tenant_id: UUID, request: Request, session: DbSession):
     _row, user = current_session(request, session)
     membership = tenant_of(request, session, user)
     if membership.tenant_id != tenant_id:
@@ -165,7 +164,7 @@ def list_companies(tenant_id: UUID, request: Request, session: Session = Depends
 
 @router.post("/workspaces/{tenant_id}/companies")
 def post_company(
-    tenant_id: UUID, payload: CompanyIn, request: Request, session: Session = Depends(get_db)
+    tenant_id: UUID, payload: CompanyIn, request: Request, session: DbSession
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -195,7 +194,7 @@ def post_company(
 
 @router.post("/workspaces/{tenant_id}/invitations")
 def post_invite(
-    tenant_id: UUID, payload: InviteIn, request: Request, session: Session = Depends(get_db)
+    tenant_id: UUID, payload: InviteIn, request: Request, session: DbSession
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -215,7 +214,7 @@ def post_invite(
 
 @router.post("/workspaces/{tenant_id}/company-access")
 def post_access(
-    tenant_id: UUID, payload: AccessIn, request: Request, session: Session = Depends(get_db)
+    tenant_id: UUID, payload: AccessIn, request: Request, session: DbSession
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -229,7 +228,7 @@ def post_access(
 
 
 @router.get("/workspaces/{tenant_id}/group-summary")
-def group_summary(tenant_id: UUID, request: Request, session: Session = Depends(get_db)):
+def group_summary(tenant_id: UUID, request: Request, session: DbSession):
     _row, user = current_session(request, session)
     membership = tenant_of(request, session, user)
     if membership.tenant_id != tenant_id:
@@ -292,7 +291,7 @@ def group_summary(tenant_id: UUID, request: Request, session: Session = Depends(
 
 
 @router.get("/companies/{company_id}")
-def get_company(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_company(company_id: UUID, request: Request, session: DbSession):
     _row, user = current_session(request, session)
     membership, company = find_company_across_memberships(session, user.id, company_id)
     _ = membership
@@ -304,7 +303,7 @@ def patch_company(
     company_id: UUID,
     payload: CompanyPatch,
     request: Request,
-    session: Session = Depends(get_db),
+    session: DbSession,
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -335,7 +334,7 @@ def patch_company(
 
 
 @router.get("/companies/{company_id}/dashboard")
-def dashboard(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def dashboard(company_id: UUID, request: Request, session: DbSession):
     _row, user = current_session(request, session)
     membership, company = find_company_across_memberships(session, user.id, company_id)
     settings = settings_of(request)
@@ -354,7 +353,7 @@ def dashboard(company_id: UUID, request: Request, session: Session = Depends(get
 
 
 @router.get("/companies/{company_id}/cashflow")
-def cashflow(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def cashflow(company_id: UUID, request: Request, session: DbSession):
     _row, user = current_session(request, session)
     membership, company = find_company_across_memberships(session, user.id, company_id)
     settings = settings_of(request)
@@ -386,7 +385,7 @@ def _period(request: Request, at) -> tuple[date, date]:
 
 
 @router.get("/companies/{company_id}/export")
-def export_company(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def export_company(company_id: UUID, request: Request, session: DbSession):
     _row, user = current_session(request, session)
     membership, company = find_company_across_memberships(session, user.id, company_id)
     settings = settings_of(request)

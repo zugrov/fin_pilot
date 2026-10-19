@@ -1,10 +1,10 @@
 from uuid import UUID
 
-from app.api.deps import current_session, get_db, require_csrf, settings_of, tenant_of
+from app.api.deps import DbSession, current_session, require_csrf, settings_of, tenant_of
 from app.clock import now
 from app.errors import AppError
 from app.services import billing_service
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
@@ -46,12 +46,12 @@ def _guard(request: Request, session: Session):
 
 
 @router.get("/tariff")
-def tariff(request: Request, session: Session = Depends(get_db)) -> dict:
+def tariff(request: Request, session: DbSession) -> dict:
     return billing_service.tariff_view(session, now())
 
 
 @router.get("/subscription")
-def subscription(request: Request, session: Session = Depends(get_db)) -> dict:
+def subscription(request: Request, session: DbSession) -> dict:
     _row, _user, membership = _guard(request, session)
     settings = settings_of(request)
     return billing_service.subscription_view(
@@ -60,13 +60,13 @@ def subscription(request: Request, session: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/invoices")
-def invoices(request: Request, session: Session = Depends(get_db)) -> dict:
+def invoices(request: Request, session: DbSession) -> dict:
     _row, _user, membership = _guard(request, session)
     return {"invoices": billing_service.list_invoices(session, membership.tenant_id)}
 
 
 @router.post("/quote")
-def quote(payload: QuoteIn, request: Request, session: Session = Depends(get_db)) -> dict:
+def quote(payload: QuoteIn, request: Request, session: DbSession) -> dict:
     row, _user, membership = _guard(request, session)
     require_csrf(request, row)
     if payload.interval not in {"month", "year"}:
@@ -84,7 +84,7 @@ def quote(payload: QuoteIn, request: Request, session: Session = Depends(get_db)
 
 
 @router.post("/checkout")
-def checkout(payload: CheckoutIn, request: Request, session: Session = Depends(get_db)):
+def checkout(payload: CheckoutIn, request: Request, session: DbSession):
     row, user, membership = _guard(request, session)
     require_csrf(request, row)
     key = request.headers.get("idempotency-key")
@@ -106,13 +106,13 @@ def checkout(payload: CheckoutIn, request: Request, session: Session = Depends(g
 
 
 @router.get("/payments/{payment_id}")
-def payment(payment_id: UUID, request: Request, session: Session = Depends(get_db)) -> dict:
+def payment(payment_id: UUID, request: Request, session: DbSession) -> dict:
     _row, _user, membership = _guard(request, session)
     return billing_service.payment_view(session, membership.tenant_id, payment_id)
 
 
 @router.post("/subscription/schedule-change")
-def schedule(payload: ScheduleIn, request: Request, session: Session = Depends(get_db)) -> dict:
+def schedule(payload: ScheduleIn, request: Request, session: DbSession) -> dict:
     row, _user, membership = _guard(request, session)
     require_csrf(request, row)
     from app.security.access import assert_billing_role
@@ -132,7 +132,7 @@ def schedule(payload: ScheduleIn, request: Request, session: Session = Depends(g
 
 
 @router.post("/subscription/cancel-renewal")
-def cancel(request: Request, session: Session = Depends(get_db)) -> dict:
+def cancel(request: Request, session: DbSession) -> dict:
     row, _user, membership = _guard(request, session)
     require_csrf(request, row)
     from app.security.access import assert_billing_role
@@ -143,7 +143,7 @@ def cancel(request: Request, session: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/companies/{company_id}/activate")
-def activate(company_id: UUID, request: Request, session: Session = Depends(get_db)) -> dict:
+def activate(company_id: UUID, request: Request, session: DbSession) -> dict:
     row, user, membership = _guard(request, session)
     require_csrf(request, row)
     if user.email_verified_at is None:
@@ -165,7 +165,7 @@ def activate(company_id: UUID, request: Request, session: Session = Depends(get_
 
 
 @router.post("/staff/refunds")
-def staff_refund(payload: RefundIn, request: Request, session: Session = Depends(get_db)) -> dict:
+def staff_refund(payload: RefundIn, request: Request, session: DbSession) -> dict:
     row, user, membership = _guard(request, session)
     require_csrf(request, row)
     settings = settings_of(request)

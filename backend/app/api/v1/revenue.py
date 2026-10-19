@@ -1,12 +1,12 @@
 from datetime import date
 from uuid import UUID
 
-from app.api.deps import current_session, get_db, require_csrf, settings_of
+from app.api.deps import DbSession, current_session, require_csrf, settings_of
 from app.clock import now
 from app.errors import AppError
 from app.services import revenue_service
 from app.services.wallet_service import open_company
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -52,14 +52,14 @@ def _actor(request: Request, session: Session, company_id: UUID, mode: str, *, m
 
 
 @router.get("/companies/{company_id}/directions")
-def get_directions(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_directions(company_id: UUID, request: Request, session: DbSession):
     _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
     return {"directions": revenue_service.list_directions(session, company)}
 
 
 @router.post("/companies/{company_id}/directions")
 def post_direction(
-    company_id: UUID, payload: DirectionIn, request: Request, session: Session = Depends(get_db)
+    company_id: UUID, payload: DirectionIn, request: Request, session: DbSession
 ):
     user, membership, company = _actor(request, session, company_id, "write", mutate=True)
     return revenue_service.create_direction(
@@ -75,7 +75,7 @@ def post_direction(
 
 
 @router.get("/companies/{company_id}/revenue")
-def get_revenue(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_revenue(company_id: UUID, request: Request, session: DbSession):
     _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
     date_from = _query_date(request, "date_from")
     date_to = _query_date(request, "date_to")
@@ -93,7 +93,7 @@ def get_revenue(company_id: UUID, request: Request, session: Session = Depends(g
 
 @router.post("/companies/{company_id}/revenue")
 def post_revenue(
-    company_id: UUID, payload: RevenueIn, request: Request, session: Session = Depends(get_db)
+    company_id: UUID, payload: RevenueIn, request: Request, session: DbSession
 ):
     user, membership, company = _actor(request, session, company_id, "write", mutate=True)
     key = request.headers.get("idempotency-key")
@@ -123,7 +123,7 @@ def post_revenue(
 
 @router.post("/revenue/{entry_id}/void")
 def post_void(
-    entry_id: UUID, payload: VoidIn, request: Request, session: Session = Depends(get_db)
+    entry_id: UUID, payload: VoidIn, request: Request, session: DbSession
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -142,7 +142,7 @@ def post_void(
 
 
 @router.post("/revenue-cash-matches")
-def post_match(payload: MatchIn, request: Request, session: Session = Depends(get_db)):
+def post_match(payload: MatchIn, request: Request, session: DbSession):
     user, membership, company = _actor(request, session, payload.company_id, "write", mutate=True)
     key = request.headers.get("idempotency-key")
     if not key:

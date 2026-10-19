@@ -1,13 +1,13 @@
 from datetime import date
 from uuid import UUID
 
-from app.api.deps import current_session, get_db, require_csrf, settings_of
+from app.api.deps import DbSession, current_session, require_csrf, settings_of
 from app.clock import now
 from app.domain.billing.periods import MOSCOW
 from app.errors import AppError
 from app.services import alert_service, budget_service
 from app.services.wallet_service import open_company
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -89,14 +89,14 @@ def _lines(payload: list[LineIn]) -> list[dict]:
 
 
 @router.get("/companies/{company_id}/budgets")
-def get_budgets(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_budgets(company_id: UUID, request: Request, session: DbSession):
     _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
     return {"budgets": budget_service.list_budgets(session, company)}
 
 
 @router.post("/companies/{company_id}/budgets")
 def post_budget(
-    company_id: UUID, payload: BudgetIn, request: Request, session: Session = Depends(get_db)
+    company_id: UUID, payload: BudgetIn, request: Request, session: DbSession
 ):
     user, membership, company = _actor(request, session, company_id, "write", mutate=True)
     return budget_service.create_budget(
@@ -116,7 +116,7 @@ def post_budget(
 
 @router.patch("/budgets/{version_id}")
 def patch_budget(
-    version_id: UUID, payload: ReplaceIn, request: Request, session: Session = Depends(get_db)
+    version_id: UUID, payload: ReplaceIn, request: Request, session: DbSession
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -132,7 +132,7 @@ def patch_budget(
 
 
 @router.post("/budgets/{version_id}/approve")
-def post_approve(version_id: UUID, request: Request, session: Session = Depends(get_db)):
+def post_approve(version_id: UUID, request: Request, session: DbSession):
     row, user = current_session(request, session)
     require_csrf(request, row)
     return budget_service.approve_budget(
@@ -147,31 +147,31 @@ def post_approve(version_id: UUID, request: Request, session: Session = Depends(
 
 
 @router.get("/companies/{company_id}/plan-fact")
-def get_plan_fact(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_plan_fact(company_id: UUID, request: Request, session: DbSession):
     _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
     return budget_service.plan_fact(session, company, _report_date(request))
 
 
 @router.get("/companies/{company_id}/alerts")
-def get_alerts(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_alerts(company_id: UUID, request: Request, session: DbSession):
     _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
     return alert_service.list_alerts(session, company)
 
 
 @router.post("/companies/{company_id}/alerts/recalculate")
-def post_recalculate(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def post_recalculate(company_id: UUID, request: Request, session: DbSession):
     _user, membership, company = _actor(request, session, company_id, "write", mutate=True)
     return alert_service.recalculate(session, membership, company, now())
 
 
 @router.get("/companies/{company_id}/alerts/preview")
-def get_alert_preview(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_alert_preview(company_id: UUID, request: Request, session: DbSession):
     _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
     return alert_service.preview(session, company, _required_report_date(request), now())
 
 
 @router.post("/alerts/{alert_id}/ack")
-def post_ack(alert_id: UUID, request: Request, session: Session = Depends(get_db)):
+def post_ack(alert_id: UUID, request: Request, session: DbSession):
     row, user = current_session(request, session)
     require_csrf(request, row)
     from app.api.deps import tenant_of
@@ -188,7 +188,7 @@ def patch_rule(
     rule_type: str,
     payload: RuleIn,
     request: Request,
-    session: Session = Depends(get_db),
+    session: DbSession,
 ):
     user, membership, company = _actor(request, session, company_id, "write", mutate=True)
     return alert_service.update_rule(

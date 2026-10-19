@@ -1,7 +1,8 @@
 import secrets
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import Request
+from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -23,6 +24,10 @@ def get_db(request: Request):
         raise
     finally:
         session.close()
+
+
+# scope=function: commit/close до http.response.start (см. HTTP_TRANSACTION_BOUNDARY.md).
+DbSession = Annotated[Session, Depends(get_db, scope="function")]
 
 
 def settings_of(request: Request) -> Settings:

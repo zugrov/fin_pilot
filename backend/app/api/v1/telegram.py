@@ -1,11 +1,11 @@
 import hmac
 from uuid import UUID
 
-from app.api.deps import current_session, get_db, require_csrf, settings_of, tenant_of
+from app.api.deps import DbSession, current_session, require_csrf, settings_of, tenant_of
 from app.clock import now
 from app.errors import AppError
 from app.services import telegram_binding, telegram_bot, telegram_digest
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -34,38 +34,38 @@ def _actor(request: Request, session: Session, *, mutate: bool):
 
 
 @router.post("/telegram/link-token")
-def post_link_token(request: Request, session: Session = Depends(get_db)):
+def post_link_token(request: Request, session: DbSession):
     user, membership = _actor(request, session, mutate=True)
     return telegram_binding.issue_token(session, membership, user, settings_of(request), now())
 
 
 @router.get("/telegram/binding")
-def get_binding(request: Request, session: Session = Depends(get_db)):
+def get_binding(request: Request, session: DbSession):
     user, membership = _actor(request, session, mutate=False)
     return telegram_binding.binding_view(session, membership, user)
 
 
 @router.post("/telegram/binding/confirm")
-def post_confirm(request: Request, session: Session = Depends(get_db)):
+def post_confirm(request: Request, session: DbSession):
     user, membership = _actor(request, session, mutate=True)
     return telegram_binding.confirm_binding(session, membership, user, now())
 
 
 @router.delete("/telegram/binding")
-def delete_binding(request: Request, session: Session = Depends(get_db)):
+def delete_binding(request: Request, session: DbSession):
     user, membership = _actor(request, session, mutate=True)
     return telegram_binding.unlink(session, membership, user, now())
 
 
 @router.get("/telegram/subscription")
-def get_subscription(request: Request, session: Session = Depends(get_db)):
+def get_subscription(request: Request, session: DbSession):
     user, membership = _actor(request, session, mutate=False)
     return telegram_binding.subscription_view(session, membership, user)
 
 
 @router.put("/telegram/subscription")
 def put_subscription(
-    payload: SubscriptionIn, request: Request, session: Session = Depends(get_db)
+    payload: SubscriptionIn, request: Request, session: DbSession
 ):
     user, membership = _actor(request, session, mutate=True)
     data = payload.model_dump(exclude_unset=True)
@@ -75,13 +75,13 @@ def put_subscription(
 
 
 @router.post("/telegram/digest-preview")
-def post_preview(request: Request, session: Session = Depends(get_db)):
+def post_preview(request: Request, session: DbSession):
     user, membership = _actor(request, session, mutate=True)
     return telegram_digest.preview_text(session, membership, user, settings_of(request), now())
 
 
 @router.post("/telegram/send-test")
-def post_send_test(request: Request, session: Session = Depends(get_db)):
+def post_send_test(request: Request, session: DbSession):
     user, membership = _actor(request, session, mutate=True)
     snapshot = telegram_digest.queue_manual(
         session,
@@ -95,7 +95,7 @@ def post_send_test(request: Request, session: Session = Depends(get_db)):
 
 
 @router.post("/integrations/telegram/webhook")
-def post_webhook(payload: dict, request: Request, session: Session = Depends(get_db)):
+def post_webhook(payload: dict, request: Request, session: DbSession):
     settings = settings_of(request)
     secret = settings.telegram_webhook_secret
     if not secret:

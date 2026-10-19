@@ -1,12 +1,12 @@
 from datetime import date
 from uuid import UUID
 
-from app.api.deps import current_session, get_db, require_csrf, settings_of
+from app.api.deps import DbSession, current_session, require_csrf, settings_of
 from app.clock import now
 from app.errors import AppError
 from app.services import cash_service, wallet_service
 from app.services.cash_service import request_hash
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -60,7 +60,7 @@ def _company(request: Request, session: Session, company_id: UUID, mode: str, *,
 def list_transactions(
     company_id: UUID,
     request: Request,
-    session: Session = Depends(get_db),
+    session: DbSession,
     status: str | None = None,
     wallet_id: UUID | None = None,
     date_from: date | None = None,
@@ -92,7 +92,7 @@ def post_transaction(
     company_id: UUID,
     payload: TransactionIn,
     request: Request,
-    session: Session = Depends(get_db),
+    session: DbSession,
 ):
     user, membership, company = _company(request, session, company_id, "write", mutate=True)
     key = request.headers.get("idempotency-key")
@@ -124,7 +124,7 @@ def post_transaction(
 
 @router.get("/transactions/{transaction_id}")
 def get_transaction(
-    transaction_id: UUID, request: Request, session: Session = Depends(get_db)
+    transaction_id: UUID, request: Request, session: DbSession
 ):
     _row, user = current_session(request, session)
     from app.api.deps import tenant_of
@@ -140,7 +140,7 @@ def patch_transaction(
     transaction_id: UUID,
     payload: TransactionPatch,
     request: Request,
-    session: Session = Depends(get_db),
+    session: DbSession,
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -171,7 +171,7 @@ def post_void(
     transaction_id: UUID,
     payload: VersionIn,
     request: Request,
-    session: Session = Depends(get_db),
+    session: DbSession,
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -190,7 +190,7 @@ def post_classify(
     transaction_id: UUID,
     payload: ClassifyIn,
     request: Request,
-    session: Session = Depends(get_db),
+    session: DbSession,
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -212,7 +212,7 @@ def post_classify(
 
 @router.post("/transfers/link")
 def post_transfer(
-    payload: TransferIn, request: Request, session: Session = Depends(get_db)
+    payload: TransferIn, request: Request, session: DbSession
 ):
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -231,7 +231,7 @@ def post_transfer(
 
 
 @router.get("/companies/{company_id}/cash-summary")
-def cash_summary(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def cash_summary(company_id: UUID, request: Request, session: DbSession):
     _user, _membership, company = _company(request, session, company_id, "analytics", mutate=False)
     summary = cash_service.company_summary(session, company, now())
     return cash_service.summary_payload(summary)

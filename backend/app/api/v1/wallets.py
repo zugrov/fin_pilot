@@ -1,11 +1,11 @@
 from uuid import UUID
 
-from app.api.deps import current_session, get_db, require_csrf, settings_of, tenant_of
+from app.api.deps import DbSession, current_session, require_csrf, settings_of, tenant_of
 from app.clock import now
 from app.errors import AppError
 from app.models.cash import Wallet
 from app.services import cash_service, wallet_service
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -58,7 +58,7 @@ def _wallet(request: Request, session: Session, wallet_id: UUID, *, mutate: bool
 
 
 @router.get("/companies/{company_id}/wallets")
-def list_wallets(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def list_wallets(company_id: UUID, request: Request, session: DbSession):
     _user, membership, company = _company(request, session, company_id, "read", mutate=False)
     rows = wallet_service.list_wallets(session, membership, company)
     return {"wallets": [cash_service.wallet_view(session, item, now()) for item in rows]}
@@ -66,7 +66,7 @@ def list_wallets(company_id: UUID, request: Request, session: Session = Depends(
 
 @router.post("/companies/{company_id}/wallets")
 def post_wallet(
-    company_id: UUID, payload: WalletIn, request: Request, session: Session = Depends(get_db)
+    company_id: UUID, payload: WalletIn, request: Request, session: DbSession
 ):
     user, membership, company = _company(request, session, company_id, "write", mutate=True)
     key = request.headers.get("idempotency-key")
@@ -99,17 +99,12 @@ def post_wallet(
         fingerprint=fingerprint,
         at=at,
     )
-    try:
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
     return response_body
 
 
 @router.post("/wallets/{wallet_id}/opening-balance")
 def post_opening(
-    wallet_id: UUID, payload: OpeningIn, request: Request, session: Session = Depends(get_db)
+    wallet_id: UUID, payload: OpeningIn, request: Request, session: DbSession
 ):
     user, membership, wallet = _wallet(request, session, wallet_id, mutate=True)
     key = request.headers.get("idempotency-key")
@@ -144,7 +139,7 @@ def post_access(
     wallet_id: UUID,
     payload: WalletAccessIn,
     request: Request,
-    session: Session = Depends(get_db),
+    session: DbSession,
 ):
     _user, membership, wallet = _wallet(request, session, wallet_id, mutate=True)
     wallet_service.grant_wallet_access(

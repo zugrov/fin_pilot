@@ -1,9 +1,9 @@
 from uuid import UUID
 
 from app.api.deps import (
+    DbSession,
     clear_session_cookie,
     current_session,
-    get_db,
     limit,
     require_csrf,
     set_session_cookie,
@@ -24,9 +24,8 @@ from app.services.auth_service import (
     verify_email,
 )
 from app.services.tenant_service import accept_invitation
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -70,7 +69,7 @@ def _user_payload(user) -> dict:
 
 
 @router.post("/register")
-def register(payload: RegisterIn, request: Request, session: Session = Depends(get_db)) -> dict:
+def register(payload: RegisterIn, request: Request, session: DbSession) -> dict:
     limit(request, "register", 5, 3600)
     register_user(
         session,
@@ -83,13 +82,13 @@ def register(payload: RegisterIn, request: Request, session: Session = Depends(g
 
 
 @router.post("/verify-email")
-def verify(payload: TokenIn, session: Session = Depends(get_db)) -> dict:
+def verify(payload: TokenIn, session: DbSession) -> dict:
     verify_email(session, payload.token)
     return {"status": "ok"}
 
 
 @router.post("/resend-verification")
-def resend(payload: EmailIn, request: Request, session: Session = Depends(get_db)) -> dict:
+def resend(payload: EmailIn, request: Request, session: DbSession) -> dict:
     limit(request, "resend", 3, 3600)
     resend_verification(session, settings_of(request), str(payload.email))
     return {"status": "ok", "message": GENERIC_MAIL}
@@ -97,7 +96,7 @@ def resend(payload: EmailIn, request: Request, session: Session = Depends(get_db
 
 @router.post("/login")
 def login(
-    payload: LoginIn, request: Request, response: Response, session: Session = Depends(get_db)
+    payload: LoginIn, request: Request, response: Response, session: DbSession
 ):
     limit(request, "login", 10, 900)
     raw, csrf, user = login_user(
@@ -112,7 +111,7 @@ def login(
 
 
 @router.post("/logout")
-def logout(request: Request, response: Response, session: Session = Depends(get_db)) -> dict:
+def logout(request: Request, response: Response, session: DbSession) -> dict:
     row, _user = current_session(request, session)
     require_csrf(request, row)
     raw = request.cookies.get(settings_of(request).session_cookie_name)
@@ -125,21 +124,21 @@ def logout(request: Request, response: Response, session: Session = Depends(get_
 
 
 @router.post("/forgot-password")
-def forgot(payload: EmailIn, request: Request, session: Session = Depends(get_db)) -> dict:
+def forgot(payload: EmailIn, request: Request, session: DbSession) -> dict:
     limit(request, "forgot", 5, 3600)
     request_password_reset(session, settings_of(request), str(payload.email))
     return {"status": "ok", "message": GENERIC_MAIL}
 
 
 @router.post("/reset-password")
-def reset(payload: ResetIn, session: Session = Depends(get_db)) -> dict:
+def reset(payload: ResetIn, session: DbSession) -> dict:
     reset_password(session, payload.token, payload.password)
     return {"status": "ok"}
 
 
 @router.post("/change-email-request")
 def change_email(
-    payload: ChangeEmailIn, request: Request, session: Session = Depends(get_db)
+    payload: ChangeEmailIn, request: Request, session: DbSession
 ) -> dict:
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -154,13 +153,13 @@ def change_email(
 
 
 @router.post("/change-email-confirm")
-def change_email_confirm(payload: TokenIn, session: Session = Depends(get_db)) -> dict:
+def change_email_confirm(payload: TokenIn, session: DbSession) -> dict:
     confirm_email_change(session, payload.token)
     return {"status": "ok"}
 
 
 @router.get("/me")
-def me(request: Request, session: Session = Depends(get_db)) -> dict:
+def me(request: Request, session: DbSession) -> dict:
     row, user = current_session(request, session)
     from app.models.identity import Membership
     from app.security.context import set_context
@@ -181,7 +180,7 @@ def me(request: Request, session: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/sessions")
-def sessions(request: Request, session: Session = Depends(get_db)) -> dict:
+def sessions(request: Request, session: DbSession) -> dict:
     row, user = current_session(request, session)
     return {
         "sessions": [
@@ -198,7 +197,7 @@ def sessions(request: Request, session: Session = Depends(get_db)) -> dict:
 
 @router.delete("/sessions/{session_id}")
 def delete_session(
-    session_id: UUID, request: Request, session: Session = Depends(get_db)
+    session_id: UUID, request: Request, session: DbSession
 ) -> dict:
     row, user = current_session(request, session)
     require_csrf(request, row)
@@ -207,7 +206,7 @@ def delete_session(
 
 
 @router.post("/invitations/accept")
-def accept(payload: TokenIn, request: Request, session: Session = Depends(get_db)) -> dict:
+def accept(payload: TokenIn, request: Request, session: DbSession) -> dict:
     _row, user = current_session(request, session)
     require_csrf(request, _row)
     tenant_id = accept_invitation(session, user, payload.token)

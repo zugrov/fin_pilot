@@ -5,7 +5,6 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import httpx
-import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -139,7 +138,7 @@ def test_wallet_create_visible_on_response_start_before_get_db_commit(
     assert len(visible) == 1
     assert visible[0] is True, (
         "на http.response.start кошелёк должен быть виден из независимого соединения "
-        "(до commit в get_db после yield)"
+        "(get_db scope=function: commit до response.start)"
     )
     body = response.json()
     assert body["code"] == code
@@ -214,25 +213,25 @@ def test_wallet_create_commit_failure_not_success_and_rolls_back(
     key = uuid4().hex
     before = _wallet_count_for_company(admin, company_id)
     original_commit = Session.commit
-    attempts = {"post_wallet": 0}
+    attempts = {"n": 0}
 
     def commit_side_effect(self: Session):
-        attempts["post_wallet"] += 1
-        if attempts["post_wallet"] == 1:
+        attempts["n"] += 1
+        if attempts["n"] == 1:
             raise SQLAlchemyError("simulated commit failure")
         return original_commit(self)
 
     with patch.object(Session, "commit", commit_side_effect):
-        with pytest.raises(SQLAlchemyError):
-            client.post(
-                f"/api/v1/companies/{company_id}/wallets",
-                json={
-                    "name": "Fail",
-                    "type": "bank",
-                    "availability_type": "spendable",
-                    "code": code,
-                },
-                headers={"Idempotency-Key": key},
-            )
+        failed = client.post(
+            f"/api/v1/companies/{company_id}/wallets",
+            json={
+                "name": "Fail",
+                "type": "bank",
+                "availability_type": "spendable",
+                "code": code,
+            },
+            headers={"Idempotency-Key": key},
+        )
+    assert failed.status_code >= 500
     assert _wallet_count_for_company(admin, company_id) == before
     assert not _wallet_visible(admin, company_id, code)

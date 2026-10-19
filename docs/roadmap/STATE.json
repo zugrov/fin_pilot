@@ -17,9 +17,9 @@
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
   "current_stage": "FA-R02",
-  "current_task": "FA-R02.2",
-  "status": "ready",
-  "allowed_next_action": "FA-R02.2 не стартовать без отдельного разрешения. Разрешён только read-only аудит общего риска get_db: граница commit/HTTP response и commit failure на write-endpoints (кроме доказанного POST wallet create).",
+  "current_task": "FA-R02.1b",
+  "status": "in_progress",
+  "allowed_next_action": "FA-R02.1b HTTP transaction boundary: после push — CI/E2E на product SHA. FA-R02.2 не стартовать без отдельного разрешения.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -230,7 +230,18 @@
             "backend/tests/integration/test_wallet_response_commit.py"
           ],
           "residual_risks": [
-            "get_db не менялся: commit-after-yield для всех write-endpoints. Commit-before-success доказан только для POST /companies/{id}/wallets. Остальные write-endpoints требуют отдельного аудита границы commit/HTTP response и обработки commit failure до допуска к пилоту/расширению эксплуатации; без аудита не утверждать, что каждый другой endpoint обязательно неисправен."
+            "на момент приёмки R02.1: get_db без scope=function; commit-after-response для большинства endpoints; точечный fix только POST wallet (9fe5c06). Закрывается infra FA-R02.1b, не переписывает accepted SHA R02.1."
+          ]
+        },
+        {
+          "id": "FA-R02.1b",
+          "title": "HTTP transaction boundary",
+          "status": "in_progress",
+          "evidence": [
+            "docs/roadmap/HTTP_TRANSACTION_BOUNDARY.md",
+            "backend/app/api/deps.py DbSession scope=function",
+            "tests/unit/test_http_db_dependency_guard.py",
+            "tests/integration/test_http_transaction_boundary.py"
           ]
         },
         {

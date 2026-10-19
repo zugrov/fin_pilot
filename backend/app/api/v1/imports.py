@@ -1,12 +1,12 @@
 from datetime import date
 from uuid import UUID
 
-from app.api.deps import current_session, get_db, require_csrf, settings_of, tenant_of
+from app.api.deps import DbSession, current_session, require_csrf, settings_of, tenant_of
 from app.clock import now
 from app.errors import AppError
 from app.services import import_service, mail_service
 from app.services.wallet_service import open_company
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -49,7 +49,7 @@ def _actor(request: Request, session: Session, company_id: UUID, mode: str, *, m
 
 @router.post("/companies/{company_id}/sources")
 def post_source(
-    company_id: UUID, payload: SourceIn, request: Request, session: Session = Depends(get_db)
+    company_id: UUID, payload: SourceIn, request: Request, session: DbSession
 ):
     user, membership, company = _actor(request, session, company_id, "write", mutate=True)
     return import_service.create_source(
@@ -74,7 +74,7 @@ def post_source(
 
 @router.post("/companies/{company_id}/sources/{source_id}/test")
 def post_mailbox_test(
-    company_id: UUID, source_id: UUID, request: Request, session: Session = Depends(get_db)
+    company_id: UUID, source_id: UUID, request: Request, session: DbSession
 ):
     _user, _membership, company = _actor(request, session, company_id, "write", mutate=True)
     connection = mail_service.email_source(session, company, source_id)
@@ -83,7 +83,7 @@ def post_mailbox_test(
 
 @router.post("/companies/{company_id}/sources/{source_id}/sync")
 def post_mailbox_sync(
-    company_id: UUID, source_id: UUID, request: Request, session: Session = Depends(get_db)
+    company_id: UUID, source_id: UUID, request: Request, session: DbSession
 ):
     user, _membership, company = _actor(request, session, company_id, "write", mutate=True)
     connection = mail_service.email_source(session, company, source_id)
@@ -96,7 +96,7 @@ def post_coverage(
     source_id: UUID,
     payload: CoverageIn,
     request: Request,
-    session: Session = Depends(get_db),
+    session: DbSession,
 ):
     from app.services import revenue_service
 
@@ -114,7 +114,7 @@ def post_coverage(
 
 
 @router.get("/companies/{company_id}/sources")
-def get_sources(company_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_sources(company_id: UUID, request: Request, session: DbSession):
     _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
     return {"sources": import_service.list_sources(session, company)}
 
@@ -123,7 +123,7 @@ def get_sources(company_id: UUID, request: Request, session: Session = Depends(g
 def post_import(
     company_id: UUID,
     request: Request,
-    session: Session = Depends(get_db),
+    session: DbSession,
     connection_id: UUID = Form(),
     upload: UploadFile = File(),
 ):
@@ -147,14 +147,14 @@ def post_import(
 
 
 @router.get("/imports/{batch_id}/preview")
-def get_preview(batch_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_preview(batch_id: UUID, request: Request, session: DbSession):
     _row, user = current_session(request, session)
     membership = tenant_of(request, session, user)
     return import_service.preview_import(session, membership, user, settings_of(request), batch_id)
 
 
 @router.get("/imports/{batch_id}/errors")
-def get_errors(batch_id: UUID, request: Request, session: Session = Depends(get_db)):
+def get_errors(batch_id: UUID, request: Request, session: DbSession):
     _row, user = current_session(request, session)
     membership = tenant_of(request, session, user)
     body = import_service.errors_csv(session, membership, user, settings_of(request), batch_id)
@@ -162,7 +162,7 @@ def get_errors(batch_id: UUID, request: Request, session: Session = Depends(get_
 
 
 @router.post("/imports/{batch_id}/commit")
-def post_commit(batch_id: UUID, request: Request, session: Session = Depends(get_db)):
+def post_commit(batch_id: UUID, request: Request, session: DbSession):
     row, user = current_session(request, session)
     require_csrf(request, row)
     membership = tenant_of(request, session, user)
@@ -179,7 +179,7 @@ def post_commit(batch_id: UUID, request: Request, session: Session = Depends(get
 
 
 @router.post("/imports/{batch_id}/refresh-preview")
-def post_refresh_preview(batch_id: UUID, request: Request, session: Session = Depends(get_db)):
+def post_refresh_preview(batch_id: UUID, request: Request, session: DbSession):
     row, user = current_session(request, session)
     require_csrf(request, row)
     membership = tenant_of(request, session, user)
