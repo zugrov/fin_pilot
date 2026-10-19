@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     import_max_rows: int = 100_000
     import_max_uncompressed_bytes: int = 50 * 1024 * 1024
     balances_import_enabled: bool = False
+    session_ingest_enabled: bool = False
+    session_ingest_max_envelope_bytes: int = 64 * 1024
+    session_ingest_max_body_bytes: int = 32 * 1024 * 1024
+    session_ingest_max_parts: int = 8
 
     @field_validator("app_env")
     @classmethod

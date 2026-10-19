@@ -132,11 +132,19 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 **Handoff:** FA-R02.3 **planned** — read-only подготовка только по отдельному разрешению.
 
-## FA-R02.3 · HTTP proposed ingest (отложено сразу после R02.2)
+## FA-R02.3 · Session User Transport API
 
-**Цель.** `POST …/ingestions` по OpenAPI proposed; machine token — stub до R11.
+**Статус:** **in_progress** (не accepted).
 
-**Зависит от.** R02.1, R01.1 (firm context в UI не блокирует API).
+**Реализовано (product, flag off по умолчанию).**
+
+- `POST /api/v1/companies/{company_id}/ingestions`, `GET /api/v1/ingestions/{delivery_id}`.
+- Auth: session + CSRF; Bearer → 401; `session_ingest_enabled=false` → 404.
+- Envelope `1.0-session`, multipart, idempotency scope `session-ingest`.
+- Контракт: `docs/roadmap/contracts/session-http-ingest.md`.
+- Proposed OpenAPI + Bearer machine ingest — **FA-R11**, не смешивать с session subset.
+
+**Зависит от.** R02.1, R02.2 (revision через те же bytes/readers).
 
 ## FA-R02.4 · Control totals и coverage states
 

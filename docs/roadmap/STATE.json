@@ -19,7 +19,7 @@
   "current_stage": "FA-R02",
   "current_task": "FA-R02.3",
   "status": "ready",
-  "allowed_next_action": "FA-R02.3: отдельное разрешение на read-only подготовку малого пакета; код, DDL и публичный ingest автоматически не разрешены.",
+  "allowed_next_action": "FA-R02.3 in_progress: session transport API в коде (flag off); приёмка — отдельное решение; deploy/staging enable не разрешены; FA-R11 machine Bearer и R02.4 не начинать.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -295,8 +295,15 @@
         {
           "id": "FA-R02.3",
           "title": "Права и технический API",
-          "status": "planned",
-          "evidence": []
+          "status": "in_progress",
+          "evidence": [
+            "Session User Transport API: POST/GET ingestions; session+CSRF; Bearer 401; session_ingest_enabled default false → 404",
+            "envelope schema_version 1.0-session; idempotency scope session-ingest; receive_import pipeline",
+            "docs/roadmap/contracts/session-http-ingest.md",
+            "backend/tests/integration/test_ingestion_http.py",
+            "backend/tests/unit/test_session_ingestion_envelope.py",
+            "proposed OpenAPI Bearer/machine — FA-R11; не смешивать с session subset"
+          ]
         },
         {
           "id": "FA-R02.4",
@@ -1304,7 +1311,7 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R02.2 accepted 2026-10-19 на product SHA aedf0b8. FA-R02 in_progress; current_task FA-R02.3 planned. Staging baseline 7ee85e5.",
+  "note": "FA-R02.3 session transport API in_progress (flag off). FA-R02.2 accepted aedf0b8. Staging baseline 7ee85e5.",
   "updated_at": "2026-10-19",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",

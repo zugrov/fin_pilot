@@ -250,3 +250,78 @@ def mail_manifest(
     for index, attachment in enumerate(attachments, start=1):
         indexed.append((index, content_digest(attachment.content)))
     return manifest_fingerprint(connection_id, indexed), indexed
+
+
+SESSION_FINGERPRINT_VERSION = "1"
+
+
+def session_delivery_key(user_id: uuid.UUID, delivery_key: str) -> str:
+    return f"session-ingest:{user_id}:{delivery_key}"
+
+
+def session_request_fingerprint(
+    company_id: uuid.UUID,
+    connection_id: uuid.UUID,
+    manifest: list[tuple[int, str, str, str]],
+) -> str:
+    ordered = sorted(manifest, key=lambda item: item[0])
+    body = ";".join(f"{idx}:{dataset}:{fmt}:{digest}" for idx, dataset, fmt, digest in ordered)
+    raw = (
+        f"{SESSION_FINGERPRINT_VERSION}:ui:{company_id}:{connection_id}:{body}"
+    )
+    return canonical_hash(raw)
+
+
+def mark_part_failed(
+    session: Session,
+    part: IngestionDeliveryPart,
+    error_code: str,
+    at: datetime,
+) -> None:
+    part.part_status = PART_FAILED
+    part.error_code = error_code
+    part.updated_at = at
+    session.flush()
+
+
+def build_session_delivery_response(session: Session, delivery_id: uuid.UUID) -> dict:
+    delivery = session.get(IngestionDelivery, delivery_id)
+    if delivery is None:
+        raise AppError(404, "not_found", "Доставка не найдена")
+    parts = session.scalars(
+        select(IngestionDeliveryPart)
+        .where(
+            IngestionDeliveryPart.tenant_id == delivery.tenant_id,
+            IngestionDeliveryPart.delivery_id == delivery.id,
+        )
+        .order_by(IngestionDeliveryPart.part_index)
+    ).all()
+    part_payloads: list[dict] = []
+    for item in parts:
+        batch_status: str | None = None
+        links: dict[str, str] | None = None
+        batch_id: str | None = None
+        if item.batch_id is not None:
+            batch = session.get(ImportBatch, item.batch_id)
+            batch_id = str(item.batch_id)
+            if batch is not None:
+                batch_status = batch.status
+            links = {
+                "preview": f"/api/v1/imports/{item.batch_id}/preview",
+                "errors": f"/api/v1/imports/{item.batch_id}/errors",
+            }
+        part_payloads.append(
+            {
+                "part_index": item.part_index,
+                "state": item.part_status,
+                "error_code": item.error_code,
+                "batch_id": batch_id,
+                "batch_status": batch_status,
+                "links": links,
+            }
+        )
+    return {
+        "delivery_id": str(delivery.id),
+        "transport_status": delivery.transport_status,
+        "parts": part_payloads,
+    }

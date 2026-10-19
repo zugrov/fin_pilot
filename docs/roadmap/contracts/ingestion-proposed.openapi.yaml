@@ -3,8 +3,9 @@ info:
   title: FinPilot Ingestion API (proposed)
   version: 0.0-proposed
   description: |
-    Черновик FA-R00.4. Эти маршруты **отсутствуют** в приложении на SHA 0449e8d.
-    Существующий провод остаётся `/api/v1/imports/{batch_id}/commit`.
+    Черновик FA-R00.4. Полный proposed envelope (json_records, chunks, Bearer) — целевой контракт.
+    **FA-R02.3** реализует отдельный session subset (`1.0-session`, см. session-http-ingest.md).
+    Machine Bearer — **FA-R11**. Commit — `/api/v1/imports/{batch_id}/commit`.
 servers:
   - url: /api/v1
     description: Staging tunnel (proposed paths marked)

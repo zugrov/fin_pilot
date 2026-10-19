@@ -27,7 +27,8 @@ email-route (почта, FA-R04) и проверяет `open_company` / entitlem
 | --- | --- | --- |
 | `ui` | cookie + CSRF + `POST …/imports` | то же + создание delivery record |
 | `email` | IMAP + sender string | delivery на message; вложения → parts |
-| `api` | нет | Bearer scoped token → connection + company |
+| `api` | нет (machine — FA-R11) | Bearer scoped token → connection + company |
+| `ui` session envelope | **FA-R02.3** при `session_ingest_enabled` | cookie + CSRF; envelope `1.0-session`; см. `session-http-ingest.md` |
 
 `source_connection.namespace` остаётся ключом бизнес-идентичности строк
 (`SourceIdentity`), не канал.

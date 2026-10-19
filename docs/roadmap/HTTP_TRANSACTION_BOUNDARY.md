@@ -23,8 +23,8 @@
 
 | Область | Кол-во |
 |---------|--------|
-| OpenAPI-операций (всего) | **98** |
-| `/api/v1/*` на `DbSession` | **96** |
+| OpenAPI-операций (всего) | **100** |
+| `/api/v1/*` на `DbSession` | **98** |
 | `/health/live` | без БД |
 | `/health/ready` | отдельная Session в handler (`main.py`), не dependency graph |
 
