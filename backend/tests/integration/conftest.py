@@ -90,10 +90,8 @@ def migrated_database():
 HEAD_REVISION = "20261019_0013"
 
 
-@pytest.fixture(autouse=True)
-def clean_tables(migrated_database):
-    yield
-    with migrated_database.connect() as connection:
+def truncate_integration_tables(engine) -> None:
+    with engine.connect() as connection:
         revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
     if revision != HEAD_REVISION:
         config = Config(str(BACKEND / "alembic.ini"))
@@ -103,8 +101,15 @@ def clean_tables(migrated_database):
             command.upgrade(config, "head")
         finally:
             os.chdir(previous)
-    with migrated_database.begin() as connection:
+    with engine.begin() as connection:
         connection.execute(text(f"TRUNCATE {TRUNCATE} RESTART IDENTITY CASCADE"))
+
+
+@pytest.fixture(autouse=True)
+def clean_tables(migrated_database):
+    truncate_integration_tables(migrated_database)
+    yield
+    truncate_integration_tables(migrated_database)
 
 
 @pytest.fixture

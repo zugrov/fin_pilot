@@ -12,6 +12,16 @@ from tests.integration.conftest import (
 
 
 def test_auth1_normalized_email_is_unique(client, admin) -> None:
+    with admin.connect() as connection:
+        before = connection.execute(text("SELECT count(*) FROM users")).scalar_one()
+        if before:
+            rows = connection.execute(
+                text("SELECT normalized_email FROM users ORDER BY created_at")
+            ).fetchall()
+            emails = [row[0] for row in rows]
+            raise AssertionError(
+                f"ожидали пустую users до регистрации, было {before}: {emails}"
+            )
     first = client.post(
         "/api/v1/auth/register",
         json={"email": " A.B+tag@Example.com ", "password": PASSWORD, "name": "Анна"},
