@@ -10,14 +10,17 @@ from app.errors import AppError
 from app.models.identity import Company, IdempotencyRecord, Membership, User
 from app.models.imports import IngestionDelivery, IngestionDeliveryPart, SourceConnection
 from app.schemas.session_ingestion import (
-    SessionIngestEnvelope,
+    ParsedSessionEnvelope,
     SessionIngestPartMeta,
     parse_envelope_json,
 )
 from app.services import import_service
+from app.services.dataset_coverage_service import record_completeness_claim
+from app.services.delivery_validation_service import refresh_delivery_validation
 from app.services.ingestion_delivery_service import (
     PART_PREVIEW,
     TransportContext,
+    apply_session_envelope_to_delivery,
     build_session_delivery_response,
     content_digest,
     get_or_create_part,
@@ -82,7 +85,7 @@ def _validate_connection_scope(
 
 
 def _validate_parts_against_connection(
-    envelope: SessionIngestEnvelope, connection: SourceConnection
+    envelope: ParsedSessionEnvelope, connection: SourceConnection
 ) -> None:
     indices = [item.part_index for item in envelope.parts]
     if len(indices) != len(set(indices)):
@@ -229,7 +232,9 @@ def accept_session_ingestion(
         manifest.append((meta.part_index, meta.dataset, meta.format, digest))
         paired.append((meta, blob))
 
-    fingerprint = session_request_fingerprint(company.id, connection.id, manifest)
+    fingerprint = session_request_fingerprint(
+        company.id, connection.id, manifest, envelope=envelope
+    )
     _session_ingest_lock(session, user.id, envelope.delivery_key)
 
     replay = _idempotent(session, user, envelope.delivery_key, fingerprint)
@@ -245,6 +250,7 @@ def accept_session_ingestion(
         request_fingerprint=fingerprint,
         at=at,
     )
+    apply_session_envelope_to_delivery(session, delivery, envelope, company, at)
 
     replay = _idempotent(session, user, envelope.delivery_key, fingerprint)
     if replay is not None:
@@ -272,6 +278,15 @@ def accept_session_ingestion(
         )
 
     refresh_delivery_transport_status(session, delivery.id, at)
+    refresh_delivery_validation(session, delivery, connection, at)
+    record_completeness_claim(
+        session,
+        delivery,
+        connection,
+        company,
+        envelope.completeness_claim,
+        at,
+    )
     body = build_session_delivery_response(session, delivery.id)
     duplicate = _remember(
         session,

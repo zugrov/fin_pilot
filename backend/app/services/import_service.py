@@ -10,7 +10,7 @@ from pathlib import Path
 from app.config import Settings
 from app.domain.imports.balances_reader import duplicate_wallet_codes, read_balances_csv
 from app.domain.imports.budget_reader import read_budget_csv
-from app.domain.imports.clientbank import read_clientbank, statement_period_end
+from app.domain.imports.clientbank import read_clientbank
 from app.domain.imports.contracts import ImportFormatError, ImportLine
 from app.domain.imports.csv_reader import read_csv
 from app.domain.imports.detect import detect_format
@@ -62,6 +62,12 @@ from app.services.budget_import import (
     revise_imported as revise_budget_row,
 )
 from app.services.cash_service import _audit, _remember_revision
+from app.services.dataset_coverage_service import invalidate_reconciled_for_connection
+from app.services.delivery_validation_service import (
+    assert_commit_allowed,
+    refresh_delivery_validation,
+    resolve_commit_delivery_context,
+)
 from app.services.ingestion_delivery_service import (
     PART_PREVIEW,
     TransportContext,
@@ -530,6 +536,7 @@ def commit_import(
     at: datetime,
     *,
     preview_token: str | None = None,
+    delivery_id: uuid.UUID | None = None,
 ) -> dict:
     try:
         batch = _locked_batch(
@@ -543,6 +550,8 @@ def commit_import(
     if company is None:
         raise AppError(404, "not_found", "Фирма не найдена")
     connection = _connection(session, company, batch.connection_id)
+    commit_delivery = resolve_commit_delivery_context(session, batch, delivery_id)
+    assert_commit_allowed(session, commit_delivery, batch, connection)
     if connection.dataset == "balances":
         _require_balances_import_enabled(settings, connection.dataset)
         result = commit_balances_batch(
@@ -556,9 +565,17 @@ def commit_import(
             payload_builder=_payload,
         )
         _batch_audit(session, company_user, company.tenant_id, "import_committed", batch.id, at)
+        invalidate_reconciled_for_connection(
+            session, connection, at, reason="import_commit"
+        )
+        if commit_delivery is not None:
+            refresh_delivery_validation(session, commit_delivery, connection, at)
         return result
     if batch.status in {"completed", "completed_with_errors"}:
-        return _payload(session, batch)
+        payload = _payload(session, batch)
+        if commit_delivery is not None:
+            payload = attach_delivery_id(payload, commit_delivery.id)
+        return payload
     if batch.status != "preview_ready":
         raise AppError(409, "conflict", "Импорт нельзя провести")
     batch.status = "committing"
@@ -581,7 +598,13 @@ def commit_import(
         batch.quality_flags = []
     session.flush()
     _batch_audit(session, company_user, company.tenant_id, "import_committed", batch.id, at)
-    return _payload(session, batch)
+    invalidate_reconciled_for_connection(session, connection, at, reason="import_commit")
+    if commit_delivery is not None:
+        refresh_delivery_validation(session, commit_delivery, connection, at)
+    payload = _payload(session, batch)
+    if commit_delivery is not None:
+        payload = attach_delivery_id(payload, commit_delivery.id)
+    return payload
 
 
 def create_rule(
@@ -1298,17 +1321,6 @@ def _iso(value: datetime | None) -> str | None:
 def _apply_statement_coverage(session, settings, connection: SourceConnection, batch, at) -> None:
     if connection.format != "clientbank":
         return
-    path = Path(settings.import_storage_dir) / batch.file_storage_key
-    if not path.is_file():
-        return
-    try:
-        end = statement_period_end(path.read_bytes(), encoding=connection.encoding)
-    except ImportFormatError:
-        return
-    if end is not None and (
-        connection.coverage_through is None or end > connection.coverage_through
-    ):
-        connection.coverage_through = end
     found = session.scalar(
         select(EmailIngestion).where(
             EmailIngestion.tenant_id == batch.tenant_id,

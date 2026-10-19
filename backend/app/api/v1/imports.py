@@ -6,7 +6,7 @@ from app.clock import now
 from app.errors import AppError
 from app.services import import_service, mail_service
 from app.services.wallet_service import open_company
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -162,7 +162,12 @@ def get_errors(batch_id: UUID, request: Request, session: DbSession):
 
 
 @router.post("/imports/{batch_id}/commit")
-def post_commit(batch_id: UUID, request: Request, session: DbSession):
+def post_commit(
+    batch_id: UUID,
+    request: Request,
+    session: DbSession,
+    delivery_id: UUID | None = Query(None),
+):
     row, user = current_session(request, session)
     require_csrf(request, row)
     membership = tenant_of(request, session, user)
@@ -175,6 +180,7 @@ def post_commit(batch_id: UUID, request: Request, session: DbSession):
         batch_id,
         now(),
         preview_token=preview_token,
+        delivery_id=delivery_id,
     )
 
 

@@ -64,6 +64,17 @@ class IngestionDelivery(Base):
     delivery_key: Mapped[str] = mapped_column(String(200))
     request_fingerprint: Mapped[str] = mapped_column(String(64))
     transport_status: Mapped[str] = mapped_column(String(32))
+    envelope_schema_version: Mapped[str | None] = mapped_column(String(16))
+    ingest_mode: Mapped[str | None] = mapped_column(String(16))
+    period_from: Mapped[date | None] = mapped_column(Date)
+    period_to: Mapped[date | None] = mapped_column(Date)
+    period_timezone: Mapped[str | None] = mapped_column(String(64))
+    control_totals_claim: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    completeness_claim: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    envelope_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    control_totals_calculated: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    validation_status: Mapped[str] = mapped_column(String(32), default="not_checked")
+    validation_block_reasons: Mapped[list[Any]] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
@@ -141,6 +152,30 @@ class SourceIdentity(Base):
     payload_hash: Mapped[str] = mapped_column(String(64))
     last_source_revision: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DatasetCoverage(Base):
+    __tablename__ = "dataset_coverage"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    company_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    connection_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    dataset: Mapped[str] = mapped_column(String(32))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    period_timezone: Mapped[str] = mapped_column(String(64))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    state: Mapped[str] = mapped_column(String(16))
+    claim: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    delivery_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    reconciled_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reconciliation_basis: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class EmailIngestion(Base):

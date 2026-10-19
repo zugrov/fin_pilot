@@ -12,7 +12,7 @@ from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import BACKEND
 from tests.integration.test_balances_import import _balances_source, _ready
 
-HEAD = "20261019_0013"
+HEAD = "20261019_0014"
 REVISION = "20261017_0010"
 PREV = "20261014_0009"
 

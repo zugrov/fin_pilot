@@ -48,7 +48,7 @@ alerts, alert_rules, budget_daily_allocations, budget_lines, budget_versions,
 forecast_contributions, forecast_points, forecast_runs, obligation_cash_links,
 payment_matches, planned_cash_events, obligations, recurrence_rules,
 revenue_cash_matches, source_identities, raw_import_rows, import_batches,
-ingestion_deliveries, import_profiles,
+dataset_coverage, ingestion_deliveries, import_profiles,
 revenue_entries, counterparties, directions,
 classification_rules, source_connections,
 transaction_revisions, cash_transactions, transfer_groups, opening_balances,
@@ -87,7 +87,7 @@ def migrated_database():
     engine.dispose()
 
 
-HEAD_REVISION = "20261019_0013"
+HEAD_REVISION = "20261019_0014"
 
 
 def truncate_integration_tables(engine) -> None:

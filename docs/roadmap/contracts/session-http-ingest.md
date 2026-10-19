@@ -15,6 +15,7 @@
 | POST | `/api/v1/companies/{company_id}/ingestions` | session + CSRF + entitlement + write |
 | GET | `/api/v1/companies/{company_id}/ingestions` — **нет** | |
 | GET | `/api/v1/ingestions/{delivery_id}` | session + read (company из delivery) |
+| POST | `/api/v1/ingestions/{delivery_id}/reconcile` | session + CSRF + **owner** (FA-R02.4) |
 
 При `session_ingest_enabled=false` → **404**. Заголовок `Authorization: Bearer …` → **401** (даже с cookie).
 
@@ -42,6 +43,21 @@
 Transport key (внутренний): `session-ingest:{user_id}:{delivery_key}`.
 
 Fingerprint: version `1`, channel `ui`, company, connection, manifest `part_index:dataset:format:sha256`.
+
+## Envelope (`schema_version = "1.1-session"`, FA-R02.4)
+
+Дополнительно к полям 1.0 (без изменения 1.0):
+
+- `mode`: `delta` | `snapshot`
+- `period_from`, `period_to` — включительный диапазон (timezone фирмы фиксируется в evidence delivery)
+- `control_totals` — опционально для `delta`; **обязателен** для `snapshot` (`record_count` минимум)
+- `completeness_claim` — опционально; создаёт `DatasetCoverage` state `claimed`, **не** `reconciled`
+
+Fingerprint version `2` включает canonical JSON claims + manifest (1.0 fingerprints **не** меняются).
+
+Ответ GET/POST delivery добавляет `validation_status` (`not_checked` | `matched` | `mismatch` | `not_verifiable`), `validation_block_reasons`, `control_totals.claimed/calculated`, commit link `?delivery_id=`.
+
+Commit: `POST /api/v1/imports/{batch_id}/commit?delivery_id=` — опциональный контекст delivery; mismatch → **409** `control_totals_mismatch`.
 
 ## Semantics
 

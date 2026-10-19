@@ -285,6 +285,11 @@ def set_coverage(
     ):
         raise AppError(404, "not_found", "Источник продаж не найден")
     connection.coverage_through = coverage_through
+    from app.services.dataset_coverage_service import legacy_revenue_coverage_claim
+
+    legacy_revenue_coverage_claim(
+        session, connection, coverage_through, at, timezone=company.timezone
+    )
     session.flush()
     _audit(session, user, company.tenant_id, "revenue_coverage_set", connection.id, at)
     return {

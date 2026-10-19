@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from app.errors import AppError
 from app.integrations.imap_client import MailAttachment
@@ -20,6 +22,9 @@ from app.security.tokens import canonical_hash
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    from app.schemas.session_ingestion import ParsedSessionEnvelope
 
 STATUS_PARTIAL = "partially_received"
 STATUS_COMPLETE = "transport_complete"
@@ -277,6 +282,7 @@ def mail_manifest(
 
 
 SESSION_FINGERPRINT_VERSION = "1"
+SESSION_FINGERPRINT_VERSION_V11 = "2"
 
 
 def session_delivery_key(user_id: uuid.UUID, delivery_key: str) -> str:
@@ -287,13 +293,51 @@ def session_request_fingerprint(
     company_id: uuid.UUID,
     connection_id: uuid.UUID,
     manifest: list[tuple[int, str, str, str]],
+    *,
+    envelope: ParsedSessionEnvelope | None = None,
 ) -> str:
     ordered = sorted(manifest, key=lambda item: item[0])
     body = ";".join(f"{idx}:{dataset}:{fmt}:{digest}" for idx, dataset, fmt, digest in ordered)
-    raw = (
-        f"{SESSION_FINGERPRINT_VERSION}:ui:{company_id}:{connection_id}:{body}"
-    )
+    if envelope is not None and envelope.schema_version == "1.1-session":
+        canonical_claim = json.dumps(
+            {
+                "mode": envelope.mode,
+                "period_from": envelope.period_from.isoformat() if envelope.period_from else None,
+                "period_to": envelope.period_to.isoformat() if envelope.period_to else None,
+                "control_totals": envelope.control_totals,
+                "completeness_claim": envelope.completeness_claim,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        raw = (
+            f"{SESSION_FINGERPRINT_VERSION_V11}:ui:{company_id}:{connection_id}:"
+            f"{body}:{canonical_claim}"
+        )
+    else:
+        raw = f"{SESSION_FINGERPRINT_VERSION}:ui:{company_id}:{connection_id}:{body}"
     return canonical_hash(raw)
+
+
+def apply_session_envelope_to_delivery(
+    session: Session,
+    delivery: IngestionDelivery,
+    envelope: ParsedSessionEnvelope,
+    company: Company,
+    at: datetime,
+) -> None:
+    if delivery.envelope_schema_version is not None:
+        return
+    delivery.envelope_schema_version = envelope.schema_version
+    delivery.ingest_mode = envelope.mode
+    delivery.period_from = envelope.period_from
+    delivery.period_to = envelope.period_to
+    delivery.period_timezone = company.timezone
+    delivery.control_totals_claim = envelope.control_totals
+    delivery.completeness_claim = envelope.completeness_claim
+    delivery.envelope_metadata = envelope.raw_metadata
+    delivery.updated_at = at
+    session.flush()
 
 
 def mark_part_failed(
@@ -333,6 +377,10 @@ def build_session_delivery_response(session: Session, delivery_id: uuid.UUID) ->
             links = {
                 "preview": f"/api/v1/imports/{item.batch_id}/preview",
                 "errors": f"/api/v1/imports/{item.batch_id}/errors",
+                "commit": (
+                    f"/api/v1/imports/{item.batch_id}/commit"
+                    f"?delivery_id={delivery.id}"
+                ),
             }
         part_payloads.append(
             {
@@ -344,8 +392,17 @@ def build_session_delivery_response(session: Session, delivery_id: uuid.UUID) ->
                 "links": links,
             }
         )
+    control: dict | None = None
+    if delivery.control_totals_claim or delivery.control_totals_calculated:
+        control = {
+            "claimed": delivery.control_totals_claim,
+            "calculated": delivery.control_totals_calculated,
+        }
     return {
         "delivery_id": str(delivery.id),
         "transport_status": delivery.transport_status,
+        "validation_status": delivery.validation_status,
+        "validation_block_reasons": list(delivery.validation_block_reasons or []),
+        "control_totals": control,
         "parts": part_payloads,
     }

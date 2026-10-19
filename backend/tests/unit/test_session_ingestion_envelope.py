@@ -50,6 +50,16 @@ def test_reject_api_channel() -> None:
         parse_envelope_json(json.dumps(raw))
 
 
+def test_parse_v11_snapshot_requires_control_totals() -> None:
+    raw = json.loads(_sample_envelope())
+    raw["schema_version"] = "1.1-session"
+    raw["mode"] = "snapshot"
+    raw["period_from"] = "2026-10-01"
+    raw["period_to"] = "2026-10-31"
+    with pytest.raises(AppError):
+        parse_envelope_json(json.dumps(raw))
+
+
 def test_session_fingerprint_order_independent() -> None:
     company_id = uuid.uuid4()
     connection_id = uuid.uuid4()

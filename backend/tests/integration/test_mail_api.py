@@ -142,9 +142,8 @@ def test_i6_coverage_stays_on_statement_end(client, admin, app, fake, tmp_path) 
     batch_id = _rows(admin, "SELECT batch_id FROM email_ingestions")[0][0]
     committed = client.post(f"/api/v1/imports/{batch_id}/commit")
     assert committed.status_code == 200, committed.text
-    covered = _rows(admin, "SELECT coverage_through::text FROM source_connections")[0][0]
-    assert covered == "2026-10-13"
-    assert covered != RECEIVED.date().isoformat()
+    covered = _rows(admin, "SELECT coverage_through FROM source_connections")[0][0]
+    assert covered is None
     success = _rows(admin, "SELECT last_success_at IS NOT NULL FROM source_connections")[0][0]
     assert success is True
 
@@ -199,15 +198,15 @@ def test_stranger_and_empty_and_older_statement(client, admin, app, fake, tmp_pa
     committed = client.post(f"/api/v1/imports/{batch_id}/commit")
     assert committed.status_code == 200, committed.text
     assert _rows(admin, "SELECT count(*) FROM cash_transactions")[0][0] == 0
-    covered = _rows(admin, "SELECT coverage_through::text FROM source_connections")[0][0]
-    assert covered == "2026-10-13"
+    covered = _rows(admin, "SELECT coverage_through FROM source_connections")[0][0]
+    assert covered is None
     older = _statement("01.10.2026", _document("old-1", "01.10.2026", valid=True))
     _ingest(app, tenant_id, user_id, source["id"], FakeMailbox([_letter(older, 4)]), RECEIVED)
     older_id = _rows(admin, "SELECT batch_id FROM email_ingestions WHERE uid = 4")[0][0]
     again = client.post(f"/api/v1/imports/{older_id}/commit")
     assert again.status_code == 200, again.text
-    stayed = _rows(admin, "SELECT coverage_through::text FROM source_connections")[0][0]
-    assert stayed == "2026-10-13"
+    stayed = _rows(admin, "SELECT coverage_through FROM source_connections")[0][0]
+    assert stayed is None
 
 
 def test_digest_waits_thirty_minutes(client, admin, app, fake, tmp_path) -> None:

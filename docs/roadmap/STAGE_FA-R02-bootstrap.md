@@ -1,6 +1,6 @@
 # FA-R02 · Первые задачи (bootstrap после FA-R01)
 
-Статус: **in_progress** (этап FA-R02). **FA-R02.1**, **FA-R02.1b**, **FA-R02.2**, **FA-R02.3 accepted** 2026-10-19. **FA-R02.4** — planned. FA-R01 accepted; deploy staging этим пакетом не входит.
+Статус: **in_progress** (этап FA-R02). **FA-R02.1**, **FA-R02.1b**, **FA-R02.2**, **FA-R02.3 accepted** 2026-10-19. **FA-R02.4** — **in_progress** (не accepted). FA-R01 accepted; deploy staging этим пакетом не входит.
 
 **Snapshot vs deploy.** Принятый session transport product SHA — `ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c` (R02.3). Staging deployed baseline остаётся `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`; session ingest, миграции **0011/0012/0013**, HTTP transaction boundary и R02.2 revision/unpost на staging **не** применены; `session_ingest_enabled` **не** включать.
 
@@ -167,14 +167,20 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 - Cancellation/disconnect multipart cleanup — отдельными тестами **не** подтверждён.
 - `_files_to_close_on_error` — приватное поле установленного Starlette parser; **не** стабильный публичный контракт.
-- R02.4 control totals / coverage / snapshot policy — **не** реализованы.
+- R02.4 control totals / coverage — см. секцию FA-R02.4 ниже.
 
-**Handoff:** FA-R02.4 **planned** — read-only подготовка и решения владельца только по отдельному разрешению; DDL/реализация автоматически не разрешены.
+**Handoff:** FA-R02.4 **in_progress**.
 
 **Зависит от.** R02.1, R02.2 (revision через те же bytes/readers).
 
 ## FA-R02.4 · Control totals и coverage states
 
-**Цель.** DatasetCoverage; block commit on mismatch; не auto reconciled.
+**Статус:** **in_progress** (не accepted).
 
-**Зависит от.** R02.1, решения владельца snapshot policy.
+**Цель.** Отдельный validation layer; control totals по distinct `batch_id`; commit gates; `DatasetCoverage` claimed/reconciled; session `1.1-session`; owner reconcile endpoint.
+
+**Не входит.** FA-R03/FA-R11; auto `reconciled` при matched; ClientBank `ДатаКонца` → `coverage_through`; deploy/flag.
+
+**DDL.** `20261019_0014` — поля validation на `ingestion_deliveries`, таблица `dataset_coverage`.
+
+**Зависит от.** R02.1–R02.3 (transport/session без переработки semantics 1.0).
