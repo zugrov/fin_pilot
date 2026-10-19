@@ -35,6 +35,28 @@ STATE_SUPERSEDED = "superseded"
 
 VERIFIED_DATASETS = frozenset({"cash", "revenue"})
 RECONCILE_SCOPE = "delivery-reconcile"
+COVERAGE_SCOPE_LOCK_PREFIX = "dataset-coverage"
+
+
+def coverage_scope_lock_key(connection: SourceConnection) -> str:
+    return (
+        f"{COVERAGE_SCOPE_LOCK_PREFIX}:{connection.tenant_id}:"
+        f"{connection.id}:{connection.dataset}"
+    )
+
+
+def acquire_coverage_scope_lock(session: Session, connection: SourceConnection) -> None:
+    """Сериализация coverage на scope connection+dataset.
+
+    Порядок относительно commit_import:
+    1. FOR UPDATE на import_batches (_locked_batch);
+    2. pg_advisory_xact_lock на coverage scope (invalidate).
+    reconcile берёт только coverage lock — циклического ожидания нет.
+    """
+    session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": coverage_scope_lock_key(connection)},
+    )
 
 
 def record_completeness_claim(
@@ -48,6 +70,17 @@ def record_completeness_claim(
     if not claim or connection.dataset not in VERIFIED_DATASETS:
         return
     if delivery.period_from is None or delivery.period_to is None:
+        return
+    delivery_id = delivery.id
+    acquire_coverage_scope_lock(session, connection)
+    session.expire(delivery)
+    reloaded_delivery = session.get(IngestionDelivery, delivery_id)
+    if reloaded_delivery is None:
+        return
+    delivery = reloaded_delivery
+    period_from = delivery.period_from
+    period_to = delivery.period_to
+    if period_from is None or period_to is None:
         return
     existing = session.scalar(
         select(DatasetCoverage).where(
@@ -64,8 +97,8 @@ def record_completeness_claim(
         company_id=company.id,
         connection_id=connection.id,
         dataset=connection.dataset,
-        period_start=delivery.period_from,
-        period_end=delivery.period_to,
+        period_start=period_from,
+        period_end=period_to,
         period_timezone=delivery.period_timezone or company.timezone,
         version=_next_coverage_version(
             session,
@@ -73,8 +106,8 @@ def record_completeness_claim(
             company.id,
             connection.id,
             connection.dataset,
-            delivery.period_from,
-            delivery.period_to,
+            period_from,
+            period_to,
             delivery.period_timezone or company.timezone,
         ),
         supersedes_id=None,
@@ -101,6 +134,13 @@ def invalidate_reconciled_for_connection(
 ) -> None:
     if connection.dataset not in VERIFIED_DATASETS:
         return
+    connection_id = connection.id
+    acquire_coverage_scope_lock(session, connection)
+    session.expire(connection)
+    reloaded_connection = session.get(SourceConnection, connection_id)
+    if reloaded_connection is None:
+        return
+    connection = reloaded_connection
     rows = session.scalars(
         select(DatasetCoverage).where(
             DatasetCoverage.tenant_id == connection.tenant_id,
@@ -327,10 +367,25 @@ def reconcile_delivery(
     if not _has_completeness_claim(session, delivery):
         raise AppError(409, "conflict", "Нет completeness claim для delivery")
 
-    session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
-        {"key": f"{RECONCILE_SCOPE}:{delivery.id}"},
-    )
+    delivery_id = delivery.id
+    connection_id = connection.id
+    company_id = company.id
+    acquire_coverage_scope_lock(session, connection)
+    session.expire(delivery)
+    session.expire(connection)
+    session.expire(company)
+    reloaded_delivery = session.get(IngestionDelivery, delivery_id)
+    reloaded_connection = session.get(SourceConnection, connection_id)
+    reloaded_company = session.get(Company, company_id)
+    if reloaded_delivery is None or reloaded_connection is None or reloaded_company is None:
+        raise AppError(409, "conflict", "Delivery или источник недоступны")
+    delivery = reloaded_delivery
+    connection = reloaded_connection
+    company = reloaded_company
+    period_from = delivery.period_from
+    period_to = delivery.period_to
+    if period_from is None or period_to is None:
+        raise AppError(409, "conflict", "У delivery не задан период")
 
     refresh_delivery_validation(session, delivery, connection, at)
     request_hash = _reconcile_request_hash(
@@ -355,12 +410,12 @@ def reconcile_delivery(
         session,
         batch_ids,
         connection.dataset,
-        delivery.period_from,
-        delivery.period_to,
+        period_from,
+        period_to,
     ):
         raise AppError(409, "conflict", "Даты данных не входят в заявленный период")
 
-    prior_reconciled = session.scalar(
+    prior_reconciled = session.scalars(
         select(DatasetCoverage)
         .where(
             *_coverage_scope(
@@ -368,22 +423,23 @@ def reconcile_delivery(
                 company.id,
                 connection.id,
                 connection.dataset,
-                delivery.period_from,
-                delivery.period_to,
+                period_from,
+                period_to,
                 period_tz,
             ),
             DatasetCoverage.state == STATE_RECONCILED,
         )
         .order_by(DatasetCoverage.version.desc())
-    )
+        .limit(1)
+    ).first()
     version = _next_coverage_version(
         session,
         company.tenant_id,
         company.id,
         connection.id,
         connection.dataset,
-        delivery.period_from,
-        delivery.period_to,
+        period_from,
+        period_to,
         period_tz,
     )
     supersedes = None if prior_reconciled is None else prior_reconciled.id
@@ -407,8 +463,8 @@ def reconcile_delivery(
         company_id=company.id,
         connection_id=connection.id,
         dataset=connection.dataset,
-        period_start=delivery.period_from,
-        period_end=delivery.period_to,
+        period_start=period_from,
+        period_end=period_to,
         period_timezone=period_tz,
         version=version,
         supersedes_id=supersedes,
@@ -497,6 +553,13 @@ def legacy_revenue_coverage_claim(
     timezone: str = "Europe/Moscow",
 ) -> None:
     """POST coverage — legacy claim, не reconciled."""
+    connection_id = connection.id
+    acquire_coverage_scope_lock(session, connection)
+    session.expire(connection)
+    reloaded_connection = session.get(SourceConnection, connection_id)
+    if reloaded_connection is None:
+        return
+    connection = reloaded_connection
     row = DatasetCoverage(
         id=uuid.uuid4(),
         tenant_id=connection.tenant_id,

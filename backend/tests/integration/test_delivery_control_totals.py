@@ -271,6 +271,133 @@ def test_snapshot_two_parts_commit_a_then_b(
     assert tx_count == 2
 
 
+def test_snapshot_blocks_commit_when_sibling_preview_has_unpost_review(
+    client, admin, app, fake, tmp_path, session_ingest
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "snap-unpost@example.com")
+    case = DatasetCase("cash", "cash", CASH_HEADER, "snapu", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    blob_a = _cash_file(_cash_row("su-1", "100.00")).encode("utf-8")
+    blob_b = _cash_file(_cash_row("su-2", "100.00")).encode("utf-8")
+    key = uuid4().hex
+    parts = [
+        {"part_index": 1, "dataset": "cash", "format": "csv", "content_sha256": _digest(blob_a)},
+        {"part_index": 2, "dataset": "cash", "format": "csv", "content_sha256": _digest(blob_b)},
+    ]
+    envelope = _envelope_v11(
+        source["id"],
+        key,
+        parts,
+        mode="snapshot",
+        control_totals=_cash_totals_claim(2, "200.00"),
+    )
+    created = _post_ingest(client, company_id, envelope, [blob_a, blob_b], key)
+    assert created.status_code == 201, created.text
+    assert created.json()["validation_status"] == "matched"
+    delivery_id = created.json()["delivery_id"]
+    batch_a = created.json()["parts"][0]["batch_id"]
+    batch_b = created.json()["parts"][1]["batch_id"]
+    with admin.connect() as connection:
+        connection.execute(
+            text(
+                "UPDATE raw_import_rows SET proposed_action = 'review' "
+                "WHERE batch_id = CAST(:bid AS uuid)"
+            ),
+            {"bid": batch_b},
+        )
+        connection.commit()
+    tx_before = _rows(admin, "SELECT count(*) FROM cash_transactions")[0][0]
+    blocked = client.post(f"/api/v1/imports/{batch_a}/commit?delivery_id={delivery_id}")
+    assert blocked.status_code == 409
+    assert blocked.json()["code"] == "delivery_incomplete"
+    tx_after = _rows(admin, "SELECT count(*) FROM cash_transactions")[0][0]
+    assert tx_after == tx_before
+
+
+def test_delta_without_totals_allows_commit_with_failed_sibling_part(
+    client, admin, app, fake, tmp_path, session_ingest
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "delta-partial@example.com")
+    case = DatasetCase("cash", "cash", CASH_HEADER, "dpar", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    blob_a = _cash_file(_cash_row("dp-1", "75.00")).encode("utf-8")
+    blob_b = _cash_file(_cash_row("dp-2", "25.00")).encode("utf-8")
+    key = uuid4().hex
+    parts = [
+        {"part_index": 1, "dataset": "cash", "format": "csv", "content_sha256": _digest(blob_a)},
+        {"part_index": 2, "dataset": "cash", "format": "csv", "content_sha256": _digest(blob_b)},
+    ]
+    envelope = _envelope_v11(
+        source["id"],
+        key,
+        parts,
+        mode="delta",
+        control_totals=None,
+        completeness_claim=None,
+    )
+    created = _post_ingest(client, company_id, envelope, [blob_a, blob_b], key)
+    assert created.status_code == 201, created.text
+    delivery_id = created.json()["delivery_id"]
+    batch_a = created.json()["parts"][0]["batch_id"]
+    part_b = created.json()["parts"][1]["part_index"]
+    with admin.connect() as connection:
+        connection.execute(
+            text(
+                "UPDATE ingestion_delivery_parts SET part_status = 'failed', updated_at = now() "
+                "WHERE delivery_id = CAST(:d AS uuid) AND part_index = :idx"
+            ),
+            {"d": delivery_id, "idx": part_b},
+        )
+        connection.commit()
+    commit = client.post(f"/api/v1/imports/{batch_a}/commit?delivery_id={delivery_id}")
+    assert commit.status_code == 200, commit.text
+    reconciled = _rows(
+        admin,
+        "SELECT count(*) FROM dataset_coverage WHERE delivery_id = CAST(:d AS uuid) "
+        "AND state = 'reconciled'",
+        {"d": delivery_id},
+    )[0][0]
+    assert reconciled == 0
+
+
+def test_delta_with_totals_blocks_commit_when_sibling_part_failed(
+    client, admin, app, fake, tmp_path, session_ingest
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "delta-tot-fail@example.com")
+    case = DatasetCase("cash", "cash", CASH_HEADER, "dtf", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    blob_a = _cash_file(_cash_row("dt-1", "50.00")).encode("utf-8")
+    blob_b = _cash_file(_cash_row("dt-2", "50.00")).encode("utf-8")
+    key = uuid4().hex
+    parts = [
+        {"part_index": 1, "dataset": "cash", "format": "csv", "content_sha256": _digest(blob_a)},
+        {"part_index": 2, "dataset": "cash", "format": "csv", "content_sha256": _digest(blob_b)},
+    ]
+    envelope = _envelope_v11(
+        source["id"],
+        key,
+        parts,
+        mode="delta",
+        control_totals=_cash_totals_claim(2, "100.00"),
+    )
+    created = _post_ingest(client, company_id, envelope, [blob_a, blob_b], key)
+    delivery_id = created.json()["delivery_id"]
+    batch_a = created.json()["parts"][0]["batch_id"]
+    part_b = created.json()["parts"][1]["part_index"]
+    with admin.connect() as connection:
+        connection.execute(
+            text(
+                "UPDATE ingestion_delivery_parts SET part_status = 'failed', updated_at = now() "
+                "WHERE delivery_id = CAST(:d AS uuid) AND part_index = :idx"
+            ),
+            {"d": delivery_id, "idx": part_b},
+        )
+        connection.commit()
+    blocked = client.post(f"/api/v1/imports/{batch_a}/commit?delivery_id={delivery_id}")
+    assert blocked.status_code == 409
+    assert blocked.json()["code"] == "delivery_incomplete"
+
+
 def test_snapshot_allows_commit_first_batch_while_sibling_pending(
     client, admin, app, fake, tmp_path, session_ingest
 ) -> None:

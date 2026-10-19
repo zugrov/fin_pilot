@@ -109,6 +109,8 @@ def refresh_delivery_validation(
                 reasons.append("snapshot_incomplete")
             elif batch.status in BATCH_COMMITTED_BAD or batch.quality_flags:
                 reasons.append("snapshot_partial")
+            elif batch.status in BATCH_PREVIEW and _batch_has_blocking_rows(session, batch):
+                reasons.append("snapshot_blocking_rows")
         if claim and delivery.validation_status != VALIDATION_MATCHED:
             reasons.append("snapshot_totals_not_matched")
     delivery.validation_block_reasons = reasons
@@ -179,6 +181,8 @@ def _assert_snapshot_commit(
                 raise AppError(409, "delivery_incomplete", "Snapshot: partial batch")
             continue
         if linked.status in BATCH_PREVIEW:
+            if _batch_has_blocking_rows(session, linked):
+                raise AppError(409, "delivery_incomplete", "Snapshot: invalid/review rows")
             continue
         raise AppError(409, "delivery_incomplete", "Snapshot: не все parts готовы")
 
@@ -199,9 +203,12 @@ def assert_commit_allowed(
             IngestionDeliveryPart.delivery_id == delivery.id
         )
     ).all()
-    if any(item.part_status == PART_FAILED for item in parts):
-        raise AppError(409, "delivery_incomplete", "Delivery: есть failed parts")
-    if delivery.control_totals_claim and delivery.ingest_mode != "snapshot":
+    if delivery.ingest_mode == "snapshot":
+        if any(item.part_status == PART_FAILED for item in parts):
+            raise AppError(409, "delivery_incomplete", "Delivery: есть failed parts")
+    elif delivery.control_totals_claim:
+        if any(item.part_status == PART_FAILED for item in parts):
+            raise AppError(409, "delivery_incomplete", "Delivery: есть failed parts")
         if any(item.batch_id is None for item in parts):
             raise AppError(409, "delivery_incomplete", "Delivery: не все parts имеют batch")
     if delivery.validation_status == VALIDATION_MISMATCH:

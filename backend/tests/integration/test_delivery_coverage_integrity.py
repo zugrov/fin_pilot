@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import os
+import threading
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import text
+from tests.integration.balances_test_util import assert_finpilot_test_database
+from tests.integration.conftest import BACKEND, HEAD_REVISION
 from tests.integration.test_delivery_control_totals import (
     _cash_totals_claim,
     _completeness,
@@ -24,7 +31,35 @@ from tests.integration.test_import_revision_unpost import (
 )
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
-BACKEND = Path(__file__).resolve().parents[2]
+PREV_0013 = "20261019_0013"
+
+
+def _current_revision(engine) -> str | None:
+    with engine.connect() as connection:
+        return connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+
+
+def _alembic_downgrade(target: str) -> None:
+    config = Config(str(BACKEND / "alembic.ini"))
+    previous = os.getcwd()
+    os.chdir(BACKEND)
+    try:
+        command.downgrade(config, target)
+    finally:
+        os.chdir(previous)
+
+
+@pytest.fixture
+def restore_head(migrated_database):
+    yield
+    if _current_revision(migrated_database) != HEAD_REVISION:
+        config = Config(str(BACKEND / "alembic.ini"))
+        previous = os.getcwd()
+        os.chdir(BACKEND)
+        try:
+            command.upgrade(config, "head")
+        finally:
+            os.chdir(previous)
 
 
 @pytest.fixture
@@ -241,3 +276,307 @@ def test_different_periods_keep_independent_reconciled_versions(
         {"d": d_b},
     )[0]
     assert period_b == ("2026-10-16", "2026-10-31")
+
+
+def test_concurrent_reconcile_same_scope_single_active_version(
+    client, admin, app, fake, tmp_path, session_ingest
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "conc-rec@example.com")
+    case = DatasetCase("cash", "cash", CASH_HEADER, "crec", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    blob = FIXTURES.joinpath("cash_ok.csv").read_bytes()
+    key = uuid4().hex
+    created = _post_ingest(
+        client,
+        company_id,
+        _envelope_v11(
+            source["id"],
+            key,
+            _one_part(blob),
+            control_totals=_cash_totals_claim(2, "3000.00"),
+        ),
+        [blob],
+        key,
+    )
+    delivery_id = created.json()["delivery_id"]
+    batch_id = created.json()["parts"][0]["batch_id"]
+    commit_first = client.post(
+        f"/api/v1/imports/{batch_id}/commit?delivery_id={delivery_id}"
+    )
+    assert commit_first.status_code == 200
+    barrier = threading.Barrier(2)
+    results: list[tuple[int, str | None]] = []
+    errors: list[BaseException] = []
+
+    def worker(idem: str) -> None:
+        try:
+            barrier.wait(timeout=30)
+            resp = client.post(
+                f"/api/v1/ingestions/{delivery_id}/reconcile",
+                json={"reconciliation_basis": f"basis-{idem}"},
+                headers={"Idempotency-Key": idem},
+            )
+            body_id = resp.json().get("id") if resp.headers.get("content-type", "").startswith(
+                "application/json"
+            ) else None
+            results.append((resp.status_code, body_id))
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=worker, args=("conc-a",)),
+        threading.Thread(target=worker, args=("conc-b",)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=120)
+        assert not thread.is_alive()
+    if errors:
+        raise errors[0]
+    assert all(code == 200 for code, _ in results)
+    active = _rows(
+        admin,
+        "SELECT count(*) FROM dataset_coverage WHERE connection_id = CAST(:c AS uuid) "
+        "AND state = 'reconciled'",
+        {"c": source["id"]},
+    )[0][0]
+    assert active == 1
+    versions = _rows(
+        admin,
+        "SELECT version FROM dataset_coverage WHERE connection_id = CAST(:c AS uuid) "
+        "AND state = 'reconciled'",
+        {"c": source["id"]},
+    )
+    assert len(versions) == 1
+    audit = _rows(
+        admin,
+        "SELECT count(*) FROM audit_log WHERE action = 'delivery_coverage_reconciled'",
+    )[0][0]
+    assert audit == 2
+
+
+def _race_reconcile_vs_import(
+    client,
+    admin,
+    app,
+    fake,
+    tmp_path,
+    *,
+    reconcile_first: bool,
+) -> None:
+    company_id, wallet_id = _ready(
+        client,
+        admin,
+        app,
+        fake,
+        tmp_path,
+        f"race-{'r' if reconcile_first else 'i'}@example.com",
+    )
+    case = DatasetCase("cash", "cash", CASH_HEADER, "race", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    blob1 = FIXTURES.joinpath("cash_ok.csv").read_bytes()
+    key1 = uuid4().hex
+    first = _post_ingest(
+        client,
+        company_id,
+        _envelope_v11(
+            source["id"],
+            key1,
+            _one_part(blob1),
+            control_totals=_cash_totals_claim(2, "3000.00"),
+        ),
+        [blob1],
+        key1,
+    )
+    delivery1 = first.json()["delivery_id"]
+    batch1 = first.json()["parts"][0]["batch_id"]
+    client.post(f"/api/v1/imports/{batch1}/commit?delivery_id={delivery1}")
+    rec = client.post(
+        f"/api/v1/ingestions/{delivery1}/reconcile",
+        json={"reconciliation_basis": "initial"},
+        headers={"Idempotency-Key": f"init-{key1}"},
+    )
+    assert rec.status_code == 200
+    coverage1 = rec.json()["id"]
+    blob2 = _cash_file(_cash_row("race-new", "10.00")).encode("utf-8")
+    key2 = uuid4().hex
+    second = _post_ingest(
+        client,
+        company_id,
+        _envelope_v11(
+            source["id"],
+            key2,
+            _one_part(blob2),
+            control_totals=_cash_totals_claim(1, "10.00"),
+        ),
+        [blob2],
+        key2,
+    )
+    delivery2 = second.json()["delivery_id"]
+    batch2 = second.json()["parts"][0]["batch_id"]
+    start = threading.Barrier(2)
+    turn_done = threading.Event()
+    outcomes: list[int] = []
+    errors: list[BaseException] = []
+
+    def do_reconcile() -> None:
+        try:
+            start.wait(timeout=30)
+            if reconcile_first:
+                resp = client.post(
+                    f"/api/v1/ingestions/{delivery1}/reconcile",
+                    json={"reconciliation_basis": "race retry"},
+                    headers={"Idempotency-Key": f"race-rec-{key2}"},
+                )
+                outcomes.append(resp.status_code)
+                turn_done.set()
+            else:
+                assert turn_done.wait(timeout=30)
+                resp = client.post(
+                    f"/api/v1/ingestions/{delivery1}/reconcile",
+                    json={"reconciliation_basis": "race retry"},
+                    headers={"Idempotency-Key": f"race-rec-{key2}"},
+                )
+                outcomes.append(resp.status_code)
+        except BaseException as exc:
+            errors.append(exc)
+
+    def do_commit() -> None:
+        try:
+            start.wait(timeout=30)
+            if reconcile_first:
+                assert turn_done.wait(timeout=30)
+                resp = client.post(f"/api/v1/imports/{batch2}/commit?delivery_id={delivery2}")
+                outcomes.append(resp.status_code)
+            else:
+                resp = client.post(f"/api/v1/imports/{batch2}/commit?delivery_id={delivery2}")
+                outcomes.append(resp.status_code)
+                turn_done.set()
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=do_reconcile),
+        threading.Thread(target=do_commit),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=120)
+        assert not thread.is_alive()
+    if errors:
+        raise errors[0]
+    assert 200 in outcomes
+    state1 = _rows(
+        admin,
+        "SELECT state FROM dataset_coverage WHERE id = CAST(:id AS uuid)",
+        {"id": coverage1},
+    )[0][0]
+    assert state1 == "superseded"
+    active = _rows(
+        admin,
+        "SELECT count(*) FROM dataset_coverage WHERE connection_id = CAST(:c AS uuid) "
+        "AND state = 'reconciled' AND delivery_id = CAST(:d AS uuid)",
+        {"c": source["id"], "d": delivery1},
+    )[0][0]
+    assert active == 0
+
+
+def test_concurrent_reconcile_then_import_invalidates_stale_delivery(
+    client, admin, app, fake, tmp_path, session_ingest
+) -> None:
+    _race_reconcile_vs_import(
+        client, admin, app, fake, tmp_path, reconcile_first=True
+    )
+
+
+def test_concurrent_import_then_reconcile_rejects_or_supersedes(
+    client, admin, app, fake, tmp_path, session_ingest
+) -> None:
+    _race_reconcile_vs_import(
+        client, admin, app, fake, tmp_path, reconcile_first=False
+    )
+
+
+def test_runtime_downgrade_0014_blocked_with_dataset_coverage(
+    client, admin, app, fake, tmp_path, migrated_database, restore_head, session_ingest
+) -> None:
+    assert_finpilot_test_database(migrated_database)
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "dn-a@example.com")
+    case = DatasetCase("cash", "cash", CASH_HEADER, "dna", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    blob = FIXTURES.joinpath("cash_ok.csv").read_bytes()
+    key = uuid4().hex
+    _ingest_and_reconcile(
+        client, company_id, source["id"], blob, key, record_count=2, cash_in="3000.00"
+    )
+    cov_count = _rows(admin, "SELECT count(*) FROM dataset_coverage")[0][0]
+    assert cov_count >= 1
+    with migrated_database.connect() as connection:
+        revision_before = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+    assert revision_before == HEAD_REVISION
+    with pytest.raises(Exception) as exc:
+        _alembic_downgrade(PREV_0013)
+    assert "downgrade_blocked" in str(exc.value)
+    with migrated_database.connect() as connection:
+        revision_after = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+        table_exists = connection.execute(
+            text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_name = 'dataset_coverage'"
+            )
+        ).fetchone()
+        col_exists = connection.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'ingestion_deliveries' AND column_name = 'validation_status'"
+            )
+        ).fetchone()
+    assert revision_after == HEAD_REVISION
+    assert table_exists is not None
+    assert col_exists is not None
+    assert _rows(admin, "SELECT count(*) FROM dataset_coverage")[0][0] >= 1
+
+
+def test_runtime_downgrade_0014_blocked_with_delivery_metadata_only(
+    client, admin, app, fake, tmp_path, migrated_database, restore_head, session_ingest
+) -> None:
+    assert_finpilot_test_database(migrated_database)
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "dn-b@example.com")
+    case = DatasetCase("cash", "cash", CASH_HEADER, "dnb", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    blob = FIXTURES.joinpath("cash_ok.csv").read_bytes()
+    key = uuid4().hex
+    created = _post_ingest(
+        client,
+        company_id,
+        _envelope_v11(
+            source["id"],
+            key,
+            _one_part(blob),
+            control_totals=_cash_totals_claim(2, "3000.00"),
+        ),
+        [blob],
+        key,
+    )
+    assert created.json()["validation_status"] == "matched"
+    with admin.connect() as connection:
+        connection.execute(text("DELETE FROM dataset_coverage"))
+        connection.commit()
+    assert _rows(admin, "SELECT count(*) FROM dataset_coverage")[0][0] == 0
+    meta = _rows(
+        admin,
+        "SELECT count(*) FROM ingestion_deliveries WHERE validation_status <> 'not_checked'",
+    )[0][0]
+    assert meta >= 1
+    with pytest.raises(Exception) as exc:
+        _alembic_downgrade(PREV_0013)
+    assert "downgrade_blocked" in str(exc.value)
+    assert _current_revision(migrated_database) == HEAD_REVISION
+    with migrated_database.connect() as connection:
+        connection.execute(text("SELECT 1"))

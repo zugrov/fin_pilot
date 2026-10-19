@@ -59,9 +59,13 @@ Fingerprint version `2` включает canonical JSON claims + manifest (1.0 f
 
 Commit: `POST /api/v1/imports/{batch_id}/commit?delivery_id=` — опциональный контекст delivery; mismatch → **409** `control_totals_mismatch`.
 
-Snapshot: каждый batch проводится отдельно; уже `completed` siblings не блокируют commit следующего batch; все parts manifest должны быть готовы (без failed); totals matched.
+Snapshot: каждый batch проводится отдельно; уже `completed` siblings (clean) не блокируют commit следующего batch; все `preview_ready` siblings — без invalid/review/unpost rows; failed/`completed_with_errors` siblings блокируют; totals matched.
+
+Delta без `control_totals`: commit одного batch допускается при failed sibling (partial R02.3); coverage не становится reconciled. Delta с totals: failed/incomplete delivery → **409** `delivery_incomplete`.
 
 Reconcile: нужны `completeness_claim`, matched totals, все batches `completed` без flags, даты данных внутри `period_*`, OWNER+CSRF+Idempotency-Key; повторный import инвалидирует reconciled; stale delivery → **409** `coverage_stale`.
+
+Coverage mutations (claim/version, reconcile, invalidation после commit, legacy claim) сериализуются `pg_advisory_xact_lock` на scope tenant+connection+dataset; commit import: сначала batch `FOR UPDATE`, затем coverage lock.
 
 ## Semantics
 

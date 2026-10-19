@@ -181,7 +181,7 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 **Не входит.** FA-R03/FA-R11; auto `reconciled` при matched; ClientBank `ДатаКонца` → `coverage_through`; deploy/flag.
 
-**Corrective (после 3e547ae):** snapshot sequential commit; totals invariants; reconcile idempotency/period/stale delivery.
+**Corrective (после 3e547ae):** snapshot sequential commit + preview sibling gates; totals invariants; reconcile idempotency/period/stale delivery; единый coverage scope lock (claim/reconcile/invalidate/legacy).
 
 **DDL.** `20261019_0014` — поля validation на `ingestion_deliveries`, таблица `dataset_coverage`.
 
