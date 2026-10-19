@@ -4,8 +4,9 @@ from app.api.deps import DbSession, current_session, require_csrf, settings_of, 
 from app.clock import now
 from app.errors import AppError
 from app.services import ingestion_http_service
+from app.services.session_ingest_multipart import parse_session_ingest_multipart
 from app.services.wallet_service import open_company
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 router = APIRouter(tags=["ingestions"])
@@ -28,12 +29,10 @@ def _get_actor(request: Request, session: DbSession):
 
 
 @router.post("/companies/{company_id}/ingestions")
-def post_session_ingestion(
+async def post_session_ingestion(
     company_id: UUID,
     request: Request,
     session: DbSession,
-    envelope: str = Form(),
-    files: list[UploadFile] = File(...),
 ):
     settings = settings_of(request)
     ingestion_http_service.require_session_ingest_enabled(settings)
@@ -42,22 +41,10 @@ def post_session_ingestion(
     key = request.headers.get("idempotency-key") or request.headers.get("Idempotency-Key")
     if not key:
         raise AppError(400, "validation_error", "Нужен заголовок Idempotency-Key")
-    if len(files) > settings.session_ingest_max_parts:
-        raise AppError(422, "validation_error", "Слишком много файлов")
 
-    blobs: list[bytes] = []
-    total = len(envelope.encode("utf-8"))
-    if total > settings.session_ingest_max_envelope_bytes:
+    envelope, blobs = await parse_session_ingest_multipart(request, settings)
+    if len(envelope.encode("utf-8")) > settings.session_ingest_max_envelope_bytes:
         raise AppError(413, "payload_too_large", "Envelope больше лимита")
-    try:
-        for upload in files:
-            data, total = ingestion_http_service.read_upload_bytes(
-                upload, settings=settings, total_bytes=total
-            )
-            blobs.append(data)
-    finally:
-        for upload in files:
-            upload.file.close()
 
     status, body = ingestion_http_service.accept_session_ingestion(
         session,

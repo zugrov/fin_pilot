@@ -21,17 +21,19 @@ from app.services.ingestion_delivery_service import (
     build_session_delivery_response,
     content_digest,
     get_or_create_part,
+    is_expected_unique_violation,
     mark_part_failed,
     refresh_delivery_transport_status,
     resolve_delivery,
     session_delivery_key,
     session_request_fingerprint,
 )
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 SESSION_INGEST_SCOPE = "session-ingest"
+IDEMPOTENCY_SCOPE_CONSTRAINT = frozenset({"idempotency_user_scope_key_uq"})
 
 PART_ERROR_STATUS = frozenset({413, 422})
 PART_ERROR_CODES = frozenset(
@@ -62,20 +64,15 @@ def reject_bearer_auth(request) -> None:
         raise AppError(401, "unauthorized", "Bearer не поддерживается для session ingest")
 
 
-def read_upload_bytes(
-    upload,
-    *,
-    settings: Settings,
-    total_bytes: int,
-) -> tuple[bytes, int]:
-    limit = settings.import_max_bytes + 1
-    chunk = upload.file.read(limit)
-    total_bytes += len(chunk)
-    if total_bytes > settings.session_ingest_max_body_bytes:
-        raise AppError(413, "payload_too_large", "Превышен лимит тела запроса")
-    if len(chunk) > settings.import_max_bytes:
-        raise AppError(413, "payload_too_large", "Файл больше лимита")
-    return chunk, total_bytes
+def _session_ingest_lock(session: Session, user_id: uuid.UUID, delivery_key: str) -> None:
+    session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": f"{SESSION_INGEST_SCOPE}:{user_id}:{delivery_key}"},
+    )
+
+
+def _replay_response(record: IdempotencyRecord) -> tuple[int, dict]:
+    return 200, dict(record.response_body)
 
 
 def _validate_connection_scope(
@@ -127,7 +124,7 @@ def _remember(
     status_code: int,
     payload: dict,
     at: datetime,
-) -> None:
+) -> IdempotencyRecord | None:
     try:
         with session.begin_nested():
             session.add(
@@ -144,9 +141,13 @@ def _remember(
             )
             session.flush()
     except IntegrityError as exc:
+        if not is_expected_unique_violation(exc, IDEMPOTENCY_SCOPE_CONSTRAINT):
+            raise
         row = _idempotent(session, user, key, request_hash)
         if row is None:
             raise AppError(409, "conflict", "Ключ idempotency уже занят") from exc
+        return row
+    return None
 
 
 def _is_expected_part_error(exc: AppError) -> bool:
@@ -229,9 +230,11 @@ def accept_session_ingestion(
         paired.append((meta, blob))
 
     fingerprint = session_request_fingerprint(company.id, connection.id, manifest)
+    _session_ingest_lock(session, user.id, envelope.delivery_key)
+
     replay = _idempotent(session, user, envelope.delivery_key, fingerprint)
     if replay is not None:
-        return 200, dict(replay.response_body)
+        return _replay_response(replay)
 
     delivery = resolve_delivery(
         session,
@@ -242,6 +245,10 @@ def accept_session_ingestion(
         request_fingerprint=fingerprint,
         at=at,
     )
+
+    replay = _idempotent(session, user, envelope.delivery_key, fingerprint)
+    if replay is not None:
+        return _replay_response(replay)
 
     for meta, blob in paired:
         part = get_or_create_part(
@@ -266,7 +273,7 @@ def accept_session_ingestion(
 
     refresh_delivery_transport_status(session, delivery.id, at)
     body = build_session_delivery_response(session, delivery.id)
-    _remember(
+    duplicate = _remember(
         session,
         user,
         company.tenant_id,
@@ -276,6 +283,8 @@ def accept_session_ingestion(
         body,
         at,
     )
+    if duplicate is not None:
+        return _replay_response(duplicate)
     return 201, body
 
 

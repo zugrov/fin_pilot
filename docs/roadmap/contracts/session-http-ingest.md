@@ -18,7 +18,8 @@
 
 - Поле `envelope` — JSON (≤ 64 KiB).
 - Поля `files` — бинарные части **в том же порядке**, что `parts[]` в envelope после сортировки по `part_index` (1..N).
-- Не более **8** файлов; тело запроса ≤ **32 MiB** (с overhead); per-file/row/XLSX — существующие `import_max_*`.
+- Не более **8** файлов; **raw** multipart body ≤ **32 MiB** (с boundary/overhead, считается при чтении stream); per-file/row/XLSX — существующие `import_max_*`.
+- Concurrent same `delivery_key`: `pg_advisory_xact_lock` на `(user, key)`; replay **200** с сохранённым POST body; idempotency scope `session-ingest`.
 
 ## Envelope (`schema_version = "1.0-session"`)
 

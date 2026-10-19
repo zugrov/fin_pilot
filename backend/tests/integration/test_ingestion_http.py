@@ -5,6 +5,10 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 from tests.integration.conftest import login, register_and_verify
 from tests.integration.test_import_revision_unpost import (
     CASH_HEADER,
@@ -213,27 +217,175 @@ def test_unsupported_envelope_field(client, admin, app, fake, tmp_path, session_
     assert response.status_code == 422
 
 
-def test_concurrent_same_key(client, admin, app, fake, tmp_path, session_ingest) -> None:
-    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "ing-conc@example.com")
+def _run_concurrent_same_key(
+    client, admin, app, fake, tmp_path, *, email: str
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, email)
     case = DatasetCase("cash", "cash", CASH_HEADER, "ing-conc", "cash_transactions", True)
     source = _source(client, company_id, wallet_id, case)
     blob = FIXTURES.joinpath("cash_ok.csv").read_bytes()
     key = uuid4().hex
     env = _envelope(source["id"], key, [_part_meta(1, "cash", "csv", blob)])
     barrier = threading.Barrier(2)
-    results: list[int] = []
+    results: list[tuple[int, dict]] = []
+    errors: list[BaseException] = []
+    headers = {
+        "X-Tenant-Id": client.headers["X-Tenant-Id"],
+        "X-CSRF-Token": client.headers["X-CSRF-Token"],
+        "Idempotency-Key": key,
+    }
+    cookies = dict(client.cookies)
 
     def worker() -> None:
-        barrier.wait()
-        response = _post_ingest(client, company_id, env, [blob], key)
-        results.append(response.status_code)
+        barrier.wait(timeout=10)
+        local = TestClient(app, raise_server_exceptions=False)
+        local.cookies.update(cookies)
+        local.headers.update(headers)
+        try:
+            response = _post_ingest(local, company_id, env, [blob], key)
+            results.append((response.status_code, response.json()))
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            local.close()
 
     threads = [threading.Thread(target=worker) for _ in range(2)]
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=60)
-    assert sorted(results) == [200, 201] or results == [201, 201]
+        thread.join(timeout=120)
+        assert not thread.is_alive()
+    assert errors == [], errors
+    assert len(results) == 2
+    codes = sorted(code for code, _ in results)
+    assert codes == [200, 201]
+    bodies = [body for _, body in results]
+    assert bodies[0] == bodies[1]
+    delivery_id = bodies[0]["delivery_id"]
+    assert delivery_id
+    assert bodies[0]["transport_status"] == "transport_complete"
+
+    assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] == 1
+    assert _rows(admin, "SELECT count(*) FROM ingestion_delivery_parts")[0][0] == 1
+    assert _rows(admin, "SELECT count(*) FROM import_batches")[0][0] == 1
+    assert (
+        _rows(
+            admin,
+            "SELECT count(*) FROM idempotency_records WHERE scope = 'session-ingest'",
+        )[0][0]
+        == 1
+    )
+    assert _rows(admin, "SELECT count(*) FROM raw_import_rows")[0][0] == 2
+    assert (
+        _rows(
+            admin,
+            "SELECT count(*) FROM audit_log WHERE action = 'import_received'",
+        )[0][0]
+        == 1
+    )
+
+
+def _rows(admin, query: str, params: dict | None = None) -> list:
+    with admin.connect() as connection:
+        return list(connection.execute(text(query), params or {}).all())
+
+
+def test_concurrent_same_key(client, admin, app, fake, tmp_path, session_ingest) -> None:
+    _run_concurrent_same_key(
+        client, admin, app, fake, tmp_path, email="ing-conc@example.com"
+    )
+
+
+@pytest.mark.parametrize("attempt", range(20))
+def test_concurrent_same_key_stability(
+    client, admin, app, fake, tmp_path, session_ingest, attempt: int
+) -> None:
+    _run_concurrent_same_key(
+        client,
+        admin,
+        app,
+        fake,
+        tmp_path,
+        email=f"ing-conc-stress-{attempt}@example.com",
+    )
+
+
+def test_idempotency_conflict_different_manifest(
+    client, admin, app, fake, tmp_path, session_ingest
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "ing-conf@example.com")
+    case = DatasetCase("cash", "cash", CASH_HEADER, "ing-conf", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    blob_a = FIXTURES.joinpath("cash_ok.csv").read_bytes()
+    blob_b = blob_a + b"\n"
+    key = uuid4().hex
+    first = _post_ingest(
+        client,
+        company_id,
+        _envelope(source["id"], key, [_part_meta(1, "cash", "csv", blob_a)]),
+        [blob_a],
+        key,
+    )
+    assert first.status_code == 201
+    second = _post_ingest(
+        client,
+        company_id,
+        _envelope(source["id"], key, [_part_meta(1, "cash", "csv", blob_b)]),
+        [blob_b],
+        key,
+    )
+    assert second.status_code == 409
+    assert second.json()["code"] == "idempotency_conflict"
+
+
+def test_body_limit_total(client, admin, app, fake, tmp_path, session_ingest) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "ing-limit@example.com")
+    case = DatasetCase("cash", "cash", CASH_HEADER, "ing-limit", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    app.state.settings.session_ingest_max_body_bytes = 512
+    blob = b"x" * 400
+    key = uuid4().hex
+    env = _envelope(source["id"], key, [_part_meta(1, "cash", "csv", blob)])
+    response = _post_ingest(client, company_id, env, [blob], key)
+    assert response.status_code == 413
+    assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] == 0
+
+
+def test_ingest_commit_failure_returns_5xx(
+    client, admin, app, fake, tmp_path, session_ingest
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "ing-cfail@example.com")
+    case = DatasetCase("cash", "cash", CASH_HEADER, "ing-cfail", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    blob = FIXTURES.joinpath("cash_ok.csv").read_bytes()
+    key = uuid4().hex
+    env = _envelope(source["id"], key, [_part_meta(1, "cash", "csv", blob)])
+    original_commit = Session.commit
+    calls = {"n": 0}
+
+    def fail_once(self: Session):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise SQLAlchemyError("simulated commit failure")
+        return original_commit(self)
+
+    from unittest.mock import patch
+
+    with patch.object(Session, "commit", fail_once):
+        local = TestClient(app, raise_server_exceptions=False)
+        local.cookies.update(dict(client.cookies))
+        local.headers.update(client.headers)
+        response = _post_ingest(local, company_id, env, [blob], key)
+        local.close()
+    assert response.status_code >= 500
+    assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] == 0
+    assert (
+        _rows(
+            admin,
+            "SELECT count(*) FROM idempotency_records WHERE scope = 'session-ingest'",
+        )[0][0]
+        == 0
+    )
 
 
 def test_get_foreign_delivery_not_found(client, admin, app, fake, tmp_path, session_ingest) -> None:

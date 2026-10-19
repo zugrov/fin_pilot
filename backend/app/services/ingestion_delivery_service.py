@@ -32,6 +32,24 @@ PART_FAILED = "failed"
 PART_IGNORED = "ignored"
 PART_SKIPPED = "skipped"
 
+DELIVERY_KEY_CONSTRAINT = frozenset({"ingestion_deliveries_key_uq"})
+PART_INDEX_CONSTRAINT = frozenset({"ingestion_delivery_parts_part_index_uq"})
+
+
+def is_expected_unique_violation(exc: IntegrityError, constraints: frozenset[str]) -> bool:
+    orig = exc.orig
+    if orig is None:
+        return False
+    code = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    if code != "23505":
+        return False
+    diag = getattr(orig, "diag", None)
+    name = getattr(diag, "constraint_name", None) if diag is not None else None
+    if name in constraints:
+        return True
+    message = str(orig)
+    return any(item in message for item in constraints)
+
 
 @dataclass(frozen=True)
 class TransportContext:
@@ -101,11 +119,14 @@ def resolve_delivery(
         created_at=at,
         updated_at=at,
     )
-    session.add(row)
     try:
         with session.begin_nested():
+            session.add(row)
             session.flush()
     except IntegrityError as exc:
+        if not is_expected_unique_violation(exc, DELIVERY_KEY_CONSTRAINT):
+            raise
+        session.expunge(row)
         found = session.scalar(
             select(IngestionDelivery).where(
                 IngestionDelivery.tenant_id == company.tenant_id,
@@ -157,11 +178,14 @@ def get_or_create_part(
         created_at=at,
         updated_at=at,
     )
-    session.add(row)
     try:
         with session.begin_nested():
+            session.add(row)
             session.flush()
     except IntegrityError as exc:
+        if not is_expected_unique_violation(exc, PART_INDEX_CONSTRAINT):
+            raise
+        session.expunge(row)
         found = session.scalar(
             select(IngestionDeliveryPart).where(
                 IngestionDeliveryPart.tenant_id == delivery.tenant_id,
