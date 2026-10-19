@@ -12,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import login, open_workspace, pay, register_and_verify
-from tests.integration.test_balances_import import BAL_HEADER, _balances_source
+from tests.integration.test_balances_import import BAL_HEADER, _balances_source, _opening_count
 from tests.integration.test_balances_import import _ready as balances_ready
 from tests.integration.test_cash import _anchor, _ready, _wallet
 
@@ -274,16 +274,7 @@ def test_balances_import_commit_visible_on_response_start(
         app,
         method="POST",
         path=f"/api/v1/imports/{batch_id}/commit",
-        on_response_start=lambda: visible.append(
-            int(
-                _scalar(
-                    admin,
-                    "SELECT count(*) FROM import_batches WHERE id = :bid AND status = 'committed'",
-                    bid=batch_id,
-                )
-            )
-            > 0
-        ),
+        on_response_start=lambda: visible.append(_opening_count(admin, _wallet_id) > 0),
         matcher=_match_path("/commit"),
         headers={
             "X-Tenant-Id": client.headers["X-Tenant-Id"],
