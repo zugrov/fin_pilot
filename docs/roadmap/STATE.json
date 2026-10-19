@@ -17,9 +17,9 @@
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
   "current_stage": "FA-R02",
-  "current_task": "FA-R02.1b",
-  "status": "in_progress",
-  "allowed_next_action": "FA-R02.1b HTTP transaction boundary: после push — CI/E2E на product SHA. FA-R02.2 не стартовать без отдельного разрешения.",
+  "current_task": "FA-R02.2",
+  "status": "ready",
+  "allowed_next_action": "FA-R02.2: разрешена только read-only подготовка малого пакета; реализация и DDL без отдельного разрешения не начинать.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -236,12 +236,31 @@
         {
           "id": "FA-R02.1b",
           "title": "HTTP transaction boundary",
-          "status": "in_progress",
+          "status": "accepted",
+          "accepted_at": "2026-10-19",
+          "accepted_product_sha": "a78080a6c072ea851db9fa2d458cb0983af5a76a",
           "evidence": [
+            "принятый product SHA a78080a (repo); staging deployed baseline 7ee85e5 без изменений — R02.1/0011/0012 и transaction boundary на staging не применены",
+            "FastAPI 0.143.0; DbSession = Depends(get_db, scope=function); один request txn owner get_db; локальный commit post_wallet снят",
+            "карта: 98 OpenAPI ops; 96 /api/v1 на DbSession; /health/live без DB; /health/ready отдельная Session в handler",
+            "unit guard tests/unit/test_http_db_dependency_guard.py (DbSession, OpenAPI 98)",
+            "ASGI response.start probes: wallet create; opening balance; transaction create (+ idempotency); revenue create (+ idempotency); balances import commit (+ opening_balances); YooKassa inbox; auth/me last_seen_at — не утверждать runtime-probe каждого из 96 endpoints",
+            "commit-failure: wallet create и transaction create → 5xx без 2xx response.start; YooKassa IntegrityError без duplicate → 5xx",
+            "цепочка product: bacf02f(docs R02.1) → 4f5eb72(fix) → f257b6f(test payloads/raise_server_exceptions) → 6824a92(test CSV/probe) → a78080a(test opening probe)",
+            "CI 39218808186 @ a78080a: 341 passed 0 skipped; Ruff/Mypy green; frontend 89 unit + build",
+            "E2E 39218808291 @ a78080a: 6 passed",
+            "полный backend pytest локально не выполнялся (test DB недоступна); не переносить результаты старых SHA",
             "docs/roadmap/HTTP_TRANSACTION_BOUNDARY.md",
-            "backend/app/api/deps.py DbSession scope=function",
-            "tests/unit/test_http_db_dependency_guard.py",
-            "tests/integration/test_http_transaction_boundary.py"
+            "tests/integration/test_http_transaction_boundary.py",
+            "tests/integration/test_wallet_response_commit.py"
+          ],
+          "residual_risks": [
+            "исторический commit-after-response риск get_db закрыт для текущего HTTP graph на a78080a (scope=function)",
+            "новые endpoints: обязательны DbSession, unit-guard и review",
+            "StreamingResponse/BackgroundTasks + request Session — отдельный design при добавлении",
+            "внешние side effects (live payments, email, Telegram) — вне атомарности DB txn",
+            "Celery/worker lifecycle — вне этого HTTP-пакета",
+            "готовность к реальному пилоту не следует только из приёмки FA-R02.1b"
           ]
         },
         {
@@ -739,7 +758,7 @@
     "at": "2026-10-19",
     "from_stage": "FA-R02",
     "to_stage": "FA-R02",
-    "from_task": "FA-R02.1",
+    "from_task": "FA-R02.1b",
     "to_task": "FA-R02.2",
     "fa_r00": "accepted",
     "g0": "accepted",
@@ -750,6 +769,8 @@
     "fa_r01_4": "accepted",
     "fa_r02_1": "accepted",
     "fa_r02_1_accepted_product_sha": "9fe5c06d8778b56556baa40932aa189c231696c1",
+    "fa_r02_1b": "accepted",
+    "fa_r02_1b_accepted_product_sha": "a78080a6c072ea851db9fa2d458cb0983af5a76a",
     "fa_r02_started": true
   },
   "fa_r01_1_acceptance": {

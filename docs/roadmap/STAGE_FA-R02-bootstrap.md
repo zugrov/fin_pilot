@@ -69,11 +69,20 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 **Handoff:** `current_task` → FA-R02.2 (planned). Реализация R02.2 без отдельного разрешения не начинать.
 
-### FA-R02.1b · HTTP transaction boundary (infra, не accepted)
+### FA-R02.1b · HTTP transaction boundary · accepted 2026-10-19
 
-- `DbSession` = `Depends(get_db, scope="function")` на всех `/api/v1` handlers.
-- Точечный commit в `post_wallet` снят; общий `get_db` — единственный финальный commit.
-- Контракт и regression: `docs/roadmap/HTTP_TRANSACTION_BOUNDARY.md`.
+**Product SHA:** `a78080a6c072ea851db9fa2d458cb0983af5a76a`.
+
+- FastAPI **0.143.0**; `DbSession` = `Depends(get_db, scope="function")` на **96** `/api/v1` ops (**98** OpenAPI всего; `/health/live` без DB; `/health/ready` — отдельная Session).
+- Один владелец request transaction — **`get_db`**; локальный commit в `post_wallet` **удалён**.
+- YooKassa webhook: inbox до ack; duplicate-only 200 при `IntegrityError`.
+- Regression: unit guard; ASGI probes (wallet, opening, tx, revenue, balances commit, webhook inbox, auth/me); commit-failure 5xx — см. `docs/roadmap/HTTP_TRANSACTION_BOUNDARY.md`.
+- **CI** 39218808186: **341 passed**, 0 skipped; **E2E** 39218808291: **6 passed**.
+- Product chain: `bacf02f` → `4f5eb72` → `f257b6f` → `6824a92` → `a78080a` (три последних — правки regression test setup/probe, не смена boundary).
+- Staging **7ee85e5** — deploy этого пакета **не** выполнялся.
+- Исторический риск commit-after-response **закрыт** для текущего HTTP graph; пилот-only готовность **не** утверждается.
+
+**Handoff:** `current_task` → **FA-R02.2** (planned). Реализация R02.2 и DDL — только после отдельного разрешения; разрешена read-only подготовка малого пакета.
 
 ## FA-R02.2 · Ревизии, entity id, unpost (минимум)
 
