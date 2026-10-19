@@ -3,7 +3,7 @@ import json
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
-from app.domain.imports.contracts import CASH_COLUMNS, ImportFormatError, ImportLine
+from app.domain.imports.contracts import ImportFormatError, ImportLine
 from app.domain.imports.import_meta import parse_row_meta
 from app.domain.money import money
 
