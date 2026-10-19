@@ -141,6 +141,7 @@ UI file и почта создают delivery; transport idempotency по `deliv
 - `POST /api/v1/companies/{company_id}/ingestions`, `GET /api/v1/ingestions/{delivery_id}`.
 - Auth: session + CSRF; Bearer → 401; `session_ingest_enabled=false` → 404.
 - Envelope `1.0-session`, multipart (raw body limit 32 MiB), idempotency scope `session-ingest`, advisory lock same-key.
+- Async multipart + threadpool offload blocking DB; явное закрытие upload resources (FA-R02.3 corrective).
 - Контракт: `docs/roadmap/contracts/session-http-ingest.md`.
 - Proposed OpenAPI + Bearer machine ingest — **FA-R11**, не смешивать с session subset.
 

@@ -1,11 +1,18 @@
+import asyncio
 import hashlib
 import json
+import os
 import threading
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
+import httpx
+import psycopg
 import pytest
+from app.services import session_ingest_multipart as multipart_mod
 from fastapi.testclient import TestClient
+from httpx import ASGITransport
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -57,6 +64,45 @@ def _post_ingest(client, company_id: str, envelope: str, blobs: list[bytes], key
         data={"envelope": envelope},
         files=files,
         headers={"Idempotency-Key": key},
+    )
+
+
+def _multipart_raw(
+    boundary: str, parts: list[tuple[str, str | None, bytes]]
+) -> bytes:
+    chunks: list[bytes] = []
+    for name, filename, content in parts:
+        chunks.append(f"--{boundary}\r\n".encode())
+        if filename is None:
+            chunks.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
+        else:
+            chunks.append(
+                (
+                    f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+                    "Content-Type: application/octet-stream\r\n\r\n"
+                ).encode()
+            )
+        chunks.append(content)
+        if not content.endswith(b"\r\n"):
+            chunks.append(b"\r\n")
+    chunks.append(f"--{boundary}--\r\n".encode())
+    return b"".join(chunks)
+
+
+def _post_multipart_raw(
+    client,
+    company_id: str,
+    body: bytes,
+    boundary: str,
+    key: str,
+):
+    return client.post(
+        f"/api/v1/companies/{company_id}/ingestions",
+        content=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Idempotency-Key": key,
+        },
     )
 
 
@@ -385,6 +431,168 @@ def test_ingest_commit_failure_returns_5xx(
             "SELECT count(*) FROM idempotency_records WHERE scope = 'session-ingest'",
         )[0][0]
         == 0
+    )
+
+
+def test_duplicate_envelope_rejected(client, admin, app, fake, tmp_path, session_ingest) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "ing-dup-env@example.com")
+    case = DatasetCase("cash", "cash", CASH_HEADER, "ing-dup-env", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    blob = FIXTURES.joinpath("cash_ok.csv").read_bytes()
+    key = uuid4().hex
+    env = _envelope(source["id"], key, [_part_meta(1, "cash", "csv", blob)])
+    boundary = "----finpilot-ing-dup-env"
+    body = _multipart_raw(
+        boundary,
+        [
+            ("envelope", None, env.encode()),
+            ("envelope", None, env.encode()),
+            ("files", "p.csv", blob),
+        ],
+    )
+    close_calls: list[int] = []
+    original_close = multipart_mod.close_upload_files
+
+    async def track_close(uploads):
+        close_calls.append(len(list(uploads)))
+        await original_close(uploads)
+
+    with patch.object(multipart_mod, "close_upload_files", side_effect=track_close):
+        response = _post_multipart_raw(client, company_id, body, boundary, key)
+    assert response.status_code == 422
+    assert close_calls == [1]
+    assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] == 0
+
+
+def test_unknown_field_closes_uploads(client, admin, app, fake, tmp_path, session_ingest) -> None:
+    company_id, wallet_id = _ready(
+        client, admin, app, fake, tmp_path, "ing-unknown-field@example.com"
+    )
+    case = DatasetCase("cash", "cash", CASH_HEADER, "ing-unk", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    blob = FIXTURES.joinpath("cash_ok.csv").read_bytes()
+    key = uuid4().hex
+    env = _envelope(source["id"], key, [_part_meta(1, "cash", "csv", blob)])
+    close_calls: list[int] = []
+    original_close = multipart_mod.close_upload_files
+
+    async def track_close(uploads):
+        close_calls.append(len(list(uploads)))
+        await original_close(uploads)
+
+    with patch.object(multipart_mod, "close_upload_files", side_effect=track_close):
+        response = client.post(
+            f"/api/v1/companies/{company_id}/ingestions",
+            data={"envelope": env, "noise": "x"},
+            files=[("files", ("p.csv", blob, "application/octet-stream"))],
+            headers={"Idempotency-Key": key},
+        )
+    assert response.status_code == 422
+    assert close_calls == [1]
+
+
+def test_async_event_loop_serves_health_during_ingest_lock(
+    client, admin, app, fake, tmp_path, session_ingest
+) -> None:
+    asyncio.run(
+        _async_event_loop_serves_health_during_ingest_lock(
+            client, admin, app, fake, tmp_path
+        )
+    )
+
+
+async def _async_event_loop_serves_health_during_ingest_lock(
+    client, admin, app, fake, tmp_path
+) -> None:
+    company_id, wallet_id = _ready(
+        client, admin, app, fake, tmp_path, "ing-async-loop@example.com"
+    )
+    case = DatasetCase("cash", "cash", CASH_HEADER, "ing-async", "cash_transactions", True)
+    source = _source(client, company_id, wallet_id, case)
+    user_id = client.get("/api/v1/auth/me").json()["user"]["id"]
+    blob = FIXTURES.joinpath("cash_ok.csv").read_bytes()
+    key = uuid4().hex
+    env = _envelope(source["id"], key, [_part_meta(1, "cash", "csv", blob)])
+    lock_key = f"session-ingest:{user_id}:{key}"
+    lock_ready = threading.Event()
+    release_lock = threading.Event()
+    holder_errors: list[BaseException] = []
+    port = os.environ.get("TEST_PG_PORT", "5432")
+
+    def lock_holder() -> None:
+        try:
+            conn = psycopg.connect(f"postgresql://127.0.0.1:{port}/finpilot_test", autocommit=True)
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_lock(hashtext(%s))", (lock_key,))
+            lock_ready.set()
+            release_lock.wait(timeout=60)
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (lock_key,))
+            conn.close()
+        except BaseException as exc:
+            holder_errors.append(exc)
+        finally:
+            release_lock.set()
+
+    holder = threading.Thread(target=lock_holder, daemon=True)
+    holder.start()
+    assert lock_ready.wait(timeout=15), "advisory lock not acquired"
+
+    transport = ASGITransport(app=app)
+    headers = {
+        "X-Tenant-Id": client.headers["X-Tenant-Id"],
+        "X-CSRF-Token": client.headers["X-CSRF-Token"],
+        "Idempotency-Key": key,
+    }
+    cookies = dict(client.cookies)
+    ingest_task: asyncio.Task | None = None
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
+            ingest_task = asyncio.create_task(
+                http.post(
+                    f"/api/v1/companies/{company_id}/ingestions",
+                    data={"envelope": env},
+                    files=[("files", ("p.csv", blob, "application/octet-stream"))],
+                    headers=headers,
+                    cookies=cookies,
+                    timeout=60.0,
+                )
+            )
+            health_seen = False
+            for _ in range(80):
+                if ingest_task.done():
+                    break
+                live = await http.get("/health/live", timeout=2.0)
+                if live.status_code == 200:
+                    health_seen = True
+                await asyncio.sleep(0.05)
+            assert health_seen, "event loop blocked: /health/live unavailable"
+            release_lock.set()
+            first = await asyncio.wait_for(ingest_task, timeout=60.0)
+            assert first.status_code == 201, first.text
+            second = await http.post(
+                f"/api/v1/companies/{company_id}/ingestions",
+                data={"envelope": env},
+                files=[("files", ("p.csv", blob, "application/octet-stream"))],
+                headers=headers,
+                cookies=cookies,
+                timeout=60.0,
+            )
+            assert second.status_code == 200
+            assert first.json() == second.json()
+    finally:
+        release_lock.set()
+        holder.join(timeout=10)
+        if ingest_task is not None and not ingest_task.done():
+            ingest_task.cancel()
+    assert holder_errors == [], holder_errors
+    assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] == 1
+    assert (
+        _rows(
+            admin,
+            "SELECT count(*) FROM idempotency_records WHERE scope = 'session-ingest'",
+        )[0][0]
+        == 1
     )
 
 

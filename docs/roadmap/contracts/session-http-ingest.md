@@ -16,10 +16,12 @@
 
 ## Multipart
 
-- Поле `envelope` — JSON (≤ 64 KiB).
+- Поле `envelope` — JSON (≤ 64 KiB), **ровно одно**; повторное поле `envelope` → **422**.
 - Поля `files` — бинарные части **в том же порядке**, что `parts[]` в envelope после сортировки по `part_index` (1..N).
 - Не более **8** файлов; **raw** multipart body ≤ **32 MiB** (с boundary/overhead, считается при чтении stream); per-file/row/XLSX — существующие `import_max_*`.
 - Concurrent same `delivery_key`: `pg_advisory_xact_lock` на `(user, key)`; replay **200** с сохранённым POST body; idempotency scope `session-ingest`.
+- Parse multipart — **async** на event loop; синхронные DB/service фазы (`auth`, `accept_session_ingestion`) — через `run_in_threadpool` (одна `DbSession` на запрос, без параллельного использования).
+- После parse (успех или ошибка валидации полей) все `UploadFile` из form закрываются явно; при ошибке parse parser закрывает временные file handles из `_files_to_close_on_error`.
 
 ## Envelope (`schema_version = "1.0-session"`)
 

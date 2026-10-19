@@ -1,31 +1,60 @@
+from datetime import datetime
 from uuid import UUID
 
 from app.api.deps import DbSession, current_session, require_csrf, settings_of, tenant_of
 from app.clock import now
 from app.errors import AppError
+from app.models.identity import Company, Membership, User
 from app.services import ingestion_http_service
 from app.services.session_ingest_multipart import parse_session_ingest_multipart
 from app.services.wallet_service import open_company
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 router = APIRouter(tags=["ingestions"])
 
 
-def _post_actor(request: Request, session: DbSession, company_id: UUID):
+def _post_actor(request: Request, session: Session, company_id: UUID):
     row, user = current_session(request, session)
     require_csrf(request, row)
     membership = tenant_of(request, session, user)
     _membership, company = open_company(
         session, user, company_id, settings_of(request), "write"
     )
-    return row, user, membership, company
+    return user, membership, company
 
 
 def _get_actor(request: Request, session: DbSession):
     _row, user = current_session(request, session)
     membership = tenant_of(request, session, user)
     return user, membership
+
+
+def _accept_session_ingestion_sync(
+    session: Session,
+    membership: Membership,
+    company: Company,
+    user: User,
+    settings,
+    *,
+    envelope_text: str,
+    file_blobs: list[bytes],
+    idempotency_header: str,
+    at: datetime,
+) -> tuple[int, dict]:
+    return ingestion_http_service.accept_session_ingestion(
+        session,
+        membership,
+        company,
+        user,
+        settings,
+        envelope_text=envelope_text,
+        file_blobs=file_blobs,
+        idempotency_header=idempotency_header,
+        at=at,
+    )
 
 
 @router.post("/companies/{company_id}/ingestions")
@@ -37,7 +66,10 @@ async def post_session_ingestion(
     settings = settings_of(request)
     ingestion_http_service.require_session_ingest_enabled(settings)
     ingestion_http_service.reject_bearer_auth(request)
-    _row, user, membership, company = _post_actor(request, session, company_id)
+
+    user, membership, company = await run_in_threadpool(
+        _post_actor, request, session, company_id
+    )
     key = request.headers.get("idempotency-key") or request.headers.get("Idempotency-Key")
     if not key:
         raise AppError(400, "validation_error", "Нужен заголовок Idempotency-Key")
@@ -46,7 +78,9 @@ async def post_session_ingestion(
     if len(envelope.encode("utf-8")) > settings.session_ingest_max_envelope_bytes:
         raise AppError(413, "payload_too_large", "Envelope больше лимита")
 
-    status, body = ingestion_http_service.accept_session_ingestion(
+    at = now()
+    status, body = await run_in_threadpool(
+        _accept_session_ingestion_sync,
         session,
         membership,
         company,
@@ -55,7 +89,7 @@ async def post_session_ingestion(
         envelope_text=envelope,
         file_blobs=blobs,
         idempotency_header=key,
-        at=now(),
+        at=at,
     )
     return JSONResponse(status_code=status, content=body)
 
