@@ -149,7 +149,7 @@ def test_transaction_create_visible_on_response_start(client, admin, app, fake) 
             "wallet_id": wallet["id"],
             "business_date": "2026-10-11",
             "occurred_at": "2026-10-11T12:00:00+00:00",
-            "direction": "inflow",
+            "direction": "in",
             "amount": "50.00",
             "description": "probe",
             "status": "posted",
@@ -186,10 +186,12 @@ def test_revenue_create_visible_on_response_start(client, admin, app, fake) -> N
         method="POST",
         path=f"/api/v1/companies/{company_id}/revenue",
         json_body={
-            "business_date": "2026-10-12",
+            "recognition_date": "2026-10-12",
             "amount_ex_vat": "100.00",
             "vat_amount": "20.00",
-            "description": "probe",
+            "amount_inc_vat": "120.00",
+            "entry_type": "sale",
+            "vat_basis": "net",
         },
         headers={
             "X-Tenant-Id": client.headers["X-Tenant-Id"],
@@ -250,7 +252,7 @@ def test_balances_import_commit_visible_on_response_start(
 ) -> None:
     assert_finpilot_test_database(migrated_database)
     app.state.settings.balances_import_enabled = True
-    _tenant, company_id = balances_ready(
+    company_id, _wallet_id = balances_ready(
         client, admin, app, fake, tmp_path, "balances-commit-probe@example.com"
     )
     source = _balances_source(client, company_id)
@@ -358,7 +360,7 @@ def test_commit_failure_returns_error_not_success(client, admin, app, fake) -> N
                 "wallet_id": wallet["id"],
                 "business_date": "2026-10-15",
                 "occurred_at": "2026-10-15T12:00:00+00:00",
-                "direction": "inflow",
+                "direction": "in",
                 "amount": "1.00",
                 "description": "fail",
                 "status": "posted",
@@ -377,17 +379,19 @@ def test_commit_failure_returns_error_not_success(client, admin, app, fake) -> N
 
 
 def test_yookassa_webhook_integrity_error_without_duplicate_is_not_ok(
-    client, admin, app, fake, monkeypatch
+    app, monkeypatch
 ) -> None:
-    register_and_verify(client, admin, "wh-fail@example.com")
-    payload = {"event": "payment.succeeded", "object": {"id": "prov-fail-1"}}
     from app.api.v1 import webhooks as wh_mod
+    from fastapi.testclient import TestClient
     from sqlalchemy.exc import IntegrityError
+
+    payload = {"event": "payment.succeeded", "object": {"id": "prov-fail-1"}}
 
     def boom(*_a, **_k):
         raise IntegrityError("insert", {}, Exception("uniq"))
 
     monkeypatch.setattr(wh_mod, "save_webhook", boom)
     monkeypatch.setattr(wh_mod, "_webhook_already_inbox", lambda *a, **k: False)
-    response = client.post("/api/v1/integrations/yookassa/webhook", json=payload)
+    with TestClient(app, raise_server_exceptions=False) as http:
+        response = http.post("/api/v1/integrations/yookassa/webhook", json=payload)
     assert response.status_code >= 500

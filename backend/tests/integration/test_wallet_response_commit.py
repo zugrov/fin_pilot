@@ -221,17 +221,22 @@ def test_wallet_create_commit_failure_not_success_and_rolls_back(
             raise SQLAlchemyError("simulated commit failure")
         return original_commit(self)
 
+    from fastapi.testclient import TestClient
+
     with patch.object(Session, "commit", commit_side_effect):
-        failed = client.post(
-            f"/api/v1/companies/{company_id}/wallets",
-            json={
-                "name": "Fail",
-                "type": "bank",
-                "availability_type": "spendable",
-                "code": code,
-            },
-            headers={"Idempotency-Key": key},
-        )
+        with TestClient(app, raise_server_exceptions=False) as http:
+            http.headers.update(client.headers)
+            http.cookies.update(client.cookies)
+            failed = http.post(
+                f"/api/v1/companies/{company_id}/wallets",
+                json={
+                    "name": "Fail",
+                    "type": "bank",
+                    "availability_type": "spendable",
+                    "code": code,
+                },
+                headers={"Idempotency-Key": key},
+            )
     assert failed.status_code >= 500
     assert _wallet_count_for_company(admin, company_id) == before
     assert not _wallet_visible(admin, company_id, code)
