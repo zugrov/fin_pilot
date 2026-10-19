@@ -60,6 +60,19 @@ def test_parse_v11_snapshot_requires_control_totals() -> None:
         parse_envelope_json(json.dumps(raw))
 
 
+V10_FINGERPRINT_BASELINE = "7ab6b7995ca36536e15db6ea91bb54fa629b052c7bda0b4717df51b094993965"
+
+
+def test_session_v10_fingerprint_baseline_vector() -> None:
+    company_id = uuid.UUID("00000000-0000-4000-8000-000000000001")
+    connection_id = uuid.UUID("00000000-0000-4000-8000-000000000002")
+    digest = "a" * 64
+    manifest = [(1, "cash", "csv", digest)]
+    assert (
+        session_request_fingerprint(company_id, connection_id, manifest) == V10_FINGERPRINT_BASELINE
+    )
+
+
 def test_session_fingerprint_order_independent() -> None:
     company_id = uuid.uuid4()
     connection_id = uuid.uuid4()

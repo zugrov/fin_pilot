@@ -18,7 +18,7 @@ from app.services.control_totals_service import (
     compare_totals,
     validate_claim_fields,
 )
-from app.services.ingestion_delivery_service import PART_FAILED, PART_PREVIEW
+from app.services.ingestion_delivery_service import PART_FAILED
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,10 @@ VALIDATION_NOT_CHECKED = "not_checked"
 VALIDATION_MATCHED = "matched"
 VALIDATION_MISMATCH = "mismatch"
 VALIDATION_NOT_VERIFIABLE = "not_verifiable"
+
+BATCH_COMMITTED_OK = frozenset({"completed"})
+BATCH_PREVIEW = frozenset({"preview_ready"})
+BATCH_COMMITTED_BAD = frozenset({"completed_with_errors"})
 
 
 def delivery_batch_ids(session: Session, delivery_id: uuid.UUID) -> list[uuid.UUID]:
@@ -37,6 +41,25 @@ def delivery_batch_ids(session: Session, delivery_id: uuid.UUID) -> list[uuid.UU
         if part.batch_id is not None:
             ids.append(part.batch_id)
     return ids
+
+
+def _batch_has_blocking_rows(session: Session, batch: ImportBatch) -> bool:
+    from app.models.imports import RawImportRow
+
+    rows = session.scalars(
+        select(RawImportRow).where(RawImportRow.batch_id == batch.id)
+    ).all()
+    return any(
+        row.duplicate_status == "invalid" or row.proposed_action == "review" for row in rows
+    )
+
+
+def _snapshot_batch_state_ok(batch: ImportBatch) -> bool:
+    if batch.status in BATCH_COMMITTED_OK:
+        return not batch.quality_flags
+    if batch.status in BATCH_PREVIEW:
+        return True
+    return False
 
 
 def refresh_delivery_validation(
@@ -77,8 +100,15 @@ def refresh_delivery_validation(
         ).all()
         if any(item.part_status == PART_FAILED for item in parts):
             reasons.append("snapshot_part_failed")
-        if any(item.part_status != PART_PREVIEW or item.batch_id is None for item in parts):
-            reasons.append("snapshot_incomplete")
+        for part in parts:
+            if part.part_status == PART_FAILED or part.batch_id is None:
+                reasons.append("snapshot_incomplete")
+                continue
+            batch = session.get(ImportBatch, part.batch_id)
+            if batch is None or not _snapshot_batch_state_ok(batch):
+                reasons.append("snapshot_incomplete")
+            elif batch.status in BATCH_COMMITTED_BAD or batch.quality_flags:
+                reasons.append("snapshot_partial")
         if claim and delivery.validation_status != VALIDATION_MATCHED:
             reasons.append("snapshot_totals_not_matched")
     delivery.validation_block_reasons = reasons
@@ -120,6 +150,39 @@ def resolve_commit_delivery_context(
     return session.get(IngestionDelivery, batch.delivery_id)
 
 
+def _assert_snapshot_commit(
+    session: Session,
+    delivery: IngestionDelivery,
+    committing: ImportBatch,
+) -> None:
+    parts = session.scalars(
+        select(IngestionDeliveryPart).where(
+            IngestionDeliveryPart.delivery_id == delivery.id
+        )
+    ).all()
+    if any(item.part_status == PART_FAILED for item in parts):
+        raise AppError(409, "delivery_incomplete", "Snapshot: есть failed parts")
+    for part in parts:
+        if part.batch_id is None:
+            raise AppError(409, "delivery_incomplete", "Snapshot: не все parts готовы")
+        linked = session.get(ImportBatch, part.batch_id)
+        if linked is None:
+            raise AppError(409, "delivery_incomplete", "Snapshot: batch не найден")
+        if linked.id == committing.id:
+            if linked.status not in BATCH_PREVIEW:
+                raise AppError(409, "delivery_incomplete", "Snapshot: batch не в preview_ready")
+            if _batch_has_blocking_rows(session, linked):
+                raise AppError(409, "delivery_incomplete", "Snapshot: invalid/review rows")
+            continue
+        if linked.status in BATCH_COMMITTED_OK:
+            if linked.quality_flags:
+                raise AppError(409, "delivery_incomplete", "Snapshot: partial batch")
+            continue
+        if linked.status in BATCH_PREVIEW:
+            continue
+        raise AppError(409, "delivery_incomplete", "Snapshot: не все parts готовы")
+
+
 def assert_commit_allowed(
     session: Session,
     delivery: IngestionDelivery | None,
@@ -131,16 +194,16 @@ def assert_commit_allowed(
     if delivery.id != batch.delivery_id and batch.delivery_id is not None:
         assert_batch_linked_to_delivery(session, delivery, batch)
     refresh_delivery_validation(session, delivery, connection, batch.created_at)
-    if delivery.control_totals_claim:
-        parts = session.scalars(
-            select(IngestionDeliveryPart).where(
-                IngestionDeliveryPart.delivery_id == delivery.id
-            )
-        ).all()
-        if any(item.part_status == PART_FAILED for item in parts):
-            raise AppError(409, "delivery_incomplete", "Delivery: есть failed parts")
-        if any(item.batch_id is None or item.part_status != PART_PREVIEW for item in parts):
-            raise AppError(409, "delivery_incomplete", "Delivery: не все parts готовы")
+    parts = session.scalars(
+        select(IngestionDeliveryPart).where(
+            IngestionDeliveryPart.delivery_id == delivery.id
+        )
+    ).all()
+    if any(item.part_status == PART_FAILED for item in parts):
+        raise AppError(409, "delivery_incomplete", "Delivery: есть failed parts")
+    if delivery.control_totals_claim and delivery.ingest_mode != "snapshot":
+        if any(item.batch_id is None for item in parts):
+            raise AppError(409, "delivery_incomplete", "Delivery: не все parts имеют batch")
     if delivery.validation_status == VALIDATION_MISMATCH:
         raise AppError(409, "control_totals_mismatch", "Control totals не совпадают")
     if delivery.validation_status == VALIDATION_NOT_VERIFIABLE and delivery.control_totals_claim:
@@ -150,37 +213,11 @@ def assert_commit_allowed(
             "Невозможно проверить заявленные control totals",
         )
     if delivery.ingest_mode == "snapshot":
-        parts = session.scalars(
-            select(IngestionDeliveryPart).where(
-                IngestionDeliveryPart.delivery_id == delivery.id
-            )
-        ).all()
-        if any(item.part_status == PART_FAILED for item in parts):
-            raise AppError(409, "delivery_incomplete", "Snapshot: есть failed parts")
-        for part in parts:
-            if part.batch_id is None or part.part_status != PART_PREVIEW:
-                raise AppError(409, "delivery_incomplete", "Snapshot: не все parts готовы")
-            linked = session.get(ImportBatch, part.batch_id)
-            if linked is None or linked.status != "preview_ready":
-                raise AppError(409, "delivery_incomplete", "Snapshot: batch не в preview_ready")
-            rows_bad = any(
-                row.duplicate_status == "invalid" or row.proposed_action == "review"
-                for row in _batch_rows(session, linked)
-            )
-            if rows_bad:
-                raise AppError(409, "delivery_incomplete", "Snapshot: invalid/review rows")
+        _assert_snapshot_commit(session, delivery, batch)
         if delivery.control_totals_claim and delivery.validation_status != VALIDATION_MATCHED:
             raise AppError(409, "delivery_incomplete", "Snapshot: totals не matched")
-    if delivery.control_totals_claim and delivery.validation_status == VALIDATION_MISMATCH:
+    elif delivery.control_totals_claim and delivery.validation_status == VALIDATION_MISMATCH:
         raise AppError(409, "control_totals_mismatch", "Control totals не совпадают")
-
-
-def _batch_rows(session: Session, batch: ImportBatch):
-    from app.models.imports import RawImportRow
-
-    return session.scalars(
-        select(RawImportRow).where(RawImportRow.batch_id == batch.id)
-    ).all()
 
 
 def delivery_financial_summary(session: Session, delivery_id: uuid.UUID) -> dict[str, Any]:
@@ -191,7 +228,7 @@ def delivery_financial_summary(session: Session, delivery_id: uuid.UUID) -> dict
     for part in parts:
         if part.batch_id is None:
             continue
-        batch = session.get(ImportBatch, part.batch_id)
-        if batch is not None:
-            batches[str(part.batch_id)] = batch.status
+        linked = session.get(ImportBatch, part.batch_id)
+        if linked is not None:
+            batches[str(part.batch_id)] = linked.status
     return {"batches": batches}

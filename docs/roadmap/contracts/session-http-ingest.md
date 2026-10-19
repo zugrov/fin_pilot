@@ -59,6 +59,10 @@ Fingerprint version `2` включает canonical JSON claims + manifest (1.0 f
 
 Commit: `POST /api/v1/imports/{batch_id}/commit?delivery_id=` — опциональный контекст delivery; mismatch → **409** `control_totals_mismatch`.
 
+Snapshot: каждый batch проводится отдельно; уже `completed` siblings не блокируют commit следующего batch; все parts manifest должны быть готовы (без failed); totals matched.
+
+Reconcile: нужны `completeness_claim`, matched totals, все batches `completed` без flags, даты данных внутри `period_*`, OWNER+CSRF+Idempotency-Key; повторный import инвалидирует reconciled; stale delivery → **409** `coverage_stale`.
+
 ## Semantics
 
 - Bytes → `receive_import` (один pipeline); **без** auto `commit_import`.

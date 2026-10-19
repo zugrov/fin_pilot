@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -12,15 +13,22 @@ from sqlalchemy.orm import Session
 
 MONEY_FIELDS = frozenset({"cash_in", "cash_out", "revenue_net"})
 SUPPORTED_CURRENCIES = frozenset({"RUB"})
+CASH_REQUIRED_CLAIM = frozenset({"record_count", "currency", "cash_in", "cash_out"})
+REVENUE_REQUIRED_CLAIM = frozenset({"record_count", "currency", "revenue_net"})
+COUNT_ONLY_REQUIRED = frozenset({"record_count"})
 
 
-def _money(value: str) -> Decimal | None:
-    text = (value or "").strip()
+def _parse_decimal(value: Any) -> Decimal | None:
+    if value is None:
+        return None
+    text = str(value).strip()
     if not text:
         return None
     try:
         amount = Decimal(text)
     except InvalidOperation:
+        return None
+    if not amount.is_finite():
         return None
     exponent = amount.as_tuple().exponent
     if isinstance(exponent, int) and exponent < -2:
@@ -28,8 +36,20 @@ def _money(value: str) -> Decimal | None:
     return amount.quantize(Decimal("0.01"))
 
 
+def _money_string(amount: Decimal) -> str:
+    return format(amount.quantize(Decimal("0.01")), "f")
+
+
 def _row_record_count(rows: list[RawImportRow]) -> int:
     return len(rows)
+
+
+def _cash_row_needs_amount(row: RawImportRow) -> bool:
+    if row.operation == "unpost":
+        return False
+    if row.duplicate_status == "invalid":
+        return False
+    return True
 
 
 def _cash_totals(rows: list[RawImportRow]) -> tuple[dict[str, Any] | None, bool]:
@@ -40,22 +60,30 @@ def _cash_totals(rows: list[RawImportRow]) -> tuple[dict[str, Any] | None, bool]
     for row in rows:
         if row.operation == "unpost":
             continue
-        data = row.normalized_payload
-        if not data or row.validation_errors:
-            if _needs_cash_amount(row):
+        if row.duplicate_status == "invalid" or row.validation_errors:
+            if row.operation != "unpost":
                 verifiable = False
+            continue
+        data = row.normalized_payload
+        if not data:
+            verifiable = False
             continue
         values = data.get("values") or {}
         direction = values.get("direction")
         amount_raw = values.get("amount")
-        if direction not in {"in", "out"} or amount_raw is None:
+        row_currency = (values.get("currency") or "").strip()
+        if not row_currency:
             verifiable = False
             continue
-        amount = _money(str(amount_raw))
+        if row_currency not in SUPPORTED_CURRENCIES:
+            return None, False
+        if direction not in {"in", "out"} or amount_raw is None or str(amount_raw).strip() == "":
+            verifiable = False
+            continue
+        amount = _parse_decimal(amount_raw)
         if amount is None:
             verifiable = False
             continue
-        row_currency = "RUB"
         if currency is None:
             currency = row_currency
         elif currency != row_currency:
@@ -68,14 +96,10 @@ def _cash_totals(rows: list[RawImportRow]) -> tuple[dict[str, Any] | None, bool]
         return None, False
     return {
         "record_count": _row_record_count(rows),
-        "cash_in": format(cash_in, "f"),
-        "cash_out": format(cash_out, "f"),
-        "currency": currency or "RUB",
+        "cash_in": _money_string(cash_in),
+        "cash_out": _money_string(cash_out),
+        "currency": currency,
     }, True
-
-
-def _needs_cash_amount(row: RawImportRow) -> bool:
-    return row.operation != "unpost" and not row.validation_errors
 
 
 def _revenue_totals(rows: list[RawImportRow]) -> tuple[dict[str, Any] | None, bool]:
@@ -85,21 +109,26 @@ def _revenue_totals(rows: list[RawImportRow]) -> tuple[dict[str, Any] | None, bo
     for row in rows:
         if row.operation == "unpost":
             continue
-        data = row.normalized_payload
-        if not data or row.validation_errors:
+        if row.duplicate_status == "invalid" or row.validation_errors:
             if row.operation != "unpost":
                 verifiable = False
             continue
-        values = (data.get("values") or {})
+        data = row.normalized_payload
+        if not data:
+            verifiable = False
+            continue
+        values = data.get("values") or {}
         amount_raw = values.get("amount_ex_vat")
+        row_currency = (values.get("currency") or "RUB").strip()
+        if row_currency not in SUPPORTED_CURRENCIES:
+            return None, False
         if amount_raw is None or str(amount_raw).strip() == "":
             verifiable = False
             continue
-        amount = _money(str(amount_raw))
+        amount = _parse_decimal(amount_raw)
         if amount is None:
             verifiable = False
             continue
-        row_currency = "RUB"
         if currency is None:
             currency = row_currency
         elif currency != row_currency:
@@ -109,8 +138,8 @@ def _revenue_totals(rows: list[RawImportRow]) -> tuple[dict[str, Any] | None, bo
         return None, False
     return {
         "record_count": _row_record_count(rows),
-        "revenue_net": format(revenue_net, "f"),
-        "currency": currency or "RUB",
+        "revenue_net": _money_string(revenue_net),
+        "currency": currency,
     }, True
 
 
@@ -147,6 +176,7 @@ def aggregate_delivery_totals(
     for batch_id in unique_ids:
         batch = session.get(ImportBatch, batch_id)
         if batch is None:
+            verifiable = False
             continue
         totals, ok = calculate_batch_totals(session, batch, connection)
         if not ok:
@@ -167,39 +197,62 @@ def aggregate_delivery_totals(
         for item in per_batch:
             if not item:
                 continue
-            currency = item.get("currency", "RUB")
-            cash_in += Decimal(item["cash_in"])
-            cash_out += Decimal(item["cash_out"])
-        merged["cash_in"] = format(cash_in, "f")
-        merged["cash_out"] = format(cash_out, "f")
-        merged["currency"] = currency or "RUB"
+            if currency is None:
+                currency = item.get("currency")
+            cash_in += _parse_decimal(item.get("cash_in")) or Decimal("0.00")
+            cash_out += _parse_decimal(item.get("cash_out")) or Decimal("0.00")
+        merged["cash_in"] = _money_string(cash_in)
+        merged["cash_out"] = _money_string(cash_out)
+        merged["currency"] = currency
     elif dataset == "revenue":
         revenue_net = Decimal("0.00")
         currency = None
         for item in per_batch:
             if not item:
                 continue
-            currency = item.get("currency", "RUB")
-            revenue_net += Decimal(item["revenue_net"])
-        merged["revenue_net"] = format(revenue_net, "f")
-        merged["currency"] = currency or "RUB"
+            if currency is None:
+                currency = item.get("currency")
+            revenue_net += _parse_decimal(item.get("revenue_net")) or Decimal("0.00")
+        merged["revenue_net"] = _money_string(revenue_net)
+        merged["currency"] = currency
     return merged, True
 
 
 def validate_claim_fields(claim: dict[str, Any], dataset: str) -> None:
     from app.errors import AppError
 
-    extra = set(claim) - MONEY_FIELDS - {"record_count", "currency"}
+    allowed = COUNT_ONLY_REQUIRED | MONEY_FIELDS | {"currency"}
+    extra = set(claim) - allowed
     if extra:
         raise AppError(
             422,
             "validation_error",
             f"Неподдерживаемые поля control_totals: {', '.join(sorted(extra))}",
         )
-    currency = claim.get("currency")
-    if currency is not None and currency not in SUPPORTED_CURRENCIES:
-        raise AppError(422, "validation_error", "Неподдерживаемая валюта control_totals")
-    if dataset in {"plan", "budget", "balances"}:
+    if dataset == "cash":
+        missing = CASH_REQUIRED_CLAIM - set(claim)
+        if missing:
+            raise AppError(
+                422,
+                "validation_error",
+                f"Не хватает полей control_totals: {', '.join(sorted(missing))}",
+            )
+    elif dataset == "revenue":
+        missing = REVENUE_REQUIRED_CLAIM - set(claim)
+        if missing:
+            raise AppError(
+                422,
+                "validation_error",
+                f"Не хватает полей control_totals: {', '.join(sorted(missing))}",
+            )
+    elif dataset in {"plan", "budget", "balances"}:
+        missing = COUNT_ONLY_REQUIRED - set(claim)
+        if missing:
+            raise AppError(
+                422,
+                "validation_error",
+                "Не хватает record_count в control_totals",
+            )
         money_in_claim = MONEY_FIELDS & set(claim)
         if money_in_claim:
             raise AppError(
@@ -207,6 +260,17 @@ def validate_claim_fields(claim: dict[str, Any], dataset: str) -> None:
                 "validation_error",
                 "Денежные control_totals недоступны для этого dataset",
             )
+    currency = claim.get("currency")
+    if currency is not None and currency not in SUPPORTED_CURRENCIES:
+        raise AppError(422, "validation_error", "Неподдерживаемая валюта control_totals")
+
+
+def _decimal_field_equal(claim_val: Any, calculated_val: Any) -> bool:
+    left = _parse_decimal(claim_val)
+    right = _parse_decimal(calculated_val)
+    if left is None or right is None:
+        return False
+    return left == right
 
 
 def compare_totals(claim: dict[str, Any], calculated: dict[str, Any], dataset: str) -> bool:
@@ -214,13 +278,51 @@ def compare_totals(claim: dict[str, Any], calculated: dict[str, Any], dataset: s
         return False
     if dataset == "cash":
         return (
-            claim.get("cash_in") == calculated.get("cash_in")
-            and claim.get("cash_out") == calculated.get("cash_out")
-            and claim.get("currency", "RUB") == calculated.get("currency", "RUB")
+            _decimal_field_equal(claim.get("cash_in"), calculated.get("cash_in"))
+            and _decimal_field_equal(claim.get("cash_out"), calculated.get("cash_out"))
+            and claim.get("currency") == calculated.get("currency")
         )
     if dataset == "revenue":
         return (
-            claim.get("revenue_net") == calculated.get("revenue_net")
-            and claim.get("currency", "RUB") == calculated.get("currency", "RUB")
+            _decimal_field_equal(claim.get("revenue_net"), calculated.get("revenue_net"))
+            and claim.get("currency") == calculated.get("currency")
         )
+    return True
+
+
+def row_business_date(row: RawImportRow, dataset: str) -> date | None:
+    if row.operation == "unpost":
+        return None
+    data = row.normalized_payload or {}
+    values = data.get("values") or {}
+    key = "recognition_date" if dataset == "revenue" else "business_date"
+    raw = values.get(key)
+    if not raw or not str(raw).strip():
+        return None
+    try:
+        return date.fromisoformat(str(raw).strip())
+    except ValueError:
+        return None
+
+
+def batches_rows_within_period(
+    session: Session,
+    batch_ids: list[uuid.UUID],
+    dataset: str,
+    period_from: date,
+    period_to: date,
+) -> bool:
+    unique_ids = list(dict.fromkeys(batch_ids))
+    for batch_id in unique_ids:
+        rows = session.scalars(
+            select(RawImportRow).where(RawImportRow.batch_id == batch_id)
+        ).all()
+        for row in rows:
+            moment = row_business_date(row, dataset)
+            if moment is None:
+                if row.operation == "unpost":
+                    continue
+                return False
+            if moment < period_from or moment > period_to:
+                return False
     return True
