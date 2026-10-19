@@ -24,7 +24,7 @@ from tests.integration.conftest import BACKEND, login, open_workspace, pay, regi
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 RECEIVED = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
-REVISION = "20261019_0012"
+REVISION = "20261019_0013"
 REV_0011 = "20261018_0011"
 PREV = "20261017_0010"
 _PG_PORT = __import__("os").environ.get("TEST_PG_PORT", "5432")
@@ -317,9 +317,7 @@ def _run_ui_concurrent_same_file_two_sessions(
             session.close()
 
     with patch.object(ImportBatch, "__init__", batch_init_with_barrier):
-        threads = [
-            threading.Thread(target=worker, args=(f"race-{index}",)) for index in range(2)
-        ]
+        threads = [threading.Thread(target=worker, args=(f"race-{index}",)) for index in range(2)]
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -529,9 +527,7 @@ def _alembic_downgrade(target: str) -> None:
 def _constraint_exists(connection, name: str) -> bool:
     return (
         connection.execute(
-            text(
-                "SELECT 1 FROM pg_constraint WHERE conname = :name LIMIT 1"
-            ),
+            text("SELECT 1 FROM pg_constraint WHERE conname = :name LIMIT 1"),
             {"name": name},
         ).first()
         is not None
@@ -759,8 +755,7 @@ def test_scope_batch_delivery_rejects_different_connection(migrated_database) ->
         fixtures = _seed_scope_fixtures(connection)
         _expect_fk_violation(
             connection,
-            "UPDATE import_batches SET delivery_id = :delivery "
-            "WHERE id = :batch",
+            "UPDATE import_batches SET delivery_id = :delivery WHERE id = :batch",
             {"delivery": fixtures.delivery_a2, "batch": fixtures.batch_a1},
             "import_batches_delivery_scope_fk",
         )
@@ -883,9 +878,7 @@ def test_scope_allows_shared_batch_and_legacy_null_delivery(migrated_database) -
             part_index=1,
         )
         connection.execute(
-            text(
-                "UPDATE import_batches SET delivery_id = :delivery WHERE id = :batch"
-            ),
+            text("UPDATE import_batches SET delivery_id = :delivery WHERE id = :batch"),
             {"delivery": fixtures.delivery_a1, "batch": fixtures.batch_a1},
         )
         legacy_batch = uuid.uuid4()

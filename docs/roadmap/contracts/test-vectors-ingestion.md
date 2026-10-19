@@ -17,7 +17,7 @@
 | 5 | Тот же package_id, другое содержимое | Один `client_package_id`, разный `content_sha256` | `content_conflict` | финансы без commit | ✓ | 409 integration |
 | 6 | Исправление документа | delta + тот же `external_id`, новый payload_hash | новый batch | `changed` → revise_* | ✓ | revise_import tests |
 | 7 | Отмена проведения | void API после commit | delivery `financial_status=partial` if mixed | `void_transaction`; import unpost TBD FA-R02.2 | частично | test_cash void |
-| 8 | Старая ревизия после новой | commit старого payload после нового | batch preview | reject or row superseded (FA-R02.2) | ✓ records | новый integration |
+| 8 | Старая ревизия после новой | commit старого payload после нового | batch preview | 409 `stale_revision` на commit (FA-R02.2) | ✓ records | test_import_revision_unpost |
 | 9 | Частичный сбой multi-chunk | chunk 1 OK, chunk 2 422 | `partially_received` | только chunk1 batch commit | ✓ chunk_count=2 | proposed API |
 | 10 | Незавершённый snapshot | mode=snapshot, chunk 1/3 | `partially_received`, **не** `reconciled` | commit gated policy TBD | ✓ | FA-R02.4 |
 | 11 | Конфlict control totals | envelope totals ≠ parsed rows | `validation_blocked`, batch preview | commit blocked | ✓ control_totals | FA-R02.4 |

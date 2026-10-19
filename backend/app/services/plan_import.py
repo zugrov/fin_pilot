@@ -4,8 +4,10 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from app.domain.imports.dedup import classify_duplicate
+from app.domain.imports.import_meta import parse_row_meta
 from app.domain.imports.plan_reader import PlanLine
+from app.domain.imports.prepare_common import classify_import_row
+from app.domain.imports.source_identity_slot import apply_identity_watermark, load_identity_slot
 from app.domain.money import money
 from app.errors import AppError
 from app.models.cash import CashCategory, Wallet
@@ -47,18 +49,11 @@ def prepare_plan(
             errors.append("unknown_wallet")
         else:
             wallet_id = str(wallet.id)
+    meta = parse_row_meta(line.raw, external_id=line.external_id)
     digest = "" if errors or line.amount is None else _digest(line)
     identity = None
-    if line.external_id and not errors:
-        identity = session.scalar(
-            select(SourceIdentity).where(
-                SourceIdentity.tenant_id == company.tenant_id,
-                SourceIdentity.company_id == company.id,
-                SourceIdentity.namespace == connection.namespace,
-                SourceIdentity.external_id == line.external_id,
-                SourceIdentity.entity_type == "planned_event",
-            )
-        )
+    if meta.external_id and not errors:
+        identity = load_identity_slot(session, company, connection.namespace, meta.external_id)
     if identity is not None and identity.planned_event_id is not None and line.amount is not None:
         event = session.get(PlannedCashEvent, identity.planned_event_id)
         if event is not None:
@@ -68,26 +63,36 @@ def prepare_plan(
             if matched > 0 and line.direction != event.direction:
                 errors.append("direction_locked")
             digest = "" if errors else _digest(line)
-    status, action = classify_duplicate(
-        has_errors=bool(errors),
-        identity_hash=None if identity is None else identity.payload_hash,
+    classified = classify_import_row(
+        errors=errors,
+        meta=meta,
+        identity=identity,
+        entity_type="planned_event",
         payload_hash=digest,
         other_ids=(),
         authoritative=connection.authoritative,
     )
     match_id = None
-    if identity is not None and status == "changed" and identity.planned_event_id is not None:
+    if (
+        identity is not None
+        and classified["duplicate_status"] == "changed"
+        and identity.planned_event_id is not None
+    ):
         match_id = str(identity.planned_event_id)
     return {
-        "errors": errors,
-        "duplicate_status": status,
-        "proposed_action": action,
-        "payload_hash": digest or None,
+        "errors": classified["errors"],
+        "duplicate_status": classified["duplicate_status"],
+        "proposed_action": classified["proposed_action"],
+        "payload_hash": classified["payload_hash"],
+        "source_revision": classified["source_revision"],
+        "operation": classified["operation"],
+        "external_id": classified["external_id"],
         "normalized": {
             "values": line.canonical(),
             "category_id": category_id,
             "wallet_id": wallet_id,
             "match_id": match_id,
+            "review_reason": classified["review_reason"],
         },
     }
 
@@ -169,16 +174,14 @@ def revise_imported(
             event.status = "partially_paid"
         else:
             event.status = "paid"
-    identity = session.scalar(
-        select(SourceIdentity).where(
-            SourceIdentity.tenant_id == company.tenant_id,
-            SourceIdentity.connection_id == connection.id,
-            SourceIdentity.external_id == values["external_id"],
-            SourceIdentity.entity_type == "planned_event",
+    identity = load_identity_slot(session, company, connection.namespace, row.external_id or "")
+    if identity is not None:
+        apply_identity_watermark(
+            identity,
+            source_revision=row.source_revision,
+            payload_hash=row.payload_hash,
+            advance_only=False,
         )
-    )
-    if identity is not None and row.payload_hash:
-        identity.payload_hash = row.payload_hash
     session.flush()
 
 
@@ -197,6 +200,7 @@ def _identity(session, company, connection, row: RawImportRow, event_id: uuid.UU
             revenue_entry_id=None,
             planned_event_id=event_id,
             payload_hash=row.payload_hash,
+            last_source_revision=row.source_revision,
             created_at=at,
         )
     )

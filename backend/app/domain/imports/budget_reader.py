@@ -5,6 +5,7 @@ from io import StringIO
 
 from app.domain.budget import metrics_for
 from app.domain.imports.contracts import ImportFormatError
+from app.domain.imports.import_meta import parse_row_meta, validate_import_header
 from app.domain.imports.normalize import decode_text
 from app.domain.money import money
 
@@ -56,8 +57,7 @@ def read_budget_csv(content: bytes, *, encoding: str, max_rows: int) -> list[Bud
         header = next(reader)
     except StopIteration as exc:
         raise ImportFormatError("unsupported_format", "Пустой файл") from exc
-    if tuple(item.strip() for item in header) != BUDGET_COLUMNS:
-        raise ImportFormatError("unsupported_format", "Неизвестные колонки CSV")
+    columns = validate_import_header(tuple(item.strip() for item in header), BUDGET_COLUMNS)
     lines: list[BudgetLine] = []
     seen: set[str] = set()
     for index, row in enumerate(reader, start=2):
@@ -65,8 +65,8 @@ def read_budget_csv(content: bytes, *, encoding: str, max_rows: int) -> list[Bud
             continue
         if len(lines) >= max_rows:
             raise ImportFormatError("unsupported_format", "Слишком много строк")
-        padded = list(row) + [""] * (len(BUDGET_COLUMNS) - len(row))
-        raw = {column: padded[pos] for pos, column in enumerate(BUDGET_COLUMNS)}
+        padded = list(row) + [""] * (len(columns) - len(row))
+        raw = {column: padded[pos] for pos, column in enumerate(columns)}
         line = _normalize(raw, index)
         if line.external_id and line.external_id in seen:
             line = BudgetLine(
@@ -91,6 +91,23 @@ def read_budget_csv(content: bytes, *, encoding: str, max_rows: int) -> list[Bud
 
 def _normalize(raw: dict[str, str], row_number: int) -> BudgetLine:
     errors: list[str] = []
+    operation_hint = raw.get("operation", "").strip().lower()
+    if operation_hint == "unpost":
+        meta = parse_row_meta(raw)
+        return BudgetLine(
+            row_number,
+            None,
+            None,
+            "",
+            "",
+            "",
+            "",
+            None,
+            "",
+            meta.external_id,
+            tuple(dict.fromkeys([*errors, *meta.errors])),
+            dict(raw),
+        )
     year = _year(raw.get("year", ""), errors)
     month = _month(raw.get("month", ""), errors)
     basis = raw.get("basis", "").strip()
@@ -110,7 +127,12 @@ def _normalize(raw: dict[str, str], row_number: int) -> BudgetLine:
     external_id = ""
     if year is not None and month is not None and basis and metric:
         external_id = f"{year}:{month}:{basis}:{metric}:{category}:{direction}"
-    values = {column: raw.get(column, "") for column in BUDGET_COLUMNS}
+    meta = parse_row_meta(raw, external_id=external_id or None)
+    errors.extend(meta.errors)
+    if meta.external_id:
+        external_id = meta.external_id
+    if not external_id:
+        errors.append("missing_external_id")
     return BudgetLine(
         row_number,
         year,
@@ -123,7 +145,7 @@ def _normalize(raw: dict[str, str], row_number: int) -> BudgetLine:
         method,
         external_id,
         tuple(errors),
-        values,
+        dict(raw),
     )
 
 

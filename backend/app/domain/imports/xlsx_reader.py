@@ -4,6 +4,7 @@ from io import BytesIO
 from openpyxl import load_workbook
 
 from app.domain.imports.contracts import CASH_COLUMNS, ImportFormatError, ImportLine
+from app.domain.imports.import_meta import validate_import_header
 from app.domain.imports.normalize import cell_text, normalize_row
 
 
@@ -25,15 +26,14 @@ def read_xlsx(content: bytes, *, max_rows: int, max_uncompressed: int) -> list[I
         header = [cell_text(cell.value)[0] for cell in header_row]
         while header and header[-1] == "":
             header.pop()
-        if tuple(header) != CASH_COLUMNS:
-            raise ImportFormatError("unsupported_format", "Неизвестные колонки XLSX")
+        columns = validate_import_header(tuple(header), CASH_COLUMNS)
         lines: list[ImportLine] = []
         for index, cells in enumerate(iterator, start=2):
             if all(cell.value is None or str(cell.value).strip() == "" for cell in cells):
                 continue
             if len(lines) >= max_rows:
                 raise ImportFormatError("unsupported_format", "Слишком много строк")
-            raw, extra = _cells(cells)
+            raw, extra = _cells(cells, columns)
             line = normalize_row(raw, index, date_style="YYYY-MM-DD")
             if extra:
                 line = ImportLine(
@@ -59,10 +59,15 @@ def read_xlsx(content: bytes, *, max_rows: int, max_uncompressed: int) -> list[I
         workbook.close()
 
 
-def _cells(cells) -> tuple[dict[str, str], tuple[str, ...]]:
+def _cells(cells, columns: tuple[str, ...]) -> tuple[dict[str, str], tuple[str, ...]]:
     raw: dict[str, str] = {}
     errors: list[str] = []
-    for pos, column in enumerate(CASH_COLUMNS):
+    for pos, column in enumerate(columns):
+        if column not in CASH_COLUMNS and pos >= len(CASH_COLUMNS):
+            cell = cells[pos] if pos < len(cells) else None
+            text = "" if cell is None else cell_text(cell.value)[0]
+            raw[column] = text
+            continue
         cell = cells[pos] if pos < len(cells) else None
         if cell is None:
             raw[column] = ""

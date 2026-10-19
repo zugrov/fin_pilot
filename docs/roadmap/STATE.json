@@ -8,7 +8,7 @@
   "baseline": {
     "application_sha_last_reported": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
     "checkpoint_docs_sha": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
-    "migration_last_reported": "20261019_0012",
+    "migration_last_reported": "20261019_0013",
     "synthetic_company_only": true,
     "restore_current_cluster_verified_by_report": true,
     "offsite_copy_verified_by_report": true,
@@ -18,8 +18,8 @@
   },
   "current_stage": "FA-R02",
   "current_task": "FA-R02.2",
-  "status": "ready",
-  "allowed_next_action": "FA-R02.2: разрешена только read-only подготовка малого пакета; реализация и DDL без отдельного разрешения не начинать.",
+  "status": "in_progress",
+  "allowed_next_action": "FA-R02.2: локальная верификация и commit; accepted только после green CI/E2E на product SHA.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -266,8 +266,12 @@
         {
           "id": "FA-R02.2",
           "title": "Идентичность и изменения",
-          "status": "planned",
-          "evidence": []
+          "status": "in_progress",
+          "evidence": [
+            "backend/alembic/versions/20261019_0013_source_revision_unpost.py",
+            "backend/app/domain/imports/revision.py",
+            "backend/tests/integration/test_import_revision_unpost.py"
+          ]
         },
         {
           "id": "FA-R02.3",

@@ -5,7 +5,9 @@ from datetime import datetime
 from decimal import Decimal
 
 from app.domain.imports.budget_reader import BudgetLine
-from app.domain.imports.dedup import classify_duplicate
+from app.domain.imports.import_meta import parse_row_meta
+from app.domain.imports.prepare_common import classify_import_row
+from app.domain.imports.source_identity_slot import apply_identity_watermark, load_identity_slot
 from app.domain.money import money
 from app.errors import AppError
 from app.models.cash import CashCategory
@@ -48,38 +50,41 @@ def prepare_budget(
             errors.append("unknown_direction")
         else:
             direction_id = str(direction.id)
+    meta = parse_row_meta(line.raw, external_id=line.external_id)
     digest = "" if errors or line.amount is None else _digest(line)
     identity = None
-    if line.external_id and not errors:
-        identity = session.scalar(
-            select(SourceIdentity).where(
-                SourceIdentity.tenant_id == company.tenant_id,
-                SourceIdentity.company_id == company.id,
-                SourceIdentity.namespace == connection.namespace,
-                SourceIdentity.external_id == line.external_id,
-                SourceIdentity.entity_type == "budget_line",
-            )
-        )
-    status, action = classify_duplicate(
-        has_errors=bool(errors),
-        identity_hash=None if identity is None else identity.payload_hash,
+    if meta.external_id and not errors:
+        identity = load_identity_slot(session, company, connection.namespace, meta.external_id)
+    classified = classify_import_row(
+        errors=errors,
+        meta=meta,
+        identity=identity,
+        entity_type="budget_line",
         payload_hash=digest,
         other_ids=(),
         authoritative=connection.authoritative,
     )
     match_id = None
-    if identity is not None and status == "changed" and identity.budget_line_id is not None:
+    if (
+        identity is not None
+        and classified["duplicate_status"] == "changed"
+        and identity.budget_line_id is not None
+    ):
         match_id = str(identity.budget_line_id)
     return {
-        "errors": errors,
-        "duplicate_status": status,
-        "proposed_action": action,
-        "payload_hash": digest or None,
+        "errors": classified["errors"],
+        "duplicate_status": classified["duplicate_status"],
+        "proposed_action": classified["proposed_action"],
+        "payload_hash": classified["payload_hash"],
+        "source_revision": classified["source_revision"],
+        "operation": classified["operation"],
+        "external_id": classified["external_id"],
         "normalized": {
             "values": line.canonical(),
             "category_id": category_id,
             "direction_id": direction_id,
             "match_id": match_id,
+            "review_reason": classified["review_reason"],
         },
     }
 
@@ -149,17 +154,15 @@ def revise_imported(
             direction_id=_uuid(data.get("direction_id")),
         )
         target_id = created.id
-    identity = session.scalar(
-        select(SourceIdentity).where(
-            SourceIdentity.tenant_id == company.tenant_id,
-            SourceIdentity.connection_id == connection.id,
-            SourceIdentity.external_id == row.external_id,
-            SourceIdentity.entity_type == "budget_line",
-        )
-    )
-    if identity is not None and row.payload_hash:
-        identity.payload_hash = row.payload_hash
+    identity = load_identity_slot(session, company, connection.namespace, row.external_id or "")
+    if identity is not None:
         identity.budget_line_id = target_id
+        apply_identity_watermark(
+            identity,
+            source_revision=row.source_revision,
+            payload_hash=row.payload_hash,
+            advance_only=False,
+        )
     session.flush()
 
 
@@ -179,6 +182,7 @@ def _identity(session, company, connection, row: RawImportRow, line_id: uuid.UUI
             planned_event_id=None,
             budget_line_id=line_id,
             payload_hash=row.payload_hash,
+            last_source_revision=row.source_revision,
             created_at=at,
         )
     )

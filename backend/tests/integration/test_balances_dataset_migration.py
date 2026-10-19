@@ -12,7 +12,7 @@ from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import BACKEND
 from tests.integration.test_balances_import import _balances_source, _ready
 
-HEAD = "20261019_0012"
+HEAD = "20261019_0013"
 REVISION = "20261017_0010"
 PREV = "20261014_0009"
 
@@ -30,9 +30,7 @@ def _alembic_config() -> Config:
 def _current_revision(engine) -> str | None:
     with engine.connect() as connection:
         try:
-            return connection.execute(
-                text("SELECT version_num FROM alembic_version")
-            ).scalar_one()
+            return connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         except Exception:
             return None
 
@@ -44,10 +42,7 @@ def _constraint_allows(engine, dataset: str) -> bool:
     user_id = uuid.uuid4()
     with engine.begin() as connection:
         connection.execute(
-            text(
-                "INSERT INTO tenants (id, name, created_at) "
-                "VALUES (:id, 't', now())"
-            ),
+            text("INSERT INTO tenants (id, name, created_at) VALUES (:id, 't', now())"),
             {"id": tenant_id},
         )
         email = f"m-{uuid.uuid4().hex}@example.com"

@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from io import StringIO
 
 from app.domain.imports.contracts import ImportFormatError
+from app.domain.imports.import_meta import parse_row_meta, validate_import_header
 from app.domain.imports.normalize import decode_text
 from app.domain.money import money
 
@@ -60,8 +61,7 @@ def read_revenue_csv(
         header = next(reader)
     except StopIteration as exc:
         raise ImportFormatError("unsupported_format", "Пустой файл") from exc
-    if tuple(item.strip() for item in header) != REVENUE_COLUMNS:
-        raise ImportFormatError("unsupported_format", "Неизвестные колонки CSV")
+    columns = validate_import_header(tuple(item.strip() for item in header), REVENUE_COLUMNS)
     lines: list[RevenueLine] = []
     seen: set[str] = set()
     for index, row in enumerate(reader, start=2):
@@ -69,8 +69,8 @@ def read_revenue_csv(
             continue
         if len(lines) >= max_rows:
             raise ImportFormatError("unsupported_format", "Слишком много строк")
-        padded = list(row) + [""] * (len(REVENUE_COLUMNS) - len(row))
-        raw = {column: padded[pos] for pos, column in enumerate(REVENUE_COLUMNS)}
+        padded = list(row) + [""] * (len(columns) - len(row))
+        raw = {column: padded[pos] for pos, column in enumerate(columns)}
         line = _normalize(raw, index, vat_basis)
         if line.external_id and line.external_id in seen:
             line = RevenueLine(
@@ -94,16 +94,31 @@ def read_revenue_csv(
 
 
 def _normalize(raw: dict[str, str], row_number: int, vat_basis: str) -> RevenueLine:
-    errors: list[str] = []
+    meta = parse_row_meta(raw)
+    errors: list[str] = list(meta.errors)
+    if meta.operation == "unpost":
+        return RevenueLine(
+            row_number,
+            meta.external_id,
+            None,
+            "",
+            "",
+            None,
+            None,
+            None,
+            "sale",
+            "",
+            tuple(errors),
+            dict(raw),
+        )
     moment = _date(raw.get("recognition_date", ""), errors)
     entry_type = raw.get("entry_type", "").strip()
     if entry_type not in {"sale", "return"}:
         errors.append("bad_entry_type")
-    external_id = raw.get("external_id", "").strip()
+    external_id = meta.external_id
     if not external_id:
         errors.append("missing_external_id")
     ex_vat, vat, inc = _amounts(raw, vat_basis, errors)
-    values = {column: raw.get(column, "") for column in REVENUE_COLUMNS}
     return RevenueLine(
         row_number,
         external_id,
@@ -116,7 +131,7 @@ def _normalize(raw: dict[str, str], row_number: int, vat_basis: str) -> RevenueL
         entry_type,
         raw.get("direction_code", "").strip(),
         tuple(errors),
-        values,
+        dict(raw),
     )
 
 

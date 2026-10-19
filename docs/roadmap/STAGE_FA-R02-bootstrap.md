@@ -82,25 +82,21 @@ UI file и почта создают delivery; transport idempotency по `deliv
 - Staging **7ee85e5** — deploy этого пакета **не** выполнялся.
 - Исторический риск commit-after-response **закрыт** для текущего HTTP graph; пилот-only готовность **не** утверждается.
 
-**Handoff:** `current_task` → **FA-R02.2** (planned). Реализация R02.2 и DDL — только после отдельного разрешения; разрешена read-only подготовка малого пакета.
+**Handoff:** FA-R02.2 **in_progress** — revision/unpost на cash CSV/XLSX и revenue/plan/budget CSV; commit-time gate и advisory lock по `(tenant, company, namespace, external_id)`.
 
 ## FA-R02.2 · Ревизии, entity id, unpost (минимум)
 
-**Статус:** planned.
+**Статус:** in_progress (не accepted до green CI/E2E на product SHA).
 
-**Цель.** `source_entity_id` / revision order; строки unpost → review, не auto void.
+**Цель.** `source_entity_id` alias `external_id`; `source_revision` BIGINT; `operation` upsert/unpost; stale/conflict на commit; unpost → review без auto void.
 
-**Границы.** Без snapshot tombstone policy (R02.4).
+**Границы.** ClientBank legacy; balances только регрессия; без R02.3–R02.4.
 
-**Файлы.** `RawImportRow` или normalized payload, `dedup.py`, `*_import.py`, domain readers.
+**Миграция.** `20261019_0013` — аддитивные колонки, downgrade guard на watermark/non-legacy operation.
 
-**Миграции.** Nullable columns on raw rows.
+**Тесты.** `test_import_revision_unpost.py`, `test_revision_compare.py`, `test_import_meta.py`; полный import/regression suite.
 
-**Тесты.** changed/revise; stale revision rejected; unpost row не commit без review.
-
-**Приёмка.** Существующие import tests pass; новые сценарии 6–8 из test-vectors.
-
-**Риски.** Совместимость с `source_identities_key_uq`.
+**Риски.** `source_identities_key_uq` без изменений; entity_type conflict явный.
 
 ## FA-R02.3 · HTTP proposed ingest (отложено сразу после R02.1)
 

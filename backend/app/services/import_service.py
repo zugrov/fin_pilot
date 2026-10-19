@@ -13,12 +13,20 @@ from app.domain.imports.budget_reader import read_budget_csv
 from app.domain.imports.clientbank import read_clientbank, statement_period_end
 from app.domain.imports.contracts import ImportFormatError, ImportLine
 from app.domain.imports.csv_reader import read_csv
-from app.domain.imports.dedup import classify_duplicate
 from app.domain.imports.detect import detect_format
+from app.domain.imports.identity_lock import lock_identity_keys
+from app.domain.imports.import_meta import parse_row_meta
 from app.domain.imports.normalize import escape_spreadsheet_text, payload_digest
 from app.domain.imports.plan_reader import read_plan_csv
+from app.domain.imports.prepare_common import classify_import_row
 from app.domain.imports.revenue_reader import read_revenue_csv
+from app.domain.imports.revision import commit_decision
 from app.domain.imports.rules import RuleView, matching_category
+from app.domain.imports.source_identity_slot import (
+    apply_identity_watermark,
+    entity_type_conflict,
+    load_identity_slot,
+)
 from app.domain.imports.xlsx_reader import read_xlsx
 from app.errors import AppError
 from app.models.cash import CashCategory, CashTransaction, Wallet
@@ -404,9 +412,7 @@ def receive_import(
         elif connection.dataset == "budget":
             prepared = prepare_budget(session, company, connection, line)
         elif connection.dataset == "balances":
-            prepared = prepare_balances(
-                session, company, line, file_duplicate_codes=file_dupes
-            )
+            prepared = prepare_balances(session, company, line, file_duplicate_codes=file_dupes)
         else:
             prepared = _prepare(session, company, connection, line, rules)
         if prepared["duplicate_status"] == "invalid":
@@ -421,15 +427,15 @@ def receive_import(
             duplicate_status=prepared["duplicate_status"],
             proposed_action=prepared["proposed_action"],
             payload_hash=prepared["payload_hash"],
-            external_id=getattr(line, "external_id", None) or None,
+            external_id=prepared.get("external_id") or getattr(line, "external_id", None) or None,
+            source_revision=prepared.get("source_revision"),
+            operation=str(prepared.get("operation") or "upsert"),
         )
         session.add(row)
         created_rows.append(row)
     if connection.dataset == "balances":
         session.flush()
-        finalize_balances_batch(
-            session, batch, created_rows, at=at, increment_revision=False
-        )
+        finalize_balances_batch(session, batch, created_rows, at=at, increment_revision=False)
         invalid = batch.rows_invalid
     else:
         batch.rows_invalid = invalid
@@ -556,61 +562,20 @@ def commit_import(
     if batch.status != "preview_ready":
         raise AppError(409, "conflict", "Импорт нельзя провести")
     batch.status = "committing"
-    committed = 0
-    pending = False
-    for row in _rows(session, batch):
-        if row.proposed_action in {"skip", "review"} or row.duplicate_status in {
-            "invalid",
-            "ambiguous",
-            "repeated",
-        }:
-            if row.duplicate_status in {"invalid", "ambiguous"}:
-                pending = True
-            continue
-        if connection.dataset == "revenue":
-            if row.proposed_action == "create":
-                create_imported(session, company, connection, company_user, row, batch.id, at)
-            elif row.proposed_action == "revise":
-                revise_imported(session, company, connection, company_user, row, at)
-            elif row.proposed_action == "link":
-                link_imported(session, company, connection, row, at)
-            else:
-                continue
-            committed += 1
-            continue
-        if connection.dataset == "plan":
-            if row.proposed_action == "create":
-                create_plan_row(session, company, connection, company_user, row, batch.id, at)
-            elif row.proposed_action == "revise":
-                revise_plan_row(session, company, connection, company_user, row, at)
-            else:
-                continue
-            committed += 1
-            continue
-        if connection.dataset == "budget":
-            if row.proposed_action == "create":
-                create_budget_row(session, company, connection, company_user, row, batch.id, at)
-            elif row.proposed_action == "revise":
-                revise_budget_row(session, company, connection, company_user, row, at)
-            else:
-                continue
-            committed += 1
-            continue
-        if row.proposed_action == "create":
-            _create_row(session, company, connection, company_user, row, at)
-            committed += 1
-        elif row.proposed_action == "revise":
-            _revise_row(session, company, connection, company_user, row, at)
-            committed += 1
-        elif row.proposed_action == "link":
-            _link_row(session, company, connection, company_user, row, at)
-            committed += 1
+    committed, pending, has_review = _commit_identity_batch(
+        session, company, connection, company_user, batch, at
+    )
     batch.rows_committed = committed
     batch.completed_at = at
     _apply_statement_coverage(session, settings, connection, batch, at)
+    flags: list[str] = []
     if pending:
+        flags.append("partial_import")
+    if has_review:
+        flags.append("rows_in_review")
+    if pending or has_review:
         batch.status = "completed_with_errors"
-        batch.quality_flags = ["partial_import"]
+        batch.quality_flags = flags
     else:
         batch.status = "completed"
         batch.quality_flags = []
@@ -751,41 +716,41 @@ def _prepare(session, company, connection, line: ImportLine, rules: tuple[RuleVi
             category = _category_by_code(session, company, code)
             if category is not None:
                 rule_category = str(category.id)
+    meta = parse_row_meta(line.raw, external_id=line.external_id)
     digest = "" if errors or line.amount is None else payload_digest(line)
     identity = None
-    if line.external_id and not errors:
-        identity = session.scalar(
-            select(SourceIdentity).where(
-                SourceIdentity.tenant_id == company.tenant_id,
-                SourceIdentity.company_id == company.id,
-                SourceIdentity.namespace == connection.namespace,
-                SourceIdentity.external_id == line.external_id,
-            )
-        )
+    if meta.external_id and not errors:
+        identity = load_identity_slot(session, company, connection.namespace, meta.external_id)
     others: tuple[str, ...] = ()
     if identity is None and not errors and wallet is not None and line.amount is not None:
         others = _other_ids(session, company, connection.namespace, line, wallet.id)
-    status, action = classify_duplicate(
-        has_errors=bool(errors),
-        identity_hash=None if identity is None else identity.payload_hash,
+    classified = classify_import_row(
+        errors=errors,
+        meta=meta,
+        identity=identity,
+        entity_type="cash_transaction",
         payload_hash=digest,
         other_ids=others,
         authoritative=connection.authoritative,
     )
-    match_id = others[0] if status == "linked" and others else None
-    if identity is not None and status == "changed":
+    match_id = others[0] if classified["duplicate_status"] == "linked" and others else None
+    if identity is not None and classified["duplicate_status"] == "changed":
         match_id = str(identity.canonical_entity_id)
     return {
-        "errors": errors,
-        "duplicate_status": status,
-        "proposed_action": action,
-        "payload_hash": digest or None,
+        "errors": classified["errors"],
+        "duplicate_status": classified["duplicate_status"],
+        "proposed_action": classified["proposed_action"],
+        "payload_hash": classified["payload_hash"],
+        "source_revision": classified["source_revision"],
+        "operation": classified["operation"],
+        "external_id": classified["external_id"],
         "normalized": {
             "values": line.canonical(),
             "wallet_id": None if wallet is None else str(wallet.id),
             "category_id": category_id,
             "rule_category_id": rule_category,
             "match_id": match_id,
+            "review_reason": classified["review_reason"],
         },
     }
 
@@ -864,9 +829,14 @@ def _revise_row(session, company, connection, user, row: RawImportRow, at: datet
                 tx.classification_origin = "rule"
     tx.version += 1
     tx.updated_at = at
-    identity = _find_identity(session, company, connection.namespace, row.external_id or "")
-    if identity is not None and row.payload_hash:
-        identity.payload_hash = row.payload_hash
+    identity = load_identity_slot(session, company, connection.namespace, row.external_id or "")
+    if identity is not None:
+        apply_identity_watermark(
+            identity,
+            source_revision=row.source_revision,
+            payload_hash=row.payload_hash,
+            advance_only=False,
+        )
     session.flush()
 
 
@@ -901,10 +871,209 @@ def _identity(session, company, connection, row: RawImportRow, tx_id, at: dateti
             external_id=row.external_id or "",
             canonical_entity_id=tx_id,
             payload_hash=row.payload_hash or "",
+            last_source_revision=row.source_revision,
             created_at=at,
         )
     )
     session.flush()
+
+
+def _dataset_entity(dataset: str) -> str:
+    mapping = {
+        "cash": "cash_transaction",
+        "revenue": "revenue_entry",
+        "plan": "planned_event",
+        "budget": "budget_line",
+    }
+    return mapping[dataset]
+
+
+def _revision_error_message(code: str) -> str:
+    messages = {
+        "stale_revision": "Ревизия источника устарела",
+        "revision_payload_conflict": "Та же ревизия с другим содержимым",
+        "revision_required": "Для изменения нужна ревизия источника",
+        "identity_type_conflict": "Ключ источника занят другим типом",
+    }
+    return messages.get(code, "Конфликт импорта")
+
+
+def _ensure_commit_match_id(
+    row: RawImportRow, identity: SourceIdentity | None, entity_type: str
+) -> None:
+    if identity is None:
+        return
+    data = dict(row.normalized_payload or {})
+    if data.get("match_id"):
+        return
+    entity_id = None
+    if entity_type == "cash_transaction":
+        entity_id = identity.canonical_entity_id
+    elif entity_type == "revenue_entry":
+        entity_id = identity.revenue_entry_id
+    elif entity_type == "planned_event":
+        entity_id = identity.planned_event_id
+    elif entity_type == "budget_line":
+        entity_id = identity.budget_line_id
+    if entity_id is None:
+        return
+    data["match_id"] = str(entity_id)
+    row.normalized_payload = data
+
+
+def _commit_other_ids(
+    session, company, connection: SourceConnection, row: RawImportRow
+) -> tuple[str, ...]:
+    if connection.dataset != "cash":
+        return ()
+    data = row.normalized_payload or {}
+    wallet_raw = data.get("wallet_id")
+    values = data.get("values") or {}
+    if not wallet_raw or not row.external_id:
+        return ()
+    try:
+        wallet_id = uuid.UUID(str(wallet_raw))
+    except ValueError:
+        return ()
+    line = ImportLine(
+        row.row_number,
+        row.external_id or "",
+        values.get("wallet_code", ""),
+        _date(values["business_date"]) if values.get("business_date") else None,
+        values.get("direction", ""),
+        _decimal(values["amount"]) if values.get("amount") else None,
+        values.get("currency", "RUB"),
+        values.get("counterparty_inn", ""),
+        values.get("counterparty_name", ""),
+        values.get("description", ""),
+        values.get("document_number", ""),
+        values.get("category_code", ""),
+        values.get("direction_code", ""),
+        (),
+        values,
+    )
+    if line.amount is None or line.business_date is None or line.direction not in {"in", "out"}:
+        return ()
+    return _other_ids(session, company, connection.namespace, line, wallet_id)
+
+
+def _commit_identity_batch(
+    session,
+    company,
+    connection: SourceConnection,
+    company_user: User,
+    batch: ImportBatch,
+    at: datetime,
+) -> tuple[int, bool, bool]:
+    rows = _rows(session, batch)
+    entity_type = _dataset_entity(connection.dataset)
+    keys = sorted(
+        {
+            (connection.namespace, row.external_id)
+            for row in rows
+            if row.external_id and row.operation != "unpost" and not row.validation_errors
+        }
+    )
+    lock_identity_keys(session, company.tenant_id, company.id, list(keys))
+    committed = 0
+    pending = False
+    has_review = False
+    for row in rows:
+        if row.operation == "unpost":
+            has_review = True
+            continue
+        if row.validation_errors or row.duplicate_status == "invalid":
+            pending = True
+            continue
+        if row.duplicate_status == "ambiguous":
+            pending = True
+            continue
+        if not row.external_id:
+            pending = True
+            continue
+        identity = load_identity_slot(session, company, connection.namespace, row.external_id)
+        conflict = entity_type_conflict(identity, entity_type)
+        if conflict:
+            raise AppError(409, conflict, _revision_error_message(conflict))
+        payload_hash = row.payload_hash or ""
+        others = _commit_other_ids(session, company, connection, row)
+        decision = commit_decision(
+            has_errors=False,
+            operation=row.operation,
+            identity_hash=None if identity is None else identity.payload_hash,
+            payload_hash=payload_hash,
+            other_ids=others,
+            authoritative=connection.authoritative,
+            incoming_revision=row.source_revision,
+            applied_revision=None if identity is None else identity.last_source_revision,
+            preview_action=row.proposed_action,
+            identity_exists=identity is not None,
+        )
+        if decision.error_code:
+            raise AppError(409, decision.error_code, _revision_error_message(decision.error_code))
+        action = decision.action
+        if (
+            identity is not None
+            and row.payload_hash
+            and identity.payload_hash != row.payload_hash
+            and action == "create"
+            and row.source_revision is None
+            and identity.last_source_revision is None
+        ):
+            action = "revise"
+        if action == "revise":
+            _ensure_commit_match_id(row, identity, entity_type)
+        if action == "skip":
+            if identity is not None:
+                apply_identity_watermark(
+                    identity,
+                    source_revision=row.source_revision,
+                    payload_hash=row.payload_hash,
+                    advance_only=decision.advance_watermark_only,
+                )
+            continue
+        if connection.dataset == "revenue":
+            if action == "create":
+                create_imported(session, company, connection, company_user, row, batch.id, at)
+            elif action == "revise":
+                revise_imported(session, company, connection, company_user, row, at)
+            elif action == "link":
+                link_imported(session, company, connection, row, at)
+            else:
+                continue
+        elif connection.dataset == "plan":
+            if action == "create":
+                create_plan_row(session, company, connection, company_user, row, batch.id, at)
+            elif action == "revise":
+                revise_plan_row(session, company, connection, company_user, row, at)
+            else:
+                continue
+        elif connection.dataset == "budget":
+            if action == "create":
+                create_budget_row(session, company, connection, company_user, row, batch.id, at)
+            elif action == "revise":
+                revise_budget_row(session, company, connection, company_user, row, at)
+            else:
+                continue
+        else:
+            if action == "create":
+                _create_row(session, company, connection, company_user, row, at)
+            elif action == "revise":
+                _revise_row(session, company, connection, company_user, row, at)
+            elif action == "link":
+                _link_row(session, company, connection, company_user, row, at)
+            else:
+                continue
+        committed += 1
+        identity = load_identity_slot(session, company, connection.namespace, row.external_id)
+        if identity is not None:
+            apply_identity_watermark(
+                identity,
+                source_revision=row.source_revision,
+                payload_hash=row.payload_hash,
+                advance_only=False,
+            )
+    return committed, pending, has_review
 
 
 def _parse_balances(content: bytes, connection: SourceConnection, settings: Settings):
@@ -971,16 +1140,16 @@ def _payload(session: Session, batch: ImportBatch) -> dict:
         "rows_committed": batch.rows_committed,
         "quality_flags": list(batch.quality_flags or []),
         "counts": {
-            "new": counts["new"],
-            "repeated": counts["repeated"],
-            "changed": counts["changed"],
-            "invalid": counts["invalid"],
-            "ambiguous": counts["ambiguous"],
-            "linked": counts["linked"],
+            "new": counts.get("new", 0),
+            "repeated": counts.get("repeated", 0),
+            "changed": counts.get("changed", 0),
+            "invalid": counts.get("invalid", 0),
+            "ambiguous": counts.get("ambiguous", 0),
+            "linked": counts.get("linked", 0),
+            "unpost": counts.get("unpost", 0),
         },
         "rows": [
-            row_preview_public(item) if balances else _row_preview_default(item)
-            for item in rows
+            row_preview_public(item) if balances else _row_preview_default(item) for item in rows
         ],
     }
     if balances:
@@ -989,11 +1158,15 @@ def _payload(session: Session, batch: ImportBatch) -> dict:
 
 
 def _row_preview_default(item: RawImportRow) -> dict:
+    normalized = item.normalized_payload or {}
     return {
         "row_number": item.row_number,
         "external_id": item.external_id,
+        "source_revision": item.source_revision,
+        "operation": item.operation,
         "duplicate_status": item.duplicate_status,
         "proposed_action": item.proposed_action,
+        "review_reason": normalized.get("review_reason"),
         "errors": list(item.validation_errors or []),
     }
 

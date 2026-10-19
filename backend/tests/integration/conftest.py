@@ -76,8 +76,6 @@ def migrated_database():
     os.chdir(BACKEND)
     try:
         command.upgrade(config, "head")
-        command.downgrade(config, "base")
-        command.upgrade(config, "head")
     finally:
         os.chdir(previous)
     admin.execute("ALTER ROLE finpilot_app WITH LOGIN PASSWORD 'finpilot_test_only'")
@@ -89,7 +87,7 @@ def migrated_database():
     engine.dispose()
 
 
-HEAD_REVISION = "20261019_0012"
+HEAD_REVISION = "20261019_0013"
 
 
 @pytest.fixture(autouse=True)

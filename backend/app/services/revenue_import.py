@@ -3,8 +3,10 @@ import json
 import uuid
 from datetime import datetime
 
-from app.domain.imports.dedup import classify_duplicate
+from app.domain.imports.import_meta import parse_row_meta
+from app.domain.imports.prepare_common import classify_import_row
 from app.domain.imports.revenue_reader import RevenueLine
+from app.domain.imports.source_identity_slot import apply_identity_watermark, load_identity_slot
 from app.errors import AppError
 from app.models.identity import Company, User
 from app.models.imports import RawImportRow, SourceConnection, SourceIdentity
@@ -29,41 +31,44 @@ def prepare_revenue(
         )
         if direction is None:
             errors.append("unknown_direction")
+    meta = parse_row_meta(line.raw, external_id=line.external_id)
     digest = "" if errors or line.amount_inc_vat is None else _digest(line)
     identity = None
-    if line.external_id and not errors:
-        identity = session.scalar(
-            select(SourceIdentity).where(
-                SourceIdentity.tenant_id == company.tenant_id,
-                SourceIdentity.company_id == company.id,
-                SourceIdentity.namespace == connection.namespace,
-                SourceIdentity.external_id == line.external_id,
-                SourceIdentity.entity_type == "revenue_entry",
-            )
-        )
+    if meta.external_id and not errors:
+        identity = load_identity_slot(session, company, connection.namespace, meta.external_id)
     others: tuple[str, ...] = ()
     if identity is None and not errors and line.amount_inc_vat is not None:
         others = _other_ids(session, company, connection.namespace, line)
-    status, action = classify_duplicate(
-        has_errors=bool(errors),
-        identity_hash=None if identity is None else identity.payload_hash,
+    classified = classify_import_row(
+        errors=errors,
+        meta=meta,
+        identity=identity,
+        entity_type="revenue_entry",
         payload_hash=digest,
         other_ids=others,
         authoritative=connection.authoritative,
     )
-    match_id = others[0] if status == "linked" and others else None
-    if identity is not None and status == "changed" and identity.revenue_entry_id is not None:
+    match_id = others[0] if classified["duplicate_status"] == "linked" and others else None
+    if (
+        identity is not None
+        and classified["duplicate_status"] == "changed"
+        and identity.revenue_entry_id is not None
+    ):
         match_id = str(identity.revenue_entry_id)
     return {
-        "errors": errors,
-        "duplicate_status": status,
-        "proposed_action": action,
-        "payload_hash": digest or None,
+        "errors": classified["errors"],
+        "duplicate_status": classified["duplicate_status"],
+        "proposed_action": classified["proposed_action"],
+        "payload_hash": classified["payload_hash"],
+        "source_revision": classified["source_revision"],
+        "operation": classified["operation"],
+        "external_id": classified["external_id"],
         "normalized": {
             "values": line.canonical(),
             "direction_id": None if direction is None else str(direction.id),
             "match_id": match_id,
             "vat_basis": connection.vat_basis,
+            "review_reason": classified["review_reason"],
         },
     }
 
@@ -132,15 +137,14 @@ def revise_imported(
     entry.counterparty_id = counterparty_id(session, company, values["counterparty_inn"], None, at)
     entry.version += 1
     entry.updated_at = at
-    identity = session.scalar(
-        select(SourceIdentity).where(
-            SourceIdentity.tenant_id == company.tenant_id,
-            SourceIdentity.namespace == connection.namespace,
-            SourceIdentity.external_id == (row.external_id or ""),
+    identity = load_identity_slot(session, company, connection.namespace, row.external_id or "")
+    if identity is not None:
+        apply_identity_watermark(
+            identity,
+            source_revision=row.source_revision,
+            payload_hash=row.payload_hash,
+            advance_only=False,
         )
-    )
-    if identity is not None and row.payload_hash:
-        identity.payload_hash = row.payload_hash
     session.flush()
     _ = user
 
@@ -190,6 +194,7 @@ def _identity(session, company, connection, row: RawImportRow, entry_id, at: dat
             canonical_entity_id=None,
             revenue_entry_id=entry_id,
             payload_hash=row.payload_hash or "",
+            last_source_revision=row.source_revision,
             created_at=at,
         )
     )

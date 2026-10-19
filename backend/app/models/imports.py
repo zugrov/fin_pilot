@@ -120,6 +120,8 @@ class RawImportRow(Base):
     proposed_action: Mapped[str] = mapped_column(String(16))
     payload_hash: Mapped[str | None] = mapped_column(String(64))
     external_id: Mapped[str | None] = mapped_column(String(128))
+    source_revision: Mapped[int | None] = mapped_column(BigInteger)
+    operation: Mapped[str] = mapped_column(String(16), default="upsert")
 
 
 class SourceIdentity(Base):
@@ -137,6 +139,7 @@ class SourceIdentity(Base):
     planned_event_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     budget_line_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     payload_hash: Mapped[str] = mapped_column(String(64))
+    last_source_revision: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

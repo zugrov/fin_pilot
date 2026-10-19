@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from app.domain.imports.contracts import CASH_COLUMNS, ImportFormatError, ImportLine
+from app.domain.imports.import_meta import parse_row_meta
 from app.domain.money import money
 
 
@@ -46,7 +47,26 @@ def fingerprint(line: ImportLine) -> str:
 
 
 def normalize_row(raw: dict[str, str], row_number: int, *, date_style: str) -> ImportLine:
-    errors: list[str] = []
+    meta = parse_row_meta(raw)
+    errors: list[str] = list(meta.errors)
+    if meta.operation == "unpost":
+        return ImportLine(
+            row_number,
+            meta.external_id,
+            "",
+            None,
+            "",
+            None,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            tuple(errors),
+            dict(raw),
+        )
     moment = _date(raw.get("business_date", ""), date_style, errors)
     direction = raw.get("direction", "").strip()
     if direction not in {"in", "out"}:
@@ -55,13 +75,12 @@ def normalize_row(raw: dict[str, str], row_number: int, *, date_style: str) -> I
     currency = raw.get("currency", "").strip()
     if currency != "RUB":
         errors.append("bad_currency")
-    external_id = raw.get("external_id", "").strip()
+    external_id = meta.external_id
     if not external_id:
         errors.append("missing_external_id")
     wallet_code = raw.get("wallet_code", "").strip()
     if not wallet_code:
         errors.append("missing_wallet")
-    values = {column: raw.get(column, "") for column in CASH_COLUMNS}
     return ImportLine(
         row_number,
         external_id,
@@ -77,7 +96,7 @@ def normalize_row(raw: dict[str, str], row_number: int, *, date_style: str) -> I
         raw.get("category_code", "").strip(),
         raw.get("direction_code", "").strip(),
         tuple(errors),
-        values,
+        dict(raw),
     )
 
 

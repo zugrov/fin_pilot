@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from io import StringIO
 
 from app.domain.imports.contracts import ImportFormatError
+from app.domain.imports.import_meta import parse_row_meta, validate_import_header
 from app.domain.imports.normalize import decode_text
 from app.domain.money import money
 
@@ -67,8 +68,7 @@ def read_plan_csv(content: bytes, *, encoding: str, max_rows: int) -> list[PlanL
         header = next(reader)
     except StopIteration as exc:
         raise ImportFormatError("unsupported_format", "Пустой файл") from exc
-    if tuple(item.strip() for item in header) != PLAN_COLUMNS:
-        raise ImportFormatError("unsupported_format", "Неизвестные колонки CSV")
+    columns = validate_import_header(tuple(item.strip() for item in header), PLAN_COLUMNS)
     lines: list[PlanLine] = []
     seen: set[str] = set()
     for index, row in enumerate(reader, start=2):
@@ -76,8 +76,8 @@ def read_plan_csv(content: bytes, *, encoding: str, max_rows: int) -> list[PlanL
             continue
         if len(lines) >= max_rows:
             raise ImportFormatError("unsupported_format", "Слишком много строк")
-        padded = list(row) + [""] * (len(PLAN_COLUMNS) - len(row))
-        raw = {column: padded[pos] for pos, column in enumerate(PLAN_COLUMNS)}
+        padded = list(row) + [""] * (len(columns) - len(row))
+        raw = {column: padded[pos] for pos, column in enumerate(columns)}
         line = _normalize(raw, index)
         if line.external_id and line.external_id in seen:
             line = PlanLine(
@@ -103,8 +103,26 @@ def read_plan_csv(content: bytes, *, encoding: str, max_rows: int) -> list[PlanL
 
 
 def _normalize(raw: dict[str, str], row_number: int) -> PlanLine:
-    errors: list[str] = []
-    external_id = raw.get("external_id", "").strip()
+    meta = parse_row_meta(raw)
+    errors: list[str] = list(meta.errors)
+    if meta.operation == "unpost":
+        return PlanLine(
+            row_number,
+            meta.external_id,
+            "",
+            None,
+            "",
+            None,
+            None,
+            "",
+            "",
+            "expected",
+            "normal",
+            "",
+            tuple(errors),
+            dict(raw),
+        )
+    external_id = meta.external_id
     if not external_id:
         errors.append("missing_external_id")
     direction = raw.get("direction", "").strip()
@@ -122,7 +140,6 @@ def _normalize(raw: dict[str, str], row_number: int) -> PlanLine:
     amount = _money(raw.get("amount", ""), errors)
     due = _date(raw.get("due_date", ""), errors)
     expected = _date(raw.get("expected_date", ""), errors)
-    values = {column: raw.get(column, "") for column in PLAN_COLUMNS}
     return PlanLine(
         row_number,
         external_id,
@@ -137,7 +154,7 @@ def _normalize(raw: dict[str, str], row_number: int) -> PlanLine:
         priority,
         raw.get("wallet_code", "").strip(),
         tuple(errors),
-        values,
+        dict(raw),
     )
 
 
