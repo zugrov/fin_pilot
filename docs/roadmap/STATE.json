@@ -17,9 +17,9 @@
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
   "current_stage": "FA-R02",
-  "current_task": "FA-R02.2",
-  "status": "in_progress",
-  "allowed_next_action": "FA-R02.2: локальная верификация и commit; accepted только после green CI/E2E на product SHA.",
+  "current_task": "FA-R02.3",
+  "status": "ready",
+  "allowed_next_action": "FA-R02.3: отдельное разрешение на read-only подготовку малого пакета; код, DDL и публичный ingest автоматически не разрешены.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -266,11 +266,30 @@
         {
           "id": "FA-R02.2",
           "title": "Идентичность и изменения",
-          "status": "in_progress",
+          "status": "accepted",
+          "accepted_at": "2026-10-19",
+          "accepted_product_sha": "aedf0b8346d3416de5da8b87dc91d108abdb1468",
           "evidence": [
-            "backend/alembic/versions/20261019_0013_source_revision_unpost.py",
-            "backend/app/domain/imports/revision.py",
-            "backend/tests/integration/test_import_revision_unpost.py"
+            "принятый product SHA aedf0b8 (repo); staging deployed baseline 7ee85e5 без изменений — R02.2/0013, R02.1/0011–0012 и HTTP boundary на staging не применены",
+            "миграция 20261019_0013: source_revision BIGINT, operation upsert/unpost, last_source_revision; runtime downgrade guard при watermark/non-legacy operation",
+            "revision BIGINT numeric order; alias source_entity_id/external_id; legacy→versioned; missing revision после versioned; equal revision/different payload; higher revision/same payload — watermark only без financial revision",
+            "commit-time gate: stale preview после другого commit; concurrent first/existing identity; late-row rollback amount/hash/watermark/revision history/audit; identity_type preview invalid + commit gate 409 после чистого preview",
+            "preview revision conflicts: duplicate_status repeated/changed + proposed_action review + review_reason; без CHECK violation/500",
+            "unpost: review only, без create/revise/void; applied watermark не продвигается; отсутствие строки ≠ отмена",
+            "datasets: cash/revenue/plan/budget versioned create/revise; balances — прежняя модель, регрессия сохранена",
+            "CI 39249819030 @ aedf0b8: backend 375 passed 0 failed 0 skipped; Ruff/Mypy green; frontend 89 unit + build",
+            "E2E 39249818954 @ aedf0b8: 6 passed",
+            "локально: Ruff/Mypy/frontend 89+build/E2E 6 green; полный backend pytest — 2 failed (test_backup_restore pg_dump :5433 refused; test_year5_year6 UniqueViolation annual_offer_versions фиксированный UUID из остатка локальной test DB — не flake, TRUNCATE/conftest не расширялись)",
+            "docs/roadmap/STAGE_FA-R02-bootstrap.md",
+            "docs/roadmap/contracts/test-vectors-ingestion.md #6–#8",
+            "backend/tests/integration/test_import_revision_unpost.py",
+            "backend/tests/unit/test_revision_compare.py",
+            "backend/app/domain/imports/revision.py"
+          ],
+          "residual_risks": [
+            "identity_type_conflict на preview до upload — invalid row + partial import, не HTTP 409",
+            "auto-void/tombstone/snapshot deletion для unpost — не реализованы (только explicit unpost → review)",
+            "annual_offer_versions и прочие billing-таблицы вне TRUNCATE integration — локальный pollution возможен"
           ]
         },
         {
@@ -762,8 +781,8 @@
     "at": "2026-10-19",
     "from_stage": "FA-R02",
     "to_stage": "FA-R02",
-    "from_task": "FA-R02.1b",
-    "to_task": "FA-R02.2",
+    "from_task": "FA-R02.2",
+    "to_task": "FA-R02.3",
     "fa_r00": "accepted",
     "g0": "accepted",
     "fa_r01": "accepted",
@@ -775,7 +794,41 @@
     "fa_r02_1_accepted_product_sha": "9fe5c06d8778b56556baa40932aa189c231696c1",
     "fa_r02_1b": "accepted",
     "fa_r02_1b_accepted_product_sha": "a78080a6c072ea851db9fa2d458cb0983af5a76a",
+    "fa_r02_2": "accepted",
+    "fa_r02_2_accepted_product_sha": "aedf0b8346d3416de5da8b87dc91d108abdb1468",
     "fa_r02_started": true
+  },
+  "fa_r02_2_acceptance": {
+    "accepted_product_sha": "aedf0b8346d3416de5da8b87dc91d108abdb1468",
+    "accepted_at": "2026-10-19",
+    "migration": "20261019_0013",
+    "ci": {
+      "run_id": 39249819030,
+      "url": "https://github.com/zugrov/fin_pilot/actions/runs/39249819030",
+      "backend_pytest": 375,
+      "backend_failed": 0,
+      "backend_skipped": 0,
+      "ruff": "ok",
+      "mypy": "ok",
+      "frontend_unit": 89,
+      "frontend_build": "ok"
+    },
+    "e2e": {
+      "run_id": 39249818954,
+      "url": "https://github.com/zugrov/fin_pilot/actions/runs/39249818954",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    "staging_deployed_baseline_unchanged": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
+    "local_full_backend_pytest": {
+      "note": "2 failed вне product SHA CI",
+      "failures": [
+        "test_backup_restore: pg_dump 127.0.0.1:5433 connection refused",
+        "test_year5_year6_upgrade_uses_paid_discount: UniqueViolation annual_offer_versions id 00000000-0000-4000-8000-000000000099 — остаток локальной test DB, не исправление fixture"
+      ]
+    },
+    "fa_r02_3_started": false
   },
   "fa_r01_1_acceptance": {
     "accepted_product_sha": "e70612da585c4718881b2ab30acc9bbf74702e2a",
@@ -919,6 +972,13 @@
       "status": "accepted",
       "by": "owner",
       "basis": "product SHA 7ee85e501735efcfa449ad8f44ef11258e5e4cf2; CI; mock lifecycle 4 actions; recovery-image; staging deploy/read/write smoke; 4 replay; acceptance artifacts preserved on staging"
+    },
+    {
+      "at": "2026-10-19",
+      "task": "FA-R02.2",
+      "status": "accepted",
+      "by": "owner",
+      "basis": "product SHA aedf0b8346d3416de5da8b87dc91d108abdb1468; CI 39249819030; E2E 39249818954; revision/unpost review; staging baseline 7ee85e5 unchanged"
     }
   ],
   "fa_r01_3_acceptance": {
@@ -1244,8 +1304,8 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R02.1 (R02.1): transport IngestionDelivery/parts, UI+mail адаптация, migration 0011. Локально: pytest 288 (без backup_restore/pg_dump), ruff/mypy, frontend 89 unit + build. accepted/CI/E2E — после push.",
-  "updated_at": "2026-10-18",
+  "note": "FA-R02.2 accepted 2026-10-19 на product SHA aedf0b8. FA-R02 in_progress; current_task FA-R02.3 planned. Staging baseline 7ee85e5.",
+  "updated_at": "2026-10-19",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
     "documentation": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",

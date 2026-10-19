@@ -1,8 +1,8 @@
 # FA-R02 · Первые задачи (bootstrap после FA-R01)
 
-Статус: **in_progress** (этап). **FA-R02.1 accepted** 2026-10-19, product SHA `9fe5c06d8778b56556baa40932aa189c231696c1`. **FA-R02.2–R02.4** — planned. FA-R01 accepted; deploy staging этим пакетом не входит.
+Статус: **in_progress** (этап FA-R02). **FA-R02.1**, **FA-R02.1b**, **FA-R02.2 accepted** 2026-10-19. **FA-R02.3–R02.4** — planned. FA-R01 accepted; deploy staging этим пакетом не входит.
 
-**Snapshot vs deploy.** Принятый код в репозитории — `9fe5c06…`. Staging deployed baseline остаётся `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`; миграции 0011/0012 и wallet fix на staging **не** применены.
+**Snapshot vs deploy.** Принятый код R02.2 в репозитории — `aedf0b8346d3416de5da8b87dc91d108abdb1468`. Staging deployed baseline остаётся `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`; миграции **0011/0012/0013**, HTTP transaction boundary и R02.2 revision/unpost на staging **не** применены.
 
 Опора: ADR-001-B, `contracts/*`.
 
@@ -67,7 +67,7 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 **Открытый риск (не закрыт):** общий `get_db` не менялся; гарантия commit-before-success доказана **только** для POST создания кошелька. Остальные write-endpoints требуют отдельного read-only аудита фактической границы commit/HTTP response и обработки commit failure до допуска к пилоту или расширению эксплуатации. Без аудита не утверждать, что каждый другой endpoint обязательно неисправен.
 
-**Handoff:** `current_task` → FA-R02.2 (planned). Реализация R02.2 без отдельного разрешения не начинать.
+**Handoff:** FA-R02.2 **accepted**; `current_task` → **FA-R02.3** (planned).
 
 ### FA-R02.1b · HTTP transaction boundary · accepted 2026-10-19
 
@@ -82,33 +82,57 @@ UI file и почта создают delivery; transport idempotency по `deliv
 - Staging **7ee85e5** — deploy этого пакета **не** выполнялся.
 - Исторический риск commit-after-response **закрыт** для текущего HTTP graph; пилот-only готовность **не** утверждается.
 
-**Handoff:** FA-R02.2 **in_progress** — revision/unpost на cash CSV/XLSX и revenue/plan/budget CSV; commit-time gate и advisory lock по `(tenant, company, namespace, external_id)`.
-
 ## FA-R02.2 · Ревизии, entity id, unpost (минимум)
 
-**Статус:** in_progress (не accepted до green CI/E2E на product SHA).
+**Статус:** **accepted** 2026-10-19.
 
-**Цель.** `source_entity_id` alias `external_id`; `source_revision` BIGINT; `operation` upsert/unpost; stale/conflict на commit; unpost → review без auto void.
+**Product SHA:** `aedf0b8346d3416de5da8b87dc91d108abdb1468`.
 
-**Границы.** ClientBank legacy; balances только регрессия; без R02.3–R02.4.
+**Цель (выполнено).** `source_entity_id` alias `external_id`; `source_revision` BIGINT (числовой порядок); `operation` upsert/unpost; commit-time gate; preview revision-конфликтов как review без CHECK/500; unpost → review без auto void/tombstone.
 
-**Миграция.** `20261019_0013` — аддитивные колонки, downgrade guard на watermark/non-legacy operation.
+**Границы.** ClientBank legacy; **balances** — прежняя отдельная модель, регрессия сохранена; R02.3–R02.4 не входят.
 
-**Тесты.** `test_import_revision_unpost.py`, `test_revision_compare.py`, `test_import_meta.py`; полный import/regression suite.
+**Миграция.** `20261019_0013`; runtime downgrade guard при watermark / non-legacy `operation`.
 
-**Риски.** `source_identities_key_uq` без изменений; entity_type conflict явный.
+### FA-R02.2 · приёмка владельцем (2026-10-19)
 
-### FA-R02.2 · verification pass (2026-10-19, parent `85c39b1`, не accepted)
+**Revision и payload.**
 
-**Auth CI failure (исправлено tests-only, `84d8e04`).** E2e seed оставлял user до integration; `truncate_integration_tables()` setup/teardown + guard в auth1.
+- Legacy → versioned (same financial fields); missing revision после versioned (NULL `source_revision` + changed payload → 409 `revision_required`; same payload → skip).
+- Equal revision / другой payload → preview review + 409 `revision_payload_conflict`.
+- Higher revision / same payload → только watermark, без financial revision / без повторного `transaction_imported`.
+- Stale после применённого watermark → preview `repeated`+review / commit 409 `stale_revision`.
 
-**Preview revision conflicts (исправлено product, после `84d8e04`).** До fix: `_reject` писал `duplicate_status=review` → CHECK `raw_import_rows_status_ck` / 500 на upload. После fix: `duplicate_status` ∈ {`repeated`,`changed`}, `proposed_action=review`, `review_reason` = stale / payload / revision_required; commit → 409; batch остаётся `preview_ready`. Regression: `test_stale_preview_*`, `test_missing_revision_*`, parametrized stale preview по 4 dataset.
+**Commit-time gate и concurrency.**
 
-**DB regression R02.2 (`test_import_revision_unpost.py`).** Concurrent first/existing (оба порядка revision); late-row rollback с amount/hash/watermark/revisions; identity_type preview + commit gate; runtime downgrade 0013; wiring legacy/same-payload/watermark-only; 4× dataset create+revise.
+- Старый preview после commit более новой revision; parallel first/existing identity; late-row batch rollback (amount, identity hash, watermark, `transaction_revisions`, audit, `preview_ready`).
+- `identity_type_conflict`: preview invalid; commit 409 если слот другого типа появился после чистого preview.
 
-**Оставшиеся ограничения.** `identity_type_conflict` на preview по-прежнему **invalid row + partial import** (не 409); commit-time 409 только если слот появился **после** чистого preview (`test_identity_type_conflict_commit_gate_after_preview`). `identity_type` на preview до upload — invalid, commit без проведения.
+**Unpost.**
 
-## FA-R02.3 · HTTP proposed ingest (отложено сразу после R02.1)
+- Explicit `operation=unpost` → review; без create/revise/void; applied watermark не продвигается; отсутствие финансовой строки не трактуется как отмена.
+
+**Datasets.** Cash, revenue, plan, budget — versioned create/revise + watermark (parametrized integration).
+
+**Workflows на aedf0b8:**
+
+| Run | URL | Результат |
+|-----|-----|-----------|
+| CI [39249819030](https://github.com/zugrov/fin_pilot/actions/runs/39249819030) | backend **375 passed**, 0 failed/skipped; Ruff/Mypy ✓; frontend **89** unit + build ✓ |
+| E2E [39249818954](https://github.com/zugrov/fin_pilot/actions/runs/39249818954) | **6 passed**, 0 failed/skipped |
+
+**Локально (вне CI product SHA):** Ruff/Mypy/frontend/E2E FA-R01 — green; полный backend pytest — **2 failed**: `test_backup_restore` (restore service `:5433`); `test_year5_year6_upgrade_uses_paid_discount` (повтор фиксированного UUID `annual_offer_versions` из остатка локальной `finpilot_test`, не flake; fixture/TRUNCATE не менялись).
+
+**Staging.** Deploy baseline **7ee85e5** без изменений; 0013 и R02.2 на стенде **не** заявлены.
+
+**Оставшиеся ограничения (не блокируют приёмку R02.2).**
+
+- Auto-void / tombstone / snapshot deletion при unpost — **не** реализованы.
+- `identity_type_conflict` при upload, когда тип уже известен на preview — invalid + partial import (не HTTP 409).
+
+**Handoff:** FA-R02.3 **planned** — read-only подготовка только по отдельному разрешению.
+
+## FA-R02.3 · HTTP proposed ingest (отложено сразу после R02.2)
 
 **Цель.** `POST …/ingestions` по OpenAPI proposed; machine token — stub до R11.
 

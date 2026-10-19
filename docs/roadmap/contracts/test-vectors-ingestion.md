@@ -15,9 +15,9 @@
 | 3 | Письмо N вложений | `delivery-plan-multi-part.json` | 1 delivery, `partially_received` пока chunk 2/2 не принят | каждый batch commit независимо | ✓ | mail fixture multi-attach |
 | 4 | Повтор идентичного пакета | Тот же `delivery_key` и те же sha256 | `duplicate_transport`, те же batch id | commit idempotent | ✓ | IdempotencyRecord + file_uq |
 | 5 | Тот же package_id, другое содержимое | Один `client_package_id`, разный `content_sha256` | `content_conflict` | финансы без commit | ✓ | 409 integration |
-| 6 | Исправление документа | delta + тот же `external_id`, новый payload_hash | новый batch | `changed` → revise_* | ✓ | revise_import tests |
-| 7 | Отмена проведения | void API после commit | delivery `financial_status=partial` if mixed | `void_transaction`; import unpost TBD FA-R02.2 | частично | test_cash void |
-| 8 | Старая ревизия после новой | commit старого payload после нового | batch preview | 409 `stale_revision` на commit (FA-R02.2) | ✓ records | test_import_revision_unpost |
+| 6 | Исправление документа | versioned upsert/revise: `source_revision` BIGINT, тот же `external_id` | новый batch | `changed` → revise_*; higher rev + same hash → watermark only (FA-R02.2 **accepted** aedf0b8) | ✓ | `test_import_revision_unpost`, `test_revision_compare` |
+| 7 | Отмена проведения | explicit `operation=unpost` в import CSV | batch preview | **только review** — без create/revise/void/tombstone; void API отдельно (`test_cash void`) | ✓ meta | `test_unpost_review_without_financial_change`; auto-cancel **не** реализован |
+| 8 | Старая ревизия после новой | upload/commit с меньшим `source_revision` после watermark | preview: `repeated`/`changed` + `review_reason`; commit | 409 `stale_revision` / `revision_payload_conflict` / `revision_required` (FA-R02.2 **accepted** aedf0b8) | ✓ | `test_import_revision_unpost`, stale preview ×4 datasets |
 | 9 | Частичный сбой multi-chunk | chunk 1 OK, chunk 2 422 | `partially_received` | только chunk1 batch commit | ✓ chunk_count=2 | proposed API |
 | 10 | Незавершённый snapshot | mode=snapshot, chunk 1/3 | `partially_received`, **не** `reconciled` | commit gated policy TBD | ✓ | FA-R02.4 |
 | 11 | Конфlict control totals | envelope totals ≠ parsed rows | `validation_blocked`, batch preview | commit blocked | ✓ control_totals | FA-R02.4 |
