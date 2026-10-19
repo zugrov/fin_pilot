@@ -1,5 +1,7 @@
+import os
 import threading
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -22,7 +24,8 @@ from tests.integration.conftest import BACKEND, login, open_workspace, pay, regi
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 RECEIVED = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
-REVISION = "20261018_0011"
+REVISION = "20261019_0012"
+REV_0011 = "20261018_0011"
 PREV = "20261017_0010"
 _PG_PORT = __import__("os").environ.get("TEST_PG_PORT", "5432")
 
@@ -488,31 +491,499 @@ def test_mail_one_delivery_many_parts(client, admin, app, fake, tmp_path) -> Non
     )
 
 
-def test_cross_connection_part_fk_rejected(admin, migrated_database) -> None:
-    assert_finpilot_test_database(migrated_database)
-    with migrated_database.connect() as connection:
-        sources = connection.execute(
+@dataclass(frozen=True)
+class _ScopeFixtures:
+    tenant_id: uuid.UUID
+    company_a: uuid.UUID
+    company_b: uuid.UUID
+    conn_a1: uuid.UUID
+    conn_a2: uuid.UUID
+    conn_b1: uuid.UUID
+    batch_a1: uuid.UUID
+    delivery_a1: uuid.UUID
+    delivery_a1b: uuid.UUID
+    delivery_a2: uuid.UUID
+    delivery_b1: uuid.UUID
+
+
+def _alembic_revision(target: str) -> None:
+    config = Config(str(BACKEND / "alembic.ini"))
+    previous = os.getcwd()
+    os.chdir(BACKEND)
+    try:
+        command.upgrade(config, target)
+    finally:
+        os.chdir(previous)
+
+
+def _alembic_downgrade(target: str) -> None:
+    config = Config(str(BACKEND / "alembic.ini"))
+    previous = os.getcwd()
+    os.chdir(BACKEND)
+    try:
+        command.downgrade(config, target)
+    finally:
+        os.chdir(previous)
+
+
+def _constraint_exists(connection, name: str) -> bool:
+    return (
+        connection.execute(
             text(
-                "SELECT tenant_id, company_id, id FROM source_connections "
-                "ORDER BY created_at LIMIT 2"
-            )
-        ).all()
-    if len(sources) < 2:
-        pytest.skip("нужно два source_connection")
-    a, b = sources[0], sources[1]
-    delivery_id = uuid.uuid4()
-    with pytest.raises(IntegrityError):
-        with migrated_database.begin() as connection:
+                "SELECT 1 FROM pg_constraint WHERE conname = :name LIMIT 1"
+            ),
+            {"name": name},
+        ).first()
+        is not None
+    )
+
+
+def _expect_fk_violation(connection, sql: str, params: dict, constraint: str) -> None:
+    with pytest.raises(IntegrityError) as caught:
+        with connection.begin_nested():
+            connection.execute(text(sql), params)
+    orig = caught.value.orig
+    assert isinstance(orig, psycopg.errors.ForeignKeyViolation), orig
+    assert orig.diag.constraint_name == constraint, orig.diag.constraint_name
+    assert orig.sqlstate == "23503"
+
+
+def _seed_scope_fixtures(connection) -> _ScopeFixtures:
+    tenant_id = uuid.uuid4()
+    company_a = uuid.uuid4()
+    company_b = uuid.uuid4()
+    wallet_a = uuid.uuid4()
+    wallet_b = uuid.uuid4()
+    conn_a1 = uuid.uuid4()
+    conn_a2 = uuid.uuid4()
+    conn_b1 = uuid.uuid4()
+    batch_a1 = uuid.uuid4()
+    delivery_a1 = uuid.uuid4()
+    delivery_a1b = uuid.uuid4()
+    delivery_a2 = uuid.uuid4()
+    delivery_b1 = uuid.uuid4()
+    now = datetime.now(tz=UTC)
+    connection.execute(
+        text("INSERT INTO tenants (id, name, created_at) VALUES (:id, 'Scope FK', :at)"),
+        {"id": tenant_id, "at": now},
+    )
+    for company_id, name in ((company_a, "A"), (company_b, "B")):
+        connection.execute(
+            text(
+                "INSERT INTO companies "
+                "(id, tenant_id, name, kind, created_at, updated_at) "
+                "VALUES (:id, :tenant, :name, 'company', :at, :at)"
+            ),
+            {"id": company_id, "tenant": tenant_id, "name": name, "at": now},
+        )
+    connection.execute(
+        text(
+            "INSERT INTO wallets "
+            "(id, tenant_id, company_id, name, type, code, currency, availability_type, "
+            "minimum_reserve, created_at) "
+            "VALUES (:id, :tenant, :company, 'Main', 'bank', :code, 'RUB', "
+            "'spendable', 0, :at)"
+        ),
+        {"id": wallet_a, "tenant": tenant_id, "company": company_a, "code": "a-main", "at": now},
+    )
+    connection.execute(
+        text(
+            "INSERT INTO wallets "
+            "(id, tenant_id, company_id, name, type, code, currency, availability_type, "
+            "minimum_reserve, created_at) "
+            "VALUES (:id, :tenant, :company, 'Main', 'bank', :code, 'RUB', "
+            "'spendable', 0, :at)"
+        ),
+        {"id": wallet_b, "tenant": tenant_id, "company": company_b, "code": "b-main", "at": now},
+    )
+    for source_id, company_id, wallet_id, namespace in (
+        (conn_a1, company_a, wallet_a, "scope-a1"),
+        (conn_a2, company_a, wallet_a, "scope-a2"),
+        (conn_b1, company_b, wallet_b, "scope-b1"),
+    ):
+        connection.execute(
+            text(
+                "INSERT INTO source_connections "
+                "(id, tenant_id, company_id, type, name, namespace, wallet_id, format, "
+                "encoding, dataset, created_at) "
+                "VALUES (:id, :tenant, :company, 'file', :name, :namespace, :wallet, "
+                "'csv', 'utf-8', 'cash', :at)"
+            ),
+            {
+                "id": source_id,
+                "tenant": tenant_id,
+                "company": company_id,
+                "name": namespace,
+                "namespace": namespace,
+                "wallet": wallet_id,
+                "at": now,
+            },
+        )
+    connection.execute(
+        text(
+            "INSERT INTO import_batches "
+            "(id, tenant_id, company_id, connection_id, file_hash, file_storage_key, "
+            "format, status, created_at) "
+            "VALUES (:id, :tenant, :company, :conn, 'hash-a1', 'key-a1', 'csv', "
+            "'preview_ready', :at)"
+        ),
+        {
+            "id": batch_a1,
+            "tenant": tenant_id,
+            "company": company_a,
+            "conn": conn_a1,
+            "at": now,
+        },
+    )
+    for delivery_id, company_id, conn_id, key in (
+        (delivery_a1, company_a, conn_a1, "del-a1"),
+        (delivery_a1b, company_a, conn_a1, "del-a1b"),
+        (delivery_a2, company_a, conn_a2, "del-a2"),
+        (delivery_b1, company_b, conn_b1, "del-b1"),
+    ):
+        connection.execute(
+            text(
+                "INSERT INTO ingestion_deliveries "
+                "(id, tenant_id, company_id, connection_id, channel, delivery_key, "
+                "request_fingerprint, transport_status, created_at, updated_at) "
+                "VALUES (:id, :tenant, :company, :conn, 'ui', :key, 'fp', "
+                "'partially_received', :at, :at)"
+            ),
+            {
+                "id": delivery_id,
+                "tenant": tenant_id,
+                "company": company_id,
+                "conn": conn_id,
+                "key": key,
+                "at": now,
+            },
+        )
+    return _ScopeFixtures(
+        tenant_id=tenant_id,
+        company_a=company_a,
+        company_b=company_b,
+        conn_a1=conn_a1,
+        conn_a2=conn_a2,
+        conn_b1=conn_b1,
+        batch_a1=batch_a1,
+        delivery_a1=delivery_a1,
+        delivery_a1b=delivery_a1b,
+        delivery_a2=delivery_a2,
+        delivery_b1=delivery_b1,
+    )
+
+
+def _insert_part(
+    connection,
+    *,
+    part_id: uuid.UUID,
+    fixtures: _ScopeFixtures,
+    delivery_id: uuid.UUID,
+    company_id: uuid.UUID,
+    connection_id: uuid.UUID,
+    batch_id: uuid.UUID | None,
+    part_index: int,
+) -> None:
+    now = datetime.now(tz=UTC)
+    connection.execute(
+        text(
+            "INSERT INTO ingestion_delivery_parts "
+            "(id, tenant_id, delivery_id, company_id, connection_id, part_index, "
+            "content_hash, batch_id, part_status, created_at, updated_at) "
+            "VALUES (:id, :tenant, :delivery, :company, :conn, :idx, 'hash', "
+            ":batch, 'preview', :at, :at)"
+        ),
+        {
+            "id": part_id,
+            "tenant": fixtures.tenant_id,
+            "delivery": delivery_id,
+            "company": company_id,
+            "conn": connection_id,
+            "idx": part_index,
+            "batch": batch_id,
+            "at": now,
+        },
+    )
+
+
+def test_scope_part_batch_rejects_different_connection(migrated_database) -> None:
+    assert_finpilot_test_database(migrated_database)
+    with migrated_database.begin() as connection:
+        fixtures = _seed_scope_fixtures(connection)
+        _expect_fk_violation(
+            connection,
+            "INSERT INTO ingestion_delivery_parts "
+            "(id, tenant_id, delivery_id, company_id, connection_id, part_index, "
+            "content_hash, batch_id, part_status, created_at, updated_at) "
+            "VALUES (:id, :tenant, :delivery, :company, :conn, 1, 'hash', :batch, "
+            "'preview', now(), now())",
+            {
+                "id": uuid.uuid4(),
+                "tenant": fixtures.tenant_id,
+                "delivery": fixtures.delivery_a2,
+                "company": fixtures.company_a,
+                "conn": fixtures.conn_a2,
+                "batch": fixtures.batch_a1,
+            },
+            "ingestion_delivery_parts_batch_scope_fk",
+        )
+        assert connection.execute(text("SELECT count(*) FROM import_batches")).scalar_one() == 1
+
+
+def test_scope_part_batch_rejects_different_company(migrated_database) -> None:
+    assert_finpilot_test_database(migrated_database)
+    with migrated_database.begin() as connection:
+        fixtures = _seed_scope_fixtures(connection)
+        _expect_fk_violation(
+            connection,
+            "INSERT INTO ingestion_delivery_parts "
+            "(id, tenant_id, delivery_id, company_id, connection_id, part_index, "
+            "content_hash, batch_id, part_status, created_at, updated_at) "
+            "VALUES (:id, :tenant, :delivery, :company, :conn, 1, 'hash', :batch, "
+            "'preview', now(), now())",
+            {
+                "id": uuid.uuid4(),
+                "tenant": fixtures.tenant_id,
+                "delivery": fixtures.delivery_b1,
+                "company": fixtures.company_b,
+                "conn": fixtures.conn_b1,
+                "batch": fixtures.batch_a1,
+            },
+            "ingestion_delivery_parts_batch_scope_fk",
+        )
+
+
+def test_scope_batch_delivery_rejects_different_connection(migrated_database) -> None:
+    assert_finpilot_test_database(migrated_database)
+    with migrated_database.begin() as connection:
+        fixtures = _seed_scope_fixtures(connection)
+        _expect_fk_violation(
+            connection,
+            "UPDATE import_batches SET delivery_id = :delivery "
+            "WHERE id = :batch",
+            {"delivery": fixtures.delivery_a2, "batch": fixtures.batch_a1},
+            "import_batches_delivery_scope_fk",
+        )
+
+
+def test_scope_delivery_rejects_foreign_connection(migrated_database) -> None:
+    assert_finpilot_test_database(migrated_database)
+    with migrated_database.begin() as connection:
+        fixtures = _seed_scope_fixtures(connection)
+        _expect_fk_violation(
+            connection,
+            "INSERT INTO ingestion_deliveries "
+            "(id, tenant_id, company_id, connection_id, channel, delivery_key, "
+            "request_fingerprint, transport_status, created_at, updated_at) "
+            "VALUES (:id, :tenant, :company, :conn, 'ui', 'bad-del', 'fp', "
+            "'partially_received', now(), now())",
+            {
+                "id": uuid.uuid4(),
+                "tenant": fixtures.tenant_id,
+                "company": fixtures.company_a,
+                "conn": fixtures.conn_b1,
+            },
+            "ingestion_deliveries_connection_fk",
+        )
+
+
+def test_scope_batch_delivery_rejects_different_company(migrated_database) -> None:
+    assert_finpilot_test_database(migrated_database)
+    with migrated_database.begin() as connection:
+        fixtures = _seed_scope_fixtures(connection)
+        batch_b = uuid.uuid4()
+        now = datetime.now(tz=UTC)
+        connection.execute(
+            text(
+                "INSERT INTO import_batches "
+                "(id, tenant_id, company_id, connection_id, file_hash, file_storage_key, "
+                "format, status, created_at) "
+                "VALUES (:id, :tenant, :company, :conn, 'hash-b1', 'key-b1', 'csv', "
+                "'preview_ready', :at)"
+            ),
+            {
+                "id": batch_b,
+                "tenant": fixtures.tenant_id,
+                "company": fixtures.company_b,
+                "conn": fixtures.conn_b1,
+                "at": now,
+            },
+        )
+        _expect_fk_violation(
+            connection,
+            "UPDATE import_batches SET delivery_id = :delivery WHERE id = :batch",
+            {"delivery": fixtures.delivery_a1, "batch": batch_b},
+            "import_batches_delivery_scope_fk",
+        )
+
+
+def test_scope_email_ingestion_rejects_different_connection(migrated_database) -> None:
+    assert_finpilot_test_database(migrated_database)
+    with migrated_database.begin() as connection:
+        fixtures = _seed_scope_fixtures(connection)
+        email_conn = uuid.uuid4()
+        now = datetime.now(tz=UTC)
+        connection.execute(
+            text(
+                "INSERT INTO source_connections "
+                "(id, tenant_id, company_id, type, name, namespace, wallet_id, format, "
+                "encoding, dataset, created_at) "
+                "VALUES (:id, :tenant, :company, 'email', 'mail', 'scope-mail', "
+                "(SELECT id FROM wallets WHERE tenant_id = :tenant AND company_id = :company "
+                "LIMIT 1), 'clientbank', 'utf-8', 'cash', :at)"
+            ),
+            {
+                "id": email_conn,
+                "tenant": fixtures.tenant_id,
+                "company": fixtures.company_a,
+                "at": now,
+            },
+        )
+        _expect_fk_violation(
+            connection,
+            "INSERT INTO email_ingestions "
+            "(id, tenant_id, connection_id, delivery_id, uidvalidity, uid, "
+            "attachment_hash, status, created_at) "
+            "VALUES (:id, :tenant, :conn, :delivery, 1, 1, 'att', 'preview', :at)",
+            {
+                "id": uuid.uuid4(),
+                "tenant": fixtures.tenant_id,
+                "conn": email_conn,
+                "delivery": fixtures.delivery_a1,
+                "at": now,
+            },
+            "email_ingestions_delivery_scope_fk",
+        )
+
+
+def test_scope_allows_shared_batch_and_legacy_null_delivery(migrated_database) -> None:
+    assert_finpilot_test_database(migrated_database)
+    with migrated_database.begin() as connection:
+        fixtures = _seed_scope_fixtures(connection)
+        part_one = uuid.uuid4()
+        part_two = uuid.uuid4()
+        _insert_part(
+            connection,
+            part_id=part_one,
+            fixtures=fixtures,
+            delivery_id=fixtures.delivery_a1,
+            company_id=fixtures.company_a,
+            connection_id=fixtures.conn_a1,
+            batch_id=fixtures.batch_a1,
+            part_index=1,
+        )
+        _insert_part(
+            connection,
+            part_id=part_two,
+            fixtures=fixtures,
+            delivery_id=fixtures.delivery_a1b,
+            company_id=fixtures.company_a,
+            connection_id=fixtures.conn_a1,
+            batch_id=fixtures.batch_a1,
+            part_index=1,
+        )
+        connection.execute(
+            text(
+                "UPDATE import_batches SET delivery_id = :delivery WHERE id = :batch"
+            ),
+            {"delivery": fixtures.delivery_a1, "batch": fixtures.batch_a1},
+        )
+        legacy_batch = uuid.uuid4()
+        now = datetime.now(tz=UTC)
+        connection.execute(
+            text(
+                "INSERT INTO import_batches "
+                "(id, tenant_id, company_id, connection_id, delivery_id, file_hash, "
+                "file_storage_key, format, status, created_at) "
+                "VALUES (:id, :tenant, :company, :conn, NULL, 'legacy', 'legacy-key', "
+                "'csv', 'preview_ready', :at)"
+            ),
+            {
+                "id": legacy_batch,
+                "tenant": fixtures.tenant_id,
+                "company": fixtures.company_a,
+                "conn": fixtures.conn_a1,
+                "at": now,
+            },
+        )
+        assert (
             connection.execute(
                 text(
-                    "INSERT INTO ingestion_deliveries "
-                    "(id, tenant_id, company_id, connection_id, channel, delivery_key, "
-                    "request_fingerprint, transport_status, created_at, updated_at) "
-                    "VALUES (:id, :t, :c, :conn, 'ui', 'fk-test', 'fp', "
-                    "'partially_received', now(), now())"
-                ),
-                {"id": delivery_id, "t": a.tenant_id, "c": a.company_id, "conn": b.id},
+                    "SELECT count(DISTINCT batch_id) FROM ingestion_delivery_parts "
+                    "WHERE batch_id IS NOT NULL"
+                )
+            ).scalar_one()
+            == 1
+        )
+        assert (
+            connection.execute(
+                text("SELECT delivery_id IS NULL FROM import_batches WHERE id = :id"),
+                {"id": legacy_batch},
+            ).scalar_one()
+            is True
+        )
+
+
+def test_scope_fk_gap_on_0011_then_enforced_on_0012(migrated_database) -> None:
+    assert_finpilot_test_database(migrated_database)
+    _alembic_downgrade(REV_0011)
+    try:
+        gap_part = uuid.uuid4()
+        with migrated_database.begin() as connection:
+            fixtures = _seed_scope_fixtures(connection)
+            with connection.begin_nested():
+                _insert_part(
+                    connection,
+                    part_id=gap_part,
+                    fixtures=fixtures,
+                    delivery_id=fixtures.delivery_a2,
+                    company_id=fixtures.company_a,
+                    connection_id=fixtures.conn_a2,
+                    batch_id=fixtures.batch_a1,
+                    part_index=1,
+                )
+            connection.execute(
+                text("DELETE FROM ingestion_delivery_parts WHERE id = :id"),
+                {"id": gap_part},
             )
+        _alembic_revision(REVISION)
+        with migrated_database.begin() as connection:
+            fixtures = _seed_scope_fixtures(connection)
+            _expect_fk_violation(
+                connection,
+                "INSERT INTO ingestion_delivery_parts "
+                "(id, tenant_id, delivery_id, company_id, connection_id, part_index, "
+                "content_hash, batch_id, part_status, created_at, updated_at) "
+                "VALUES (:id, :tenant, :delivery, :company, :conn, 1, 'hash', :batch, "
+                "'preview', now(), now())",
+                {
+                    "id": uuid.uuid4(),
+                    "tenant": fixtures.tenant_id,
+                    "delivery": fixtures.delivery_a2,
+                    "company": fixtures.company_a,
+                    "conn": fixtures.conn_a2,
+                    "batch": fixtures.batch_a1,
+                },
+                "ingestion_delivery_parts_batch_scope_fk",
+            )
+    finally:
+        _alembic_revision(REVISION)
+
+
+def test_migration_0012_downgrade_restores_0011_constraints(migrated_database) -> None:
+    assert_finpilot_test_database(migrated_database)
+    _alembic_revision(REVISION)
+    try:
+        with migrated_database.connect() as connection:
+            assert _constraint_exists(connection, "ingestion_delivery_parts_batch_scope_fk")
+        _alembic_downgrade(REV_0011)
+        with migrated_database.connect() as connection:
+            assert _constraint_exists(connection, "ingestion_delivery_parts_batch_fk")
+            assert not _constraint_exists(connection, "ingestion_delivery_parts_batch_scope_fk")
+            assert _constraint_exists(connection, "import_batches_delivery_fk")
+            assert not _constraint_exists(connection, "import_batches_delivery_scope_fk")
+    finally:
+        _alembic_revision(REVISION)
 
 
 def test_rls_hides_foreign_tenant_delivery(client, admin, app, fake, tmp_path) -> None:

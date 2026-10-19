@@ -89,7 +89,7 @@ def migrated_database():
     engine.dispose()
 
 
-HEAD_REVISION = "20261018_0011"
+HEAD_REVISION = "20261019_0012"
 
 
 @pytest.fixture(autouse=True)

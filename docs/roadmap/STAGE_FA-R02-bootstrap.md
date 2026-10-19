@@ -38,6 +38,8 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 **R02.1 fix (2026-10-19).** Конкурентный UI upload одного файла: `session.add(batch)` только внутри SAVEPOINT flush; `import_batches_file_uq` → dedup с ожиданием committed batch; regression `test_ui_concurrent_same_file_two_sessions` (+ stress ×20).
 
+**R02.1 scope FK (2026-10-19).** Миграция `20261019_0012`: composite FK part→batch, batch→delivery, email→delivery; pre-check `upgrade_blocked` при scope mismatch; downgrade 0012→0011 восстанавливает слабые FK 0011.
+
 ## FA-R02.2 · Ревизии, entity id, unpost (минимум)
 
 **Цель.** `source_entity_id` / revision order; строки unpost → review, не auto void.

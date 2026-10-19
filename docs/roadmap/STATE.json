@@ -8,7 +8,7 @@
   "baseline": {
     "application_sha_last_reported": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
     "checkpoint_docs_sha": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
-    "migration_last_reported": "20261018_0011",
+    "migration_last_reported": "20261019_0012",
     "synthetic_company_only": true,
     "restore_current_cluster_verified_by_report": true,
     "offsite_copy_verified_by_report": true,
@@ -19,7 +19,7 @@
   "current_stage": "FA-R02",
   "current_task": "FA-R02.1",
   "status": "in_progress",
-  "allowed_next_action": "FA-R02.1: локальные проверки пройдены; ожидание CI/E2E на push-SHA. accepted не ставить.",
+  "allowed_next_action": "FA-R02.1: scope FK 0012 локально; ожидание CI/E2E на push-SHA. accepted не ставить.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
