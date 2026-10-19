@@ -1,5 +1,6 @@
 import csv
 import hashlib
+import time
 import uuid
 from collections import Counter
 from datetime import datetime
@@ -364,21 +365,19 @@ def receive_import(
         quality_flags=[],
         created_at=at,
     )
-    session.add(batch)
+    file_uq_conflict = False
     try:
         with session.begin_nested():
+            session.add(batch)
             session.flush()
     except IntegrityError as exc:
-        found = session.scalar(
-            select(ImportBatch).where(
-                ImportBatch.tenant_id == company.tenant_id,
-                ImportBatch.company_id == company.id,
-                ImportBatch.connection_id == connection.id,
-                ImportBatch.file_hash == digest,
-            )
-        )
+        if not _is_import_batch_file_uq(exc):
+            raise
+        file_uq_conflict = True
+    if file_uq_conflict:
+        found = _batch_after_file_uq_conflict(session, company, connection, digest)
         if found is None:
-            raise AppError(409, "conflict", "Файл уже импортируется") from exc
+            raise AppError(409, "conflict", "Файл уже импортируется")
         payload = _payload(session, found)
         return _finalize_transport_and_remember(
             session,
@@ -1186,6 +1185,38 @@ def _rule_payload(rule: ClassificationRule) -> dict:
         "enabled": rule.enabled,
         "version": rule.version,
     }
+
+
+def _is_import_batch_file_uq(exc: IntegrityError) -> bool:
+    orig = exc.orig
+    if orig is None:
+        return False
+    diag = getattr(orig, "diag", None)
+    if diag is not None and getattr(diag, "constraint_name", None) == "import_batches_file_uq":
+        return True
+    return "import_batches_file_uq" in str(orig)
+
+
+def _batch_after_file_uq_conflict(
+    session: Session,
+    company: Company,
+    connection: SourceConnection,
+    digest: str,
+) -> ImportBatch | None:
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        found = session.scalar(
+            select(ImportBatch).where(
+                ImportBatch.tenant_id == company.tenant_id,
+                ImportBatch.company_id == company.id,
+                ImportBatch.connection_id == connection.id,
+                ImportBatch.file_hash == digest,
+            )
+        )
+        if found is not None:
+            return found
+        time.sleep(0.02)
+    return None
 
 
 def _finalize_transport_and_remember(

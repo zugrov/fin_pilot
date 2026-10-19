@@ -36,6 +36,8 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 **Риски.** Deadlock на unique file_hash + delivery insert; RLS на новой таблице.
 
+**R02.1 fix (2026-10-19).** Конкурентный UI upload одного файла: `session.add(batch)` только внутри SAVEPOINT flush; `import_batches_file_uq` → dedup с ожиданием committed batch; regression `test_ui_concurrent_same_file_two_sessions` (+ stress ×20).
+
 ## FA-R02.2 · Ревизии, entity id, unpost (минимум)
 
 **Цель.** `source_entity_id` / revision order; строки unpost → review, не auto void.

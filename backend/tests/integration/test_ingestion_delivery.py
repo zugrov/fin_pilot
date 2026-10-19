@@ -1,8 +1,8 @@
 import threading
-import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import psycopg
@@ -11,7 +11,7 @@ from alembic import command
 from alembic.config import Config
 from app.integrations.imap_client import FakeMailbox, MailAttachment
 from app.models.identity import Company, Membership, User
-from app.models.imports import SourceConnection
+from app.models.imports import ImportBatch, SourceConnection
 from app.security.context import set_context
 from app.services.import_service import upload_file
 from app.services.mail_service import ingest_mailbox
@@ -247,73 +247,133 @@ def test_ui_failed_upload_leaves_no_orphan_idempotency(client, admin, app, fake,
     assert _rows(admin, "SELECT count(*) FROM ingestion_delivery_parts")[0][0] == 0
 
 
-def test_ui_concurrent_same_file_two_sessions(client, admin, app, fake, tmp_path) -> None:
-    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "td-race@example.com")
+def _run_ui_concurrent_same_file_two_sessions(
+    client, admin, app, fake, tmp_path, *, email: str
+) -> None:
+    company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, email)
     owner_id = UUID(client.get("/api/v1/auth/me").json()["user"]["id"])
     tenant_id = UUID(client.headers["X-Tenant-Id"])
     source = _source(client, company_id, wallet_id)
     content = (FIXTURES / "cash_ok.csv").read_bytes()
     at = RECEIVED
+    marker_name = f"race-marker-{uuid4().hex[:8]}"
+    prep = app.state.session_factory()
+    try:
+        set_context(prep, tenant_id=tenant_id, user_id=owner_id)
+        prep.execute(
+            text("UPDATE wallets SET name = :name WHERE id = :wallet_id"),
+            {"name": marker_name, "wallet_id": wallet_id},
+        )
+        prep.commit()
+    finally:
+        prep.close()
+
     payloads: list[dict] = []
     errors: list[BaseException] = []
-    barrier = threading.Barrier(2)
+    start_barrier = threading.Barrier(2)
+    batch_barrier = threading.Barrier(2)
+    real_batch_init = ImportBatch.__init__
+
+    def batch_init_with_barrier(self, *args, **kwargs):
+        batch_barrier.wait(timeout=5)
+        return real_batch_init(self, *args, **kwargs)
 
     def worker(key: str) -> None:
-        barrier.wait(timeout=5)
-        for attempt in range(8):
-            session = app.state.session_factory()
-            try:
-                set_context(session, tenant_id=tenant_id, user_id=owner_id)
-                user = session.get(User, owner_id)
-                company = session.get(Company, UUID(company_id))
-                membership = session.scalar(
-                    select(Membership).where(
-                        Membership.user_id == user.id,
-                        Membership.tenant_id == company.tenant_id,
-                        Membership.role == "owner",
-                    )
+        start_barrier.wait(timeout=5)
+        session = app.state.session_factory()
+        try:
+            set_context(session, tenant_id=tenant_id, user_id=owner_id)
+            user = session.get(User, owner_id)
+            company = session.get(Company, UUID(company_id))
+            membership = session.scalar(
+                select(Membership).where(
+                    Membership.user_id == user.id,
+                    Membership.tenant_id == company.tenant_id,
+                    Membership.role == "owner",
                 )
-                assert user is not None and company is not None and membership is not None
-                body = upload_file(
-                    session,
-                    membership,
-                    company,
-                    user,
-                    app.state.settings,
-                    connection_id=UUID(source["id"]),
-                    content=content,
-                    idempotency_key=key,
-                    at=at,
-                )
-                session.commit()
-                payloads.append(body)
-                return
-            except BaseException as exc:
-                session.rollback()
-                from app.errors import AppError
+            )
+            assert user is not None and company is not None and membership is not None
+            body = upload_file(
+                session,
+                membership,
+                company,
+                user,
+                app.state.settings,
+                connection_id=UUID(source["id"]),
+                content=content,
+                idempotency_key=key,
+                at=at,
+            )
+            session.execute(text("SELECT 1"))
+            session.commit()
+            payloads.append(body)
+        except BaseException as exc:
+            session.rollback()
+            errors.append(exc)
+        finally:
+            session.close()
 
-                if isinstance(exc, AppError) and exc.code == "conflict" and attempt < 7:
-                    time.sleep(0.05)
-                    continue
-                errors.append(exc)
-                return
-            finally:
-                session.close()
+    with patch.object(ImportBatch, "__init__", batch_init_with_barrier):
+        threads = [
+            threading.Thread(target=worker, args=(f"race-{index}",)) for index in range(2)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
 
-    threads = [threading.Thread(target=worker, args=(f"race-{index}",)) for index in range(2)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=30)
     assert errors == [], errors
+    assert len(payloads) == 2
+    batch_id = payloads[0]["id"]
+    assert all(item["id"] == batch_id for item in payloads)
+    assert len({item["delivery_id"] for item in payloads}) == 2
     assert _rows(admin, "SELECT count(*) FROM import_batches")[0][0] == 1
     assert _rows(admin, "SELECT count(*) FROM ingestion_deliveries")[0][0] == 2
     assert _rows(admin, "SELECT count(*) FROM ingestion_delivery_parts")[0][0] == 2
+    part_batches = _rows(admin, "SELECT batch_id::text FROM ingestion_delivery_parts")
+    assert len(part_batches) == 2 and all(row[0] == batch_id for row in part_batches)
     assert (
         _rows(admin, "SELECT count(*) FROM idempotency_records WHERE scope = 'import-upload'")[0][0]
         == 2
     )
-    assert len({item["id"] for item in payloads}) == 1
+    assert _rows(admin, "SELECT count(*) FROM raw_import_rows")[0][0] == 2
+    assert (
+        _rows(
+            admin,
+            "SELECT count(*) FROM audit_log WHERE action = 'import_received'",
+        )[0][0]
+        == 1
+    )
+    transport_rows = _rows(admin, "SELECT transport_status FROM ingestion_deliveries")
+    assert transport_rows == [("transport_complete",), ("transport_complete",)]
+    assert (
+        _rows(
+            admin,
+            "SELECT name FROM wallets WHERE id = :wallet_id",
+            {"wallet_id": wallet_id},
+        )[0][0]
+        == marker_name
+    )
+
+
+def test_ui_concurrent_same_file_two_sessions(client, admin, app, fake, tmp_path) -> None:
+    _run_ui_concurrent_same_file_two_sessions(
+        client, admin, app, fake, tmp_path, email="td-race@example.com"
+    )
+
+
+@pytest.mark.parametrize("attempt", range(20))
+def test_ui_concurrent_same_file_two_sessions_stability(
+    client, admin, app, fake, tmp_path, attempt: int
+) -> None:
+    _run_ui_concurrent_same_file_two_sessions(
+        client,
+        admin,
+        app,
+        fake,
+        tmp_path,
+        email=f"td-race-stress-{attempt}@example.com",
+    )
 
 
 def test_mail_repeat_preserves_complete_and_preview_parts(
