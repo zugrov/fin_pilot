@@ -82,7 +82,7 @@ def post_wallet(
     body["company_id"] = str(company_id)
     fingerprint = cash_service.request_hash(body)
     at = now()
-    return wallet_service.create_wallet_idempotent(
+    response_body = wallet_service.create_wallet_idempotent(
         session,
         membership,
         company,
@@ -99,6 +99,12 @@ def post_wallet(
         fingerprint=fingerprint,
         at=at,
     )
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return response_body
 
 
 @router.post("/wallets/{wallet_id}/opening-balance")

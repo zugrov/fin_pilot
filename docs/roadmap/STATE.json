@@ -19,7 +19,7 @@
   "current_stage": "FA-R02",
   "current_task": "FA-R02.1",
   "status": "in_progress",
-  "allowed_next_action": "FA-R02.1: scope FK 0012 локально; ожидание CI/E2E на push-SHA. accepted не ставить.",
+  "allowed_next_action": "FA-R02.1: wallet POST commit fix; ожидание CI/E2E на push-SHA. accepted не ставить.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",

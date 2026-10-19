@@ -40,6 +40,8 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 **R02.1 scope FK (2026-10-19).** Миграция `20261019_0012`: composite FK part→batch, batch→delivery, email→delivery; pre-check `upgrade_blocked` при scope mismatch; downgrade 0012→0011 восстанавливает слабые FK 0011.
 
+**Wallet POST commit (2026-10-19).** `post_wallet`: `session.commit()` до HTTP success (FastAPI 0.143 / get_db commit после yield); regression `test_wallet_response_commit.py` (ASGI probe на `http.response.start`).
+
 ## FA-R02.2 · Ревизии, entity id, unpost (минимум)
 
 **Цель.** `source_entity_id` / revision order; строки unpost → review, не auto void.
