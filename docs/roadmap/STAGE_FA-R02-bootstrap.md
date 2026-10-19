@@ -1,8 +1,10 @@
 # FA-R02 · Первые задачи (bootstrap после FA-R01)
 
-Статус: **in_progress** (этап FA-R02). **FA-R02.1**, **FA-R02.1b**, **FA-R02.2**, **FA-R02.3 accepted** 2026-10-19. **FA-R02.4** — **in_progress** (не accepted). FA-R01 accepted; deploy staging этим пакетом не входит.
+Статус: **accepted** 2026-10-19 (этап **FA-R02**, gate **G2**). Задачи **FA-R02.1**–**FA-R02.4** accepted с сохранением per-task product SHA. FA-R01 accepted; deploy staging этим закрытием **не** входит.
 
-**Snapshot vs deploy.** Принятый session transport product SHA — `ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c` (R02.3). Staging deployed baseline остаётся `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`; session ingest, миграции **0011/0012/0013**, HTTP transaction boundary и R02.2 revision/unpost на staging **не** применены; `session_ingest_enabled` **не** включать.
+**Repo accepted product snapshot:** `be9e47af63310f3d5745eadf67dddb0e8c6c9442` (R02.4 финальный product; включает R02.1–R02.3 в истории коммитов, per-task SHA см. STATE.json).
+
+**Snapshot vs deploy.** Staging deployed baseline остаётся `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`; R02, миграции **0011–0014**, HTTP transaction boundary, session **1.1**, reconcile и R02.2 revision/unpost на staging **не** заявлены; `session_ingest_enabled` **не** включать.
 
 Опора: ADR-001-B, `contracts/*`.
 
@@ -167,22 +169,73 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 - Cancellation/disconnect multipart cleanup — отдельными тестами **не** подтверждён.
 - `_files_to_close_on_error` — приватное поле установленного Starlette parser; **не** стабильный публичный контракт.
-- R02.4 control totals / coverage — см. секцию FA-R02.4 ниже.
+- R02.4 control totals / coverage — см. секцию FA-R02.4 (accepted).
 
-**Handoff:** FA-R02.4 **in_progress**.
+**Handoff:** FA-R02.4 **accepted**; этап FA-R02 **accepted** → **FA-R03.1** (planned).
 
 **Зависит от.** R02.1, R02.2 (revision через те же bytes/readers).
 
 ## FA-R02.4 · Control totals и coverage states
 
-**Статус:** **in_progress** (не accepted).
+**Статус:** **accepted** 2026-10-19.
 
-**Цель.** Отдельный validation layer; control totals по distinct `batch_id`; commit gates; `DatasetCoverage` claimed/reconciled; session `1.1-session`; owner reconcile endpoint.
+**Product SHA:** `be9e47af63310f3d5745eadf67dddb0e8c6c9442`.
 
-**Не входит.** FA-R03/FA-R11; auto `reconciled` при matched; ClientBank `ДатаКонца` → `coverage_through`; deploy/flag.
+**Цель (выполнено).** Validation layer; control totals по distinct `batch_id`; commit gates; `DatasetCoverage` claimed/reconciled/superseded; session `1.1-session`; owner reconcile endpoint.
 
-**Corrective (после 3e547ae):** snapshot sequential commit + preview sibling gates; totals invariants; reconcile idempotency/period/stale delivery; единый coverage scope lock (claim/reconcile/invalidate/legacy).
+**Не входит (остаётся вне scope).** FA-R03/FA-R11; auto `reconciled` при matched; ClientBank `ДатаКонца` → `coverage_through`; deploy/flag; multi-request snapshot chunks; auto deletion; period **closed**; machine ingest.
 
-**DDL.** `20261019_0014` — поля validation на `ingestion_deliveries`, таблица `dataset_coverage`.
+**DDL.** `20261019_0014` — validation на `ingestion_deliveries`, `dataset_coverage`; runtime downgrade guard A/B.
 
-**Зависит от.** R02.1–R02.3 (transport/session без переработки semantics 1.0).
+### Snapshot / delta (decision table)
+
+| Режим | Условие | Commit |
+| --- | --- | --- |
+| snapshot | все parts готовы; каждый `preview_ready` sibling без invalid/review | разрешён по batch |
+| snapshot | sibling `completed` clean (без quality_flags) | не блокирует следующий batch |
+| snapshot | sibling failed / `completed_with_errors` / preview с blocking rows | **409** `delivery_incomplete` |
+| snapshot | `control_totals` не matched / unverifiable | **409** |
+| delta | без `control_totals`, failed sibling (partial R02.3) | commit одного batch **200**; reconciled **не** создаётся |
+| delta | с `control_totals`, failed/incomplete delivery | **409** `delivery_incomplete` |
+
+### Totals и shared contexts
+
+- Агрегация по **distinct** `batch_id`; logical `record_count`; **Decimal**; malformed/invalid → `not_verifiable` (не ноль).
+- Один batch в нескольких delivery: commit с `?delivery_id=` — изолированные claims/mismatch gates (`test_shared_batch_two_deliveries_isolated_claims`).
+
+### Coverage
+
+- `completeness_claim` → **claimed**; reconcile (owner, CSRF, basis, idempotency) → **reconciled**; import commit → **superseded** (connection-wide invalidation v1).
+- Scope lock `pg_advisory_xact_lock` на tenant+connection+dataset; порядок: batch `FOR UPDATE` → coverage lock при commit; reconcile — только coverage lock.
+- Concurrent reconcile same scope; reconcile vs import **оба порядка** — DB tests в `test_delivery_coverage_integrity.py`.
+- Legacy `POST …/coverage`: scope lock **без** expire caller `SourceConnection`; regression `test_legacy_revenue_coverage_post_persists_through_scope_lock`.
+
+### Workflows на be9e47a
+
+| Run | Результат |
+| --- | --- |
+| CI [39316650896](https://github.com/zugrov/fin_pilot/actions/runs/39316650896) | **454 passed**, 0 failed/errors/skipped, **10 warnings**; Ruff/Mypy ✓; frontend **89** unit + build ✓ |
+| E2E [39316650795](https://github.com/zugrov/fin_pilot/actions/runs/39316650795) | **6 passed**, 0 failed/skipped |
+
+**Локально (вне product CI):** R02.4 matrix green; полный backend pytest — **2 failed** (backup_restore `:5433`; billing `annual_offer_versions` UUID pollution).
+
+**Staging.** Baseline **7ee85e5** без изменений.
+
+**Handoff:** **FA-R03 / FA-R03.1** — planned; `allowed_next_action` — read-only release-readiness план FA-R02 по отдельному разрешению.
+
+## G2 · Итог этапа FA-R02
+
+**Доказано предыдущими пакетами (per-task SHA сохранены):**
+
+| Task | Product SHA | Суть |
+| --- | --- | --- |
+| R02.1 | `9fe5c06…` | Delivery/parts, transport idempotency, 0011/0012, wallet commit fix |
+| R02.1b | `a78080a…` | HTTP transaction boundary, `get_db` scope=function |
+| R02.2 | `aedf0b8…` | Revision/unpost, 0013 |
+| R02.3 | `ecb7d64…` | Session multipart ingest 1.0, flag off |
+
+**Добавила R02.4 (`be9e47a…`):** 1.1-session envelope, control totals gates, snapshot/delta policy, `DatasetCoverage`, owner reconcile, scope lock, legacy coverage fix.
+
+**Evidence:** `test_ingestion_delivery.py`, `test_http_transaction_boundary.py`, `test_import_revision_unpost.py`, `test_ingestion_http.py`, `test_delivery_control_totals.py`, `test_delivery_coverage_integrity.py`, `test_control_totals_service.py`.
+
+**Оставшиеся ограничения (не исправлены):** connection-wide invalidation v1; нет commit-all-batches; reconcile verified только cash/revenue; plan/budget/balances count-only totals; machine/Bearer FA-R11; period closed — будущий пакет; multipart cancel/disconnect; приватный parser `_files_to_close_on_error`; локальные restore/billing test failures.

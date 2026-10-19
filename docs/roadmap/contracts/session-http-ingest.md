@@ -1,8 +1,10 @@
-# Session User Transport API (FA-R02.3)
+# Session User Transport API (FA-R02.3 + FA-R02.4)
 
-**Статус:** **accepted** 2026-10-19.
+**Статус:** **accepted** 2026-10-19 (transport R02.3 + control totals/coverage R02.4).
 
-**Accepted product SHA:** `ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c`.
+**Accepted product SHA (repo snapshot):** `be9e47af63310f3d5745eadf67dddb0e8c6c9442`.
+
+**Per-task reference:** session transport введён на `ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c`; расширение 1.1-session и reconcile — R02.4 на `be9e47a…`.
 
 **Не включено** на staging/prod (`session_ingest_enabled=false` по умолчанию); staging deployed baseline `7ee85e501735efcfa449ad8f44ef11258e5e4cf2` без изменений.
 

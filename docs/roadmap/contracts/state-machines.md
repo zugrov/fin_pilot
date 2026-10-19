@@ -78,25 +78,25 @@ As-is уже имеет статусы `ImportBatch` и `EmailIngestion.status`.
 
 ## 4. Полнота (coverage)
 
-Сущность: **DatasetCoverage** (проект); as-is только `coverage_through` date.
+**FA-R02.4 (product be9e47a):** таблица **DatasetCoverage** (`claimed` | `reconciled` | `superseded`) для cash/revenue session ingest + legacy `POST …/sources/{id}/coverage` (claimed only). As-is **`SourceConnection.coverage_through`** сохранён для UI/reports.
 
 | Состояние | Смысл |
 | --- | --- |
-| `unknown` | нет данных / не заявлено |
-| `claimed` | отправитель или POST coverage заявил |
-| `reconciled` | control totals + сверка OK |
-| `closed` | период закрыт уполномоченным (роль TBD) |
+| `unknown` | нет claim / нет legacy date |
+| `claimed` | `completeness_claim` в envelope 1.1 или legacy POST coverage |
+| `reconciled` | owner reconcile после matched totals + committed batches |
+| `superseded` | invalidation после изменяющего import (connection-wide v1) |
+| `closed` | **не реализовано** (будущий пакет) |
 
 | Из | Событие | В |
 | --- | --- | --- |
-| `unknown` | файл без claim | `unknown` (ClientBank max date **не** closed) |
-| `unknown` | completeness_claim в envelope | `claimed` |
-| `claimed` | ручной POST coverage / сверка | `reconciled` |
-| `reconciled` | close action | `closed` |
+| — | `completeness_claim` (verified datasets) | `claimed` row |
+| `claimed` | owner reconcile + gates OK | `reconciled` |
+| `reconciled` | import commit same connection | `superseded` (prior reconciled rows) |
+| — | legacy POST coverage | `claimed` + `coverage_through` на connection |
 
-**Правило видимости:** delivery с `partially_received` или batch
-`completed_with_errors` **не** может переводить coverage в `reconciled`/`closed`
-автоматически.
+**Правило:** auto `reconciled` при matched totals **нет**; partial delta без totals **не** даёт reconciled.
 
-**Противоречие control totals:** coverage остаётся `claimed` или `unknown`;
-флаг `control_mismatch` на delivery.
+**Delivery validation:** `validation_status` matched/mismatch/not_verifiable/not_checked; snapshot/delta commit gates — см. `session-http-ingest.md`.
+
+**Не реализовано:** period **closed**; multi-chunk snapshot transport; machine coverage.

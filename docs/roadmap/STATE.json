@@ -16,10 +16,10 @@
     "live_repository_and_server_must_be_rechecked": false,
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
-  "current_stage": "FA-R02",
-  "current_task": "FA-R02.4",
-  "status": "in_progress",
-  "allowed_next_action": "FA-R02.4: product-пакет control totals/coverage in_progress; приёмка владельцем после зелёного CI/E2E; deploy/staging/flag и FA-R11 не начинать.",
+  "current_stage": "FA-R03",
+  "current_task": "FA-R03.1",
+  "status": "ready",
+  "allowed_next_action": "FA-R02 accepted (product be9e47a). Отдельное разрешение на read-only подготовку release-readiness плана принятого FA-R02. Не начинать FA-R03 implementation, deploy, server preflight, SSH, миграции на staging/prod, реальные данные/интеграции.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -207,7 +207,10 @@
       "depends_on": [
         "FA-R01"
       ],
-      "status": "in_progress",
+      "status": "accepted",
+      "accepted_at": "2026-10-19",
+      "accepted_product_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+      "accepted_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
       "tasks": [
         {
           "id": "FA-R02.1",
@@ -326,12 +329,45 @@
         {
           "id": "FA-R02.4",
           "title": "Проведение и полнота",
-          "status": "in_progress",
-          "evidence": []
+          "status": "accepted",
+          "accepted_at": "2026-10-19",
+          "accepted_product_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+          "evidence": [
+            "принятый product SHA be9e47a (repo); staging deployed baseline 7ee85e5 без изменений — R02.4, 0014, session 1.1, reconcile и flag на staging не применены",
+            "миграция 20261019_0014: validation на ingestion_deliveries, dataset_coverage; runtime downgrade guard A/B (dataset_coverage или delivery metadata)",
+            "envelope 1.1-session: mode delta/snapshot, period, control_totals, completeness_claim; fingerprint v2; 1.0 без изменений",
+            "snapshot/delta gates: все preview siblings без invalid/review; clean completed siblings OK; partial delta без totals при failed sibling; delta с totals блокирует incomplete",
+            "control totals: distinct batch_id, logical record_count, Decimal compare, invalid/unverifiable без нуля; shared delivery contexts изолированы",
+            "DatasetCoverage claimed vs reconciled; POST reconcile owner+CSRF+entitlement+basis; idempotency scope delivery-reconcile; audit delivery_coverage_reconciled",
+            "coverage scope lock tenant+connection+dataset; reconcile vs import commit оба порядка; invalidation connection-wide v1; replay commit не воскрешает superseded",
+            "legacy POST /coverage: scope lock без expire caller connection; independent SELECT coverage_through; claimed/version/audit; revenue/budget/telegram regression восстановлена",
+            "CI 39316650896 @ be9e47a: success; backend 454 passed, 0 failed, 0 errors, 0 skipped, 10 warnings; Ruff/Mypy ok; frontend 89 unit + build ok",
+            "E2E 39316650795 @ be9e47a: success; 6 passed, 0 failed, 0 skipped",
+            "docs/roadmap/STAGE_FA-R02-bootstrap.md",
+            "docs/roadmap/contracts/session-http-ingest.md",
+            "backend/tests/integration/test_delivery_control_totals.py",
+            "backend/tests/integration/test_delivery_coverage_integrity.py",
+            "backend/tests/unit/test_control_totals_service.py"
+          ],
+          "residual_risks": [
+            "connection-wide invalidation v1 — не per exact period scope",
+            "нет commit-all-batches для snapshot",
+            "verified DatasetCoverage reconcile только cash/revenue; plan/budget/balances — count-only totals где применимо",
+            "machine/Bearer ingest — FA-R11",
+            "period closed — отдельный будущий пакет",
+            "multipart cancellation/disconnect cleanup не доказан",
+            "локальные test_backup_restore и billing discount test вне CI product evidence"
+          ]
         }
       ],
-      "accepted_sha": null,
-      "acceptance_evidence": []
+      "accepted_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+      "acceptance_evidence": [
+        "docs/roadmap/STAGE_FA-R02-bootstrap.md (G2)",
+        "CI run 39316650896 (product SHA be9e47a)",
+        "E2E run 39316650795 (product SHA be9e47a)",
+        "tasks FA-R02.1–R02.4 accepted с сохранёнными per-task product SHA",
+        "staging deployed baseline 7ee85e5 unchanged"
+      ]
     },
     {
       "id": "FA-R03",
@@ -805,9 +841,9 @@
   "last_handoff": {
     "at": "2026-10-19",
     "from_stage": "FA-R02",
-    "to_stage": "FA-R02",
-    "from_task": "FA-R02.3",
-    "to_task": "FA-R02.4",
+    "to_stage": "FA-R03",
+    "from_task": "FA-R02.4",
+    "to_task": "FA-R03.1",
     "fa_r00": "accepted",
     "g0": "accepted",
     "fa_r01": "accepted",
@@ -815,6 +851,8 @@
     "fa_r01_2": "accepted",
     "fa_r01_3": "accepted",
     "fa_r01_4": "accepted",
+    "fa_r02": "accepted",
+    "fa_r02_accepted_product_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
     "fa_r02_1": "accepted",
     "fa_r02_1_accepted_product_sha": "9fe5c06d8778b56556baa40932aa189c231696c1",
     "fa_r02_1b": "accepted",
@@ -823,7 +861,9 @@
     "fa_r02_2_accepted_product_sha": "aedf0b8346d3416de5da8b87dc91d108abdb1468",
     "fa_r02_3": "accepted",
     "fa_r02_3_accepted_product_sha": "ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c",
-    "fa_r02_started": true
+    "fa_r02_4": "accepted",
+    "fa_r02_4_accepted_product_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+    "fa_r03_started": false
   },
   "fa_r02_2_acceptance": {
     "accepted_product_sha": "aedf0b8346d3416de5da8b87dc91d108abdb1468",
@@ -905,7 +945,84 @@
       "multipart cancellation/disconnect cleanup",
       "parser _files_to_close_on_error as stable public contract"
     ],
-    "fa_r02_4_started": false
+    "fa_r02_4_started": true
+  },
+  "fa_r02_4_acceptance": {
+    "accepted_product_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+    "accepted_at": "2026-10-19",
+    "migration": "20261019_0014",
+    "product_chain_notes": "3e547ae initial R02.4; a9b7246 snapshot/coverage corrective; ec172b7 scope lock gates; be9e47a legacy coverage lock fix",
+    "ci": {
+      "run_id": 39316650896,
+      "url": "https://github.com/zugrov/fin_pilot/actions/runs/39316650896",
+      "head_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+      "status": "completed",
+      "conclusion": "success",
+      "backend_pytest": 454,
+      "backend_failed": 0,
+      "backend_errors": 0,
+      "backend_skipped": 0,
+      "backend_warnings": 10,
+      "ruff": "ok",
+      "mypy": "ok",
+      "frontend_unit": 89,
+      "frontend_build": "ok"
+    },
+    "e2e": {
+      "run_id": 39316650795,
+      "url": "https://github.com/zugrov/fin_pilot/actions/runs/39316650795",
+      "head_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+      "status": "completed",
+      "conclusion": "success",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    "staging_deployed_baseline_unchanged": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
+    "session_ingest_enabled_on_staging": false,
+    "local_full_backend_pytest": {
+      "note": "не объявлять полностью зелёным на finpilot_test@127.0.0.1:5432",
+      "failures": [
+        "test_backup_restore: pg_dump 127.0.0.1:5433 connection refused",
+        "test_year5_year6_upgrade_uses_paid_discount: UniqueViolation annual_offer_versions — остаток локальной test DB"
+      ]
+    },
+    "not_implemented": [
+      "multi-request snapshot chunks",
+      "auto deletion / machine ingest / period close",
+      "commit-all-batches snapshot",
+      "per-period invalidation (connection-wide v1 only)"
+    ],
+    "fa_r03_started": false
+  },
+  "fa_r02_acceptance": {
+    "accepted_product_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+    "accepted_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+    "accepted_at": "2026-10-19",
+    "per_task_accepted_product_sha": {
+      "FA-R02.1": "9fe5c06d8778b56556baa40932aa189c231696c1",
+      "FA-R02.1b": "a78080a6c072ea851db9fa2d458cb0983af5a76a",
+      "FA-R02.2": "aedf0b8346d3416de5da8b87dc91d108abdb1468",
+      "FA-R02.3": "ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c",
+      "FA-R02.4": "be9e47af63310f3d5745eadf67dddb0e8c6c9442"
+    },
+    "ci": {
+      "run_id": 39316650896,
+      "head_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+      "backend_pytest": 454,
+      "backend_failed": 0,
+      "backend_errors": 0,
+      "backend_skipped": 0,
+      "backend_warnings": 10
+    },
+    "e2e": {
+      "run_id": 39316650795,
+      "head_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    "staging_deployed_baseline_unchanged": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2"
   },
   "fa_r01_1_acceptance": {
     "accepted_product_sha": "e70612da585c4718881b2ab30acc9bbf74702e2a",
@@ -1063,6 +1180,21 @@
       "status": "accepted",
       "by": "owner",
       "basis": "session-only transport API product SHA ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c; CI 39278467402 attempt 1; E2E 39278467079 attempt 1; machine Bearer FA-R11 not in scope; staging baseline 7ee85e5 unchanged; flag off"
+    },
+    {
+      "at": "2026-10-19",
+      "task": "FA-R02.4",
+      "status": "accepted",
+      "by": "owner",
+      "basis": "product SHA be9e47af63310f3d5745eadf67dddb0e8c6c9442; CI 39316650896; E2E 39316650795; control totals/coverage/snapshot gates; staging baseline 7ee85e5 unchanged"
+    },
+    {
+      "at": "2026-10-19",
+      "stage": "FA-R02",
+      "gate": "G2",
+      "status": "accepted",
+      "by": "owner",
+      "basis": "этап FA-R02 tasks R02.1–R02.4 accepted; repo product snapshot be9e47a; per-task SHA preserved; staging 7ee85e5 unchanged"
     }
   ],
   "fa_r01_3_acceptance": {
@@ -1388,7 +1520,7 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R02.4 control totals/coverage in_progress (не accepted). FA-R02.3 accepted ecb7d64. Staging baseline 7ee85e5; session_ingest flag off.",
+  "note": "FA-R02 и FA-R02.4 accepted; repo product be9e47a. Staging baseline 7ee85e5; R02/0011–0014/HTTP boundary/session 1.1 на staging не заявлены; session_ingest flag off. Next: FA-R03.1 planned.",
   "updated_at": "2026-10-19",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",

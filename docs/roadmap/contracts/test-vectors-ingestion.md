@@ -19,8 +19,8 @@
 | 7 | Отмена проведения | explicit `operation=unpost` в import CSV | batch preview | **только review** — без create/revise/void/tombstone; void API отдельно (`test_cash void`) | ✓ meta | `test_unpost_review_without_financial_change`; auto-cancel **не** реализован |
 | 8 | Старая ревизия после новой | upload/commit с меньшим `source_revision` после watermark | preview: `repeated`/`changed` + `review_reason`; commit | 409 `stale_revision` / `revision_payload_conflict` / `revision_required` (FA-R02.2 **accepted** aedf0b8) | ✓ | `test_import_revision_unpost`, stale preview ×4 datasets |
 | 9 | Частичный сбой multi-chunk | chunk 1 OK, chunk 2 422 | `partially_received` | только chunk1 batch commit | ✓ chunk_count=2 | proposed API |
-| 10 | Незавершённый snapshot | mode=snapshot, chunk 1/3 | `partially_received`, **не** `reconciled` | commit gated policy TBD | ✓ | FA-R02.4 |
-| 11 | Конфlict control totals | envelope totals ≠ parsed rows | `validation_blocked`, batch preview | commit blocked | ✓ control_totals | FA-R02.4 |
+| 10 | Snapshot multipart (один POST) | `1.1-session`, `mode=snapshot`, несколько `files` в **одном** запросе | `transport_complete`; sibling gates до полного snapshot | sequential batch commit; preview siblings blocking → **409**; clean completed sibling OK | ✓ 1.1 fields | **частично FA-R02.4** — `test_snapshot_two_parts_commit_a_then_b`, `test_snapshot_blocks_commit_when_sibling_preview_has_unpost_review`; **не** multi-request chunks |
+| 11 | Control totals gates | envelope totals ≠ parsed / matched / unverifiable | `validation_status` mismatch/not_verifiable | commit **409**; shared delivery contexts isolated | ✓ control_totals | **FA-R02.4 accepted be9e47a** — `test_delivery_control_totals.py`, `test_control_totals_service.py` |
 
 ## JSON Schema не доказывает
 
