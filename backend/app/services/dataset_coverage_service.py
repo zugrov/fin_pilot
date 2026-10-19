@@ -553,28 +553,26 @@ def legacy_revenue_coverage_claim(
     timezone: str = "Europe/Moscow",
 ) -> None:
     """POST coverage — legacy claim, не reconciled."""
+    tenant_id = connection.tenant_id
+    company_id = connection.company_id
     connection_id = connection.id
+    dataset = connection.dataset
     acquire_coverage_scope_lock(session, connection)
-    session.expire(connection)
-    reloaded_connection = session.get(SourceConnection, connection_id)
-    if reloaded_connection is None:
-        return
-    connection = reloaded_connection
     row = DatasetCoverage(
         id=uuid.uuid4(),
-        tenant_id=connection.tenant_id,
-        company_id=connection.company_id,
-        connection_id=connection.id,
-        dataset=connection.dataset,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        connection_id=connection_id,
+        dataset=dataset,
         period_start=coverage_through,
         period_end=coverage_through,
         period_timezone=timezone,
         version=_next_coverage_version(
             session,
-            connection.tenant_id,
-            connection.company_id,
-            connection.id,
-            connection.dataset,
+            tenant_id,
+            company_id,
+            connection_id,
+            dataset,
             coverage_through,
             coverage_through,
             timezone,

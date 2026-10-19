@@ -580,3 +580,128 @@ def test_runtime_downgrade_0014_blocked_with_delivery_metadata_only(
     assert _current_revision(migrated_database) == HEAD_REVISION
     with migrated_database.connect() as connection:
         connection.execute(text("SELECT 1"))
+
+
+def _revenue_source(client, company_id: str) -> str:
+    created = client.post(
+        f"/api/v1/companies/{company_id}/sources",
+        json={
+            "name": "Продажи",
+            "type": "file",
+            "namespace": "sales-cov",
+            "format": "csv",
+            "dataset": "revenue",
+        },
+    )
+    assert created.status_code == 200, created.text
+    return created.json()["id"]
+
+
+def _coverage_through_independent(admin, source_id: str) -> str | None:
+    with admin.connect() as connection:
+        return connection.execute(
+            text(
+                "SELECT coverage_through::text FROM source_connections "
+                "WHERE id = CAST(:id AS uuid)"
+            ),
+            {"id": source_id},
+        ).scalar_one_or_none()
+
+
+def test_legacy_revenue_coverage_post_persists_through_scope_lock(
+    client, admin, app, fake, tmp_path
+) -> None:
+    company_id, _wallet_id = _ready(
+        client, admin, app, fake, tmp_path, "legacy-scope-lock@example.com"
+    )
+    source_id = _revenue_source(client, company_id)
+    company_tz = _rows(
+        admin,
+        "SELECT timezone FROM companies WHERE id = CAST(:id AS uuid)",
+        {"id": company_id},
+    )[0][0]
+    revenue_before = _rows(admin, "SELECT count(*) FROM revenue_entries")[0][0]
+    cash_before = _rows(admin, "SELECT count(*) FROM cash_transactions")[0][0]
+
+    first_date = "2026-10-15"
+    first = client.post(
+        f"/api/v1/companies/{company_id}/sources/{source_id}/coverage",
+        json={"coverage_through": first_date},
+    )
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["coverage_through"] == first_date
+    assert body["dataset"] == "revenue"
+    assert _coverage_through_independent(admin, source_id) == first_date
+
+    claimed = _rows(
+        admin,
+        "SELECT state, version, connection_id::text, company_id::text, period_timezone, dataset "
+        "FROM dataset_coverage WHERE connection_id = CAST(:c AS uuid) ORDER BY version",
+        {"c": source_id},
+    )
+    assert len(claimed) == 1
+    assert claimed[0][0] == "claimed"
+    assert claimed[0][1] == 1
+    assert claimed[0][2] == source_id
+    assert claimed[0][3] == company_id
+    assert claimed[0][4] == company_tz
+    assert claimed[0][5] == "revenue"
+    reconciled = _rows(
+        admin,
+        "SELECT count(*) FROM dataset_coverage WHERE connection_id = CAST(:c AS uuid) "
+        "AND state = 'reconciled'",
+        {"c": source_id},
+    )[0][0]
+    assert reconciled == 0
+    audit_first = _rows(
+        admin,
+        "SELECT count(*) FROM audit_log WHERE action = 'revenue_coverage_set' "
+        "AND entity_id = CAST(:id AS uuid)",
+        {"id": source_id},
+    )[0][0]
+    assert audit_first == 1
+    assert _rows(admin, "SELECT count(*) FROM revenue_entries")[0][0] == revenue_before
+    assert _rows(admin, "SELECT count(*) FROM cash_transactions")[0][0] == cash_before
+
+    second_date = "2026-10-31"
+    second = client.post(
+        f"/api/v1/companies/{company_id}/sources/{source_id}/coverage",
+        json={"coverage_through": second_date},
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["coverage_through"] == second_date
+    assert _coverage_through_independent(admin, source_id) == second_date
+
+    periods = _rows(
+        admin,
+        "SELECT version, state, period_start::text, period_end::text "
+        "FROM dataset_coverage WHERE connection_id = CAST(:c AS uuid) ORDER BY created_at",
+        {"c": source_id},
+    )
+    assert len(periods) == 2
+    assert periods[0] == (1, "claimed", first_date, first_date)
+    assert periods[1] == (1, "claimed", second_date, second_date)
+
+    third = client.post(
+        f"/api/v1/companies/{company_id}/sources/{source_id}/coverage",
+        json={"coverage_through": second_date},
+    )
+    assert third.status_code == 200, third.text
+    scope_versions = _rows(
+        admin,
+        "SELECT version FROM dataset_coverage WHERE connection_id = CAST(:c AS uuid) "
+        "AND period_start = CAST(:d AS date) AND period_end = CAST(:d AS date) "
+        "ORDER BY version",
+        {"c": source_id, "d": second_date},
+    )
+    assert scope_versions == [(1,), (2,)]
+    audit_total = _rows(
+        admin,
+        "SELECT count(*) FROM audit_log WHERE action = 'revenue_coverage_set' "
+        "AND entity_id = CAST(:id AS uuid)",
+        {"id": source_id},
+    )[0][0]
+    assert audit_total == 3
+    assert _rows(admin, "SELECT count(*) FROM revenue_entries")[0][0] == revenue_before
+    assert _rows(admin, "SELECT count(*) FROM cash_transactions")[0][0] == cash_before
