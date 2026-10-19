@@ -1,8 +1,8 @@
 # FA-R02 · Первые задачи (bootstrap после FA-R01)
 
-Статус: **in_progress** (этап FA-R02). **FA-R02.1**, **FA-R02.1b**, **FA-R02.2 accepted** 2026-10-19. **FA-R02.3–R02.4** — planned. FA-R01 accepted; deploy staging этим пакетом не входит.
+Статус: **in_progress** (этап FA-R02). **FA-R02.1**, **FA-R02.1b**, **FA-R02.2**, **FA-R02.3 accepted** 2026-10-19. **FA-R02.4** — planned. FA-R01 accepted; deploy staging этим пакетом не входит.
 
-**Snapshot vs deploy.** Принятый код R02.2 в репозитории — `aedf0b8346d3416de5da8b87dc91d108abdb1468`. Staging deployed baseline остаётся `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`; миграции **0011/0012/0013**, HTTP transaction boundary и R02.2 revision/unpost на staging **не** применены.
+**Snapshot vs deploy.** Принятый session transport product SHA — `ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c` (R02.3). Staging deployed baseline остаётся `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`; session ingest, миграции **0011/0012/0013**, HTTP transaction boundary и R02.2 revision/unpost на staging **не** применены; `session_ingest_enabled` **не** включать.
 
 Опора: ADR-001-B, `contracts/*`.
 
@@ -130,20 +130,46 @@ UI file и почта создают delivery; transport idempotency по `deliv
 - Auto-void / tombstone / snapshot deletion при unpost — **не** реализованы.
 - `identity_type_conflict` при upload, когда тип уже известен на preview — invalid + partial import (не HTTP 409).
 
-**Handoff:** FA-R02.3 **planned** — read-only подготовка только по отдельному разрешению.
+**Handoff:** FA-R02.3 **accepted**; `current_task` → **FA-R02.4** (planned).
 
 ## FA-R02.3 · Session User Transport API
 
-**Статус:** **in_progress** (не accepted).
+**Статус:** **accepted** 2026-10-19.
 
-**Реализовано (product, flag off по умолчанию).**
+**Product SHA:** `ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c`.
+
+**Scope (session-only).** Два маршрута: multipart **POST** ingest и **GET** актуального статуса delivery. Machine credentials, Bearer ingest, 1С — **FA-R11**, **не** реализованы этим пакетом. `json_records`, chunks, `client_package_id`, `control_totals` — **не** поддержаны.
+
+**Реализовано (flag off по умолчанию).**
 
 - `POST /api/v1/companies/{company_id}/ingestions`, `GET /api/v1/ingestions/{delivery_id}`.
-- Auth: session + CSRF; Bearer → 401; `session_ingest_enabled=false` → 404.
-- Envelope `1.0-session`, multipart (raw body limit 32 MiB), idempotency scope `session-ingest`, advisory lock same-key.
-- Async multipart + threadpool offload blocking DB; явное закрытие upload resources (FA-R02.3 corrective).
+- Auth: session + CSRF + company/connection/entitlement; Bearer → 401; `session_ingest_enabled=false` → 404.
+- Envelope `1.0-session`, multipart (raw body ≤ 32 MiB, per-file limits), idempotency scope `session-ingest`, advisory lock same-key; replay **200** + сохранённое POST body; first **201**.
+- Same-key concurrency ×20: один delivery/parts/batch/idempotency; partial/all-failed parts; **без** auto `commit_import`.
+- Async multipart parse; sequential `run_in_threadpool` для actor/accept; одна `DbSession`; `get_db` commit-before-response (R02.1b); `/health/live` во время ожидания advisory lock.
+- Multipart upload cleanup в проверенных сценариях (см. integration/unit tests).
 - Контракт: `docs/roadmap/contracts/session-http-ingest.md`.
-- Proposed OpenAPI + Bearer machine ingest — **FA-R11**, не смешивать с session subset.
+
+### FA-R02.3 · приёмка владельцем (2026-10-19)
+
+**Workflows на ecb7d64 (attempt 1):**
+
+| Run | URL | Результат |
+|-----|-----|-----------|
+| CI [39278467402](https://github.com/zugrov/fin_pilot/actions/runs/39278467402) | head `ecb7d64…`; **420 passed**, 0 failed/errors/skipped, 10 warnings; Ruff/Mypy ✓; frontend **89** unit + build ✓; Stop containers ✓ |
+| E2E [39278467079](https://github.com/zugrov/fin_pilot/actions/runs/39278467079) | head `ecb7d64…`; **6 passed**, 0 failed/skipped; Stop containers ✓ |
+
+**Локально (вне CI product SHA):** Ruff/Mypy/frontend/E2E FA-R01 — green на ecb7d64; полный backend pytest — **не** полностью зелёный: `test_backup_restore` (`pg_dump` `:5433`); `test_year5_year6_upgrade_uses_paid_discount` (billing UUID в локальной test DB).
+
+**Staging.** Deploy baseline **7ee85e5** без изменений; новые пакеты/миграции на стенде **не** заявлены; флаг session ingest **не** включать.
+
+**Оставшиеся ограничения (не блокируют приёмку R02.3).**
+
+- Cancellation/disconnect multipart cleanup — отдельными тестами **не** подтверждён.
+- `_files_to_close_on_error` — приватное поле установленного Starlette parser; **не** стабильный публичный контракт.
+- R02.4 control totals / coverage / snapshot policy — **не** реализованы.
+
+**Handoff:** FA-R02.4 **planned** — read-only подготовка и решения владельца только по отдельному разрешению; DDL/реализация автоматически не разрешены.
 
 **Зависит от.** R02.1, R02.2 (revision через те же bytes/readers).
 

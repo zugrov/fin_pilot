@@ -1,8 +1,12 @@
 # Session User Transport API (FA-R02.3)
 
-**Статус:** реализовано в коде; **не accepted**; **не включено** на staging/prod (`session_ingest_enabled=false` по умолчанию).
+**Статус:** **accepted** 2026-10-19.
 
-Это **пользовательский** transport API (cookie + CSRF), **не** machine/1С интеграция. Bearer и `channel=api` — **FA-R11**; целевой контракт остаётся в `ingestion-proposed.openapi.yaml`.
+**Accepted product SHA:** `ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c`.
+
+**Не включено** на staging/prod (`session_ingest_enabled=false` по умолчанию); staging deployed baseline `7ee85e501735efcfa449ad8f44ef11258e5e4cf2` без изменений.
+
+Это **session-only** пользовательский transport API (cookie + CSRF). **Не** machine/1С интеграция: Bearer ingest, service credentials и `channel=api` — **FA-R11**, **не** реализованы. Целевой machine-контракт — `ingestion-proposed.openapi.yaml`.
 
 ## Маршруты
 
@@ -21,7 +25,8 @@
 - Не более **8** файлов; **raw** multipart body ≤ **32 MiB** (с boundary/overhead, считается при чтении stream); per-file/row/XLSX — существующие `import_max_*`.
 - Concurrent same `delivery_key`: `pg_advisory_xact_lock` на `(user, key)`; replay **200** с сохранённым POST body; idempotency scope `session-ingest`.
 - Parse multipart — **async** на event loop; синхронные DB/service фазы (`auth`, `accept_session_ingestion`) — через `run_in_threadpool` (одна `DbSession` на запрос, без параллельного использования).
-- После parse (успех или ошибка валидации полей) все `UploadFile` из form закрываются явно; при ошибке parse parser закрывает временные file handles из `_files_to_close_on_error`.
+- После parse (успех или ошибка валидации полей) все `UploadFile` из form закрываются явно; при ошибке parse parser закрывает временные file handles из `_files_to_close_on_error` (приватное поле установленной версии Starlette — не публичный контракт).
+- Cancellation/disconnect cleanup — **не** подтверждён отдельными тестами.
 
 ## Envelope (`schema_version = "1.0-session"`)
 

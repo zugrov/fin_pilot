@@ -17,9 +17,9 @@
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
   "current_stage": "FA-R02",
-  "current_task": "FA-R02.3",
+  "current_task": "FA-R02.4",
   "status": "ready",
-  "allowed_next_action": "FA-R02.3 in_progress: session transport API в коде (flag off); приёмка — отдельное решение; deploy/staging enable не разрешены; FA-R11 machine Bearer и R02.4 не начинать.",
+  "allowed_next_action": "FA-R02.4: отдельное разрешение на read-only подготовку малого пакета и решений владельца по control totals/coverage/snapshot policy; реализация и DDL автоматически не разрешены; deploy/staging enable session_ingest и FA-R11 machine Bearer не начинать.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -294,15 +294,33 @@
         },
         {
           "id": "FA-R02.3",
-          "title": "Права и технический API",
-          "status": "in_progress",
+          "title": "Session User Transport API",
+          "status": "accepted",
+          "accepted_at": "2026-10-19",
+          "accepted_product_sha": "ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c",
           "evidence": [
-            "Session User Transport API: POST/GET ingestions; session+CSRF; Bearer 401; session_ingest_enabled default false → 404",
-            "envelope schema_version 1.0-session; idempotency scope session-ingest; receive_import pipeline",
+            "принятый product SHA ecb7d64 (repo); staging deployed baseline 7ee85e5 без изменений — session ingest, R02.2/0013 и прочие R02-пакеты на staging не применены; session_ingest_enabled не включать",
+            "session-only scope: POST multipart /api/v1/companies/{company_id}/ingestions; GET актуального статуса /api/v1/ingestions/{delivery_id}; list route нет",
+            "auth: session + CSRF + tenant/company write/read + entitlement; Bearer → 401; flag default false → 404",
+            "envelope 1.0-session (channel ui); raw body ≤32 MiB; per-file/import_max_*; duplicate envelope → 422; idempotency scope session-ingest; saved POST replay 200; first success 201",
+            "same-key concurrency: pg_advisory_xact_lock; stress ×20; один delivery/parts/batch/idempotency; partial/all-failed parts; без auto commit_import",
+            "async multipart parse; sequential run_in_threadpool actor/accept; одна DbSession; get_db commit-before-response (R02.1b); health/live во время ожидания lock",
+            "multipart upload cleanup в проверенных сценариях (success, unknown field, duplicate envelope, oversize, raw overflow, malformed)",
+            "machine credentials / Bearer ingest / 1С — не реализованы (FA-R11); json_records/chunks/client_package_id/control_totals — не поддержаны",
+            "CI 39278467402 attempt 1 @ ecb7d64: completed success; headSha ecb7d64; backend 420 passed 0 failed 0 skipped 10 warnings; Ruff/Mypy ok; frontend 89 unit + build; Stop containers success",
+            "E2E 39278467079 attempt 1 @ ecb7d64: completed success; headSha ecb7d64; 6 passed 0 failed 0 skipped; Stop containers success",
+            "локально: Ruff/Mypy/frontend/E2E FA-R01 green на ecb7d64; полный backend pytest — не полностью зелёный (test_backup_restore :5433; test_year5_year6 billing UUID)",
             "docs/roadmap/contracts/session-http-ingest.md",
+            "docs/roadmap/STAGE_FA-R02-bootstrap.md",
             "backend/tests/integration/test_ingestion_http.py",
-            "backend/tests/unit/test_session_ingestion_envelope.py",
-            "proposed OpenAPI Bearer/machine — FA-R11; не смешивать с session subset"
+            "backend/tests/unit/test_session_ingest_multipart.py",
+            "backend/tests/unit/test_session_ingestion_envelope.py"
+          ],
+          "residual_risks": [
+            "cancellation/disconnect multipart cleanup — отдельными тестами не подтверждён",
+            "_files_to_close_on_error — приватное поле Starlette MultiPartParser; не публичный контракт",
+            "локальный backup_restore и billing discount test вне CI product evidence",
+            "session_ingest_enabled=false по умолчанию; включение на staging/prod — отдельное решение"
           ]
         },
         {
@@ -788,8 +806,8 @@
     "at": "2026-10-19",
     "from_stage": "FA-R02",
     "to_stage": "FA-R02",
-    "from_task": "FA-R02.2",
-    "to_task": "FA-R02.3",
+    "from_task": "FA-R02.3",
+    "to_task": "FA-R02.4",
     "fa_r00": "accepted",
     "g0": "accepted",
     "fa_r01": "accepted",
@@ -803,6 +821,8 @@
     "fa_r02_1b_accepted_product_sha": "a78080a6c072ea851db9fa2d458cb0983af5a76a",
     "fa_r02_2": "accepted",
     "fa_r02_2_accepted_product_sha": "aedf0b8346d3416de5da8b87dc91d108abdb1468",
+    "fa_r02_3": "accepted",
+    "fa_r02_3_accepted_product_sha": "ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c",
     "fa_r02_started": true
   },
   "fa_r02_2_acceptance": {
@@ -835,7 +855,57 @@
         "test_year5_year6_upgrade_uses_paid_discount: UniqueViolation annual_offer_versions id 00000000-0000-4000-8000-000000000099 — остаток локальной test DB, не исправление fixture"
       ]
     },
-    "fa_r02_3_started": false
+    "fa_r02_3_started": true
+  },
+  "fa_r02_3_acceptance": {
+    "accepted_product_sha": "ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c",
+    "accepted_at": "2026-10-19",
+    "scope": "session_user_transport_only",
+    "machine_bearer_fa_r11": "not_implemented",
+    "ci": {
+      "run_id": 39278467402,
+      "attempt": 1,
+      "url": "https://github.com/zugrov/fin_pilot/actions/runs/39278467402",
+      "head_sha": "ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c",
+      "status": "completed",
+      "conclusion": "success",
+      "backend_pytest": 420,
+      "backend_failed": 0,
+      "backend_errors": 0,
+      "backend_skipped": 0,
+      "backend_warnings": 10,
+      "ruff": "ok",
+      "mypy": "ok",
+      "frontend_unit": 89,
+      "frontend_build": "ok",
+      "stop_containers": "success"
+    },
+    "e2e": {
+      "run_id": 39278467079,
+      "attempt": 1,
+      "url": "https://github.com/zugrov/fin_pilot/actions/runs/39278467079",
+      "head_sha": "ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c",
+      "status": "completed",
+      "conclusion": "success",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "stop_containers": "success"
+    },
+    "staging_deployed_baseline_unchanged": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
+    "session_ingest_enabled_on_staging": false,
+    "local_full_backend_pytest": {
+      "note": "не объявлять полностью зелёным",
+      "failures": [
+        "test_backup_restore: pg_dump 127.0.0.1:5433 connection refused",
+        "test_year5_year6_upgrade_uses_paid_discount: UniqueViolation annual_offer_versions — остаток локальной test DB"
+      ]
+    },
+    "not_fully_tested": [
+      "multipart cancellation/disconnect cleanup",
+      "parser _files_to_close_on_error as stable public contract"
+    ],
+    "fa_r02_4_started": false
   },
   "fa_r01_1_acceptance": {
     "accepted_product_sha": "e70612da585c4718881b2ab30acc9bbf74702e2a",
@@ -986,6 +1056,13 @@
       "status": "accepted",
       "by": "owner",
       "basis": "product SHA aedf0b8346d3416de5da8b87dc91d108abdb1468; CI 39249819030; E2E 39249818954; revision/unpost review; staging baseline 7ee85e5 unchanged"
+    },
+    {
+      "at": "2026-10-19",
+      "task": "FA-R02.3",
+      "status": "accepted",
+      "by": "owner",
+      "basis": "session-only transport API product SHA ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c; CI 39278467402 attempt 1; E2E 39278467079 attempt 1; machine Bearer FA-R11 not in scope; staging baseline 7ee85e5 unchanged; flag off"
     }
   ],
   "fa_r01_3_acceptance": {
@@ -1311,7 +1388,7 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R02.3 session transport API in_progress (flag off). FA-R02.2 accepted aedf0b8. Staging baseline 7ee85e5.",
+  "note": "FA-R02.3 session transport API accepted ecb7d64 (flag off). FA-R02 in_progress; current_task FA-R02.4 planned. Staging baseline 7ee85e5.",
   "updated_at": "2026-10-19",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
