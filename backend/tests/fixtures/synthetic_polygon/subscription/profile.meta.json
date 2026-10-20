@@ -1,0 +1,20 @@
+{
+  "slug": "subscription",
+  "display_name": "Synth Subscript LLC",
+  "industry_label": "подписочный бизнес",
+  "tax": {
+    "legal_form": "OOO",
+    "vat_payer": true,
+    "default_vat_rate": "0.20",
+    "usn_object": "income",
+    "cash_method_for_usn": true,
+    "note": "УСН «доходы» и кассовый метод — только метаданные сценария, не расчёт налога."
+  },
+  "files_sha256": {
+    "cash.csv": "a52ce1724eed488c96fb2f2ad6224bf0d660237123ba39987031b03ec80e945d",
+    "revenue.csv": "9ce3dc0f26967149a3285a23d1afe030c99e5866d4da73b8e2d27855e019eb04",
+    "planned_cash.csv": "c857f746d5c75d69f93fc214d5e1020aa763904f882ea4cb571e7fef26d9eb5d",
+    "budget.csv": "c0e7ba78a5b0a7fe2cef472a085326fe3dd34a75faa9f9b4cb45c9be23b15a02",
+    "balances.csv": "28fe7adc518f67a25feb5ce2582ae5c22be820fbd89294e1ad2286dd69072f42"
+  }
+}

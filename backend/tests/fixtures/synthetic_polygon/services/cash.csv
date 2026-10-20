@@ -1,0 +1,4 @@
+external_id,wallet_code,business_date,direction,amount,currency,counterparty_inn,counterparty_name,description,document_number,category_code,direction_code
+svc-c1,main,2026-10-05,in,12000.00,RUB,7700000101,Synth Client One,Оплата услуг,SVC-01,operating,
+svc-c2,main,2026-10-15,in,8000.00,RUB,7700000102,Synth Client Two,Аванс за проект,SVC-02,operating,
+svc-c3,main,2026-10-20,out,3000.00,RUB,7700000199,Synth Vendor,Подряд,SVC-OUT-1,operating,

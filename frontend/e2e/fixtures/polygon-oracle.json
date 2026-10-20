@@ -1,0 +1,49 @@
+{
+  "polygon_random_seed": 4194398211,
+  "polygon_frozen_iso": "2026-11-01T06:00:00+00:00",
+  "period_from": "2026-10-01",
+  "period_to": "2026-10-31",
+  "revenue_label": "Выручка без НДС",
+  "group": {
+    "cash_total": "117500.00",
+    "revenue": "46000.00"
+  },
+  "companies": {
+    "services": {
+      "opening_balance": "50000.00",
+      "cash_in": "20000.00",
+      "cash_out": "3000.00",
+      "net_cash_flow": "17000.00",
+      "cash_total": "67000.00",
+      "operation_count": 3,
+      "revenue_net_ex_vat": "15000.00"
+    },
+    "retail": {
+      "opening_balance": "25000.00",
+      "cash_in": "22200.00",
+      "cash_out": "2500.00",
+      "net_cash_flow": "19700.00",
+      "cash_total": "44700.00",
+      "operation_count": 3,
+      "revenue_net_ex_vat": "28000.00"
+    },
+    "subscription": {
+      "opening_balance": "1000.00",
+      "cash_in": "4800.00",
+      "cash_out": "0.00",
+      "net_cash_flow": "4800.00",
+      "cash_total": "5800.00",
+      "operation_count": 4,
+      "revenue_net_ex_vat": "3000.00"
+    }
+  },
+  "plan_move_services": {
+    "amount": "4000.00",
+    "cash_total_unchanged": "67000.00",
+    "forecast_unpaid_before": "Неоплаченная выплата 4000.00 на 2026-11-01",
+    "forecast_unpaid_after": "Неоплаченная выплата 4000.00 на 2026-11-01",
+    "calendar_expected_after": "2026-11-05",
+    "moved_expected": "2026-11-05",
+    "plan_marker_due": "2026-10-28"
+  }
+}

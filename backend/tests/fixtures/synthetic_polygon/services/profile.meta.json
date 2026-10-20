@@ -1,0 +1,20 @@
+{
+  "slug": "services",
+  "display_name": "Synth Services LLC",
+  "industry_label": "услуги",
+  "tax": {
+    "legal_form": "OOO",
+    "vat_payer": true,
+    "default_vat_rate": "0.20",
+    "usn_object": null,
+    "cash_method_for_usn": null,
+    "note": "НДС 20% задан явно в строках revenue; УСН не моделируется."
+  },
+  "files_sha256": {
+    "cash.csv": "c1d45750ae39ece6aaf9f6cc13ec8a4db8456ab80b2b433eefa531fc657d2fab",
+    "revenue.csv": "0207c7c0c848b23626e755e5c7125862dac5142162e13accdeed0b9f566602b1",
+    "planned_cash.csv": "920fe5f5f434b1739979e4993ff72b5c56a5f85f7a3a4046f9fcce04ece43ec5",
+    "budget.csv": "b9ead38b066883eec525ee2aecb088611dd80f6a27fe04087e1d44fe5efa6d89",
+    "balances.csv": "3833608a7e5b9de86d912ea7478b9009170c8742abed4404dc4ef7a15b45115d"
+  }
+}

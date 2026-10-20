@@ -1,0 +1,21 @@
+{
+  "slug": "retail",
+  "display_name": "Synth Retail LLC",
+  "industry_label": "торговля без складского учёта",
+  "tax": {
+    "legal_form": "OOO",
+    "vat_payer": true,
+    "default_vat_rate": "0.20",
+    "usn_object": null,
+    "cash_method_for_usn": null,
+    "note": "Одна продажа с НДС 0 через явные нулевые vat_amount."
+  },
+  "files_sha256": {
+    "cash.csv": "434b8c215b1b779ad7ee8df6f5965354d97e08ca86100ec4dc1fa42a6ddc64e6",
+    "revenue.csv": "8daf86d69bb5a4f0603464721bb3a59eb27fa5778e9586761d22cf9160950328",
+    "planned_cash.csv": "fb4fa320152e1a1400979f3d6f258828d030571c9f8b6cac41c5f47e4682ae0d",
+    "budget.csv": "54583356b1bc9489d75b8a92e0f00bdb21288fae214c5405e8aa5f574c50acf3",
+    "balances.csv": "460aa888bb1c15f358f44b425a2507c2c256e9e381c2e415b888f89b50db330a",
+    "clientbank.txt": "3bcf7184741d9d63233ebe1292872d7ca8a1ea9ac0eb1f5cc68407b85ac6ef1a"
+  }
+}

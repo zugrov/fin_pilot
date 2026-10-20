@@ -1,0 +1,2 @@
+external_id,direction,amount,currency,due_date,expected_date,category_code,counterparty_inn,confidence,priority,wallet_code
+sub-p1,in,2400.00,RUB,2026-10-30,2026-10-31,operating,,expected,normal,main

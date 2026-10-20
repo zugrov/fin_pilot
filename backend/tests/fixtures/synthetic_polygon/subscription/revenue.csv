@@ -1,0 +1,4 @@
+external_id,recognition_date,document_number,counterparty_inn,amount_ex_vat,vat_amount,amount_inc_vat,entry_type,direction_code
+sub-r1,2026-10-01,SUB-R-1,7700000401,1000.00,200.00,1200.00,sale,
+sub-r2,2026-10-15,SUB-R-2,7700000402,1000.00,200.00,1200.00,sale,
+sub-r3,2026-10-28,SUB-R-3,7700000403,1000.00,200.00,1200.00,sale,

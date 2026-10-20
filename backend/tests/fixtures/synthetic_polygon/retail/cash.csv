@@ -1,0 +1,3 @@
+external_id,wallet_code,business_date,direction,amount,currency,counterparty_inn,counterparty_name,description,document_number,category_code,direction_code
+ret-c1,main,2026-10-04,in,15000.00,RUB,7700000201,Synth Buyer,Розничная оплата,RET-01,operating,
+ret-c2,main,2026-10-08,out,2500.00,RUB,7700000299,Synth Supplier,Закупка,RET-OUT-1,operating,

@@ -1,0 +1,3 @@
+external_id,recognition_date,document_number,counterparty_inn,amount_ex_vat,vat_amount,amount_inc_vat,entry_type,direction_code
+svc-r1,2026-10-10,SVC-R-10,7700000101,10000.00,2000.00,12000.00,sale,
+svc-r2,2026-10-18,SVC-R-18,7700000102,5000.00,1000.00,6000.00,sale,

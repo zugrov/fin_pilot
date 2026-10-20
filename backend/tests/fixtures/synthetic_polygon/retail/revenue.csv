@@ -1,0 +1,5 @@
+external_id,recognition_date,document_number,counterparty_inn,amount_ex_vat,vat_amount,amount_inc_vat,entry_type,direction_code
+ret-r1,2026-10-05,RET-05,7700000201,24000.00,4800.00,28800.00,sale,
+ret-r2,2026-10-11,RET-11,7700000202,6000.00,1200.00,7200.00,sale,
+ret-r3,2026-10-20,RET-RET-20,7700000201,3000.00,600.00,3600.00,return,
+ret-r4,2026-10-22,RET-22,7700000203,1000.00,0.00,1000.00,sale,

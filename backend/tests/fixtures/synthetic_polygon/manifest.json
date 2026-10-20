@@ -1,0 +1,30 @@
+{
+  "polygon_random_seed": 4194398211,
+  "polygon_frozen_iso": "2026-11-01T06:00:00+00:00",
+  "period_from": "2026-10-01",
+  "period_to": "2026-10-31",
+  "profiles": {
+    "services": {
+      "cash.csv": "c1d45750ae39ece6aaf9f6cc13ec8a4db8456ab80b2b433eefa531fc657d2fab",
+      "revenue.csv": "0207c7c0c848b23626e755e5c7125862dac5142162e13accdeed0b9f566602b1",
+      "planned_cash.csv": "920fe5f5f434b1739979e4993ff72b5c56a5f85f7a3a4046f9fcce04ece43ec5",
+      "budget.csv": "b9ead38b066883eec525ee2aecb088611dd80f6a27fe04087e1d44fe5efa6d89",
+      "balances.csv": "3833608a7e5b9de86d912ea7478b9009170c8742abed4404dc4ef7a15b45115d"
+    },
+    "retail": {
+      "cash.csv": "434b8c215b1b779ad7ee8df6f5965354d97e08ca86100ec4dc1fa42a6ddc64e6",
+      "revenue.csv": "8daf86d69bb5a4f0603464721bb3a59eb27fa5778e9586761d22cf9160950328",
+      "planned_cash.csv": "fb4fa320152e1a1400979f3d6f258828d030571c9f8b6cac41c5f47e4682ae0d",
+      "budget.csv": "54583356b1bc9489d75b8a92e0f00bdb21288fae214c5405e8aa5f574c50acf3",
+      "balances.csv": "460aa888bb1c15f358f44b425a2507c2c256e9e381c2e415b888f89b50db330a",
+      "clientbank.txt": "3bcf7184741d9d63233ebe1292872d7ca8a1ea9ac0eb1f5cc68407b85ac6ef1a"
+    },
+    "subscription": {
+      "cash.csv": "a52ce1724eed488c96fb2f2ad6224bf0d660237123ba39987031b03ec80e945d",
+      "revenue.csv": "9ce3dc0f26967149a3285a23d1afe030c99e5866d4da73b8e2d27855e019eb04",
+      "planned_cash.csv": "c857f746d5c75d69f93fc214d5e1020aa763904f882ea4cb571e7fef26d9eb5d",
+      "budget.csv": "c0e7ba78a5b0a7fe2cef472a085326fe3dd34a75faa9f9b4cb45c9be23b15a02",
+      "balances.csv": "28fe7adc518f67a25feb5ce2582ae5c22be820fbd89294e1ad2286dd69072f42"
+    }
+  }
+}

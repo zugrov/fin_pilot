@@ -1,0 +1,5 @@
+external_id,wallet_code,business_date,direction,amount,currency,counterparty_inn,counterparty_name,description,document_number,category_code,direction_code
+sub-c1,main,2026-10-03,in,1200.00,RUB,7700000401,Synth Sub A,Подписка окт,SUB-01,operating,
+sub-c2,main,2026-10-10,in,1200.00,RUB,7700000402,Synth Sub B,Подписка окт,SUB-02,operating,
+sub-c3,main,2026-10-17,in,1200.00,RUB,7700000403,Synth Sub C,Подписка окт,SUB-03,operating,
+sub-c4,main,2026-10-24,in,1200.00,RUB,7700000404,Synth Sub D,Подписка окт,SUB-04,operating,

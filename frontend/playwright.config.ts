@@ -18,11 +18,19 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   projects: [
-    { name: "setup", testMatch: /auth\.setup\.ts/ },
+    {
+      name: "setup",
+      testMatch: /auth\.setup\.ts/,
+      testIgnore: [/polygon\//],
+    },
     {
       name: "chromium",
       dependencies: ["setup"],
-      testIgnore: /auth\.setup\.ts/,
+      testIgnore: [
+        /auth\.setup\.ts/,
+        /group-e-synthetic-polygon\.spec\.ts/,
+        /polygon\//,
+      ],
       use: {
         ...devices["Desktop Chrome"],
         storageState: "e2e/.auth/user.json",
