@@ -1,0 +1,251 @@
+name: release-image-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-character product source commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  ALLOWED_SOURCE_SHA: be9e47af63310f3d5745eadf67dddb0e8c6c9442
+  BUILD_PLATFORM: linux/amd64
+  ALEMBIC_HEAD: "20261019_0014"
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Validate source_sha input
+        run: |
+          sha="${{ inputs.source_sha }}"
+          if ! echo "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "source_sha must be a full 40-character lowercase hex SHA"
+            exit 1
+          fi
+          if [ "$sha" != "${{ env.ALLOWED_SOURCE_SHA }}" ]; then
+            echo "source_sha not allowed for this release: $sha"
+            echo "allowed: ${{ env.ALLOWED_SOURCE_SHA }}"
+            exit 1
+          fi
+          echo "SOURCE_SHA=$sha" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=finpilot-api:release-$sha" >> "$GITHUB_ENV"
+          echo "ARTIFACT_BASENAME=finpilot-api-release-$sha-linux-amd64" >> "$GITHUB_ENV"
+
+      - name: Checkout product source SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Confirm checkout HEAD
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "${{ env.SOURCE_SHA }}" ]; then
+            echo "HEAD mismatch: expected ${{ env.SOURCE_SHA }}, got $actual"
+            exit 1
+          fi
+          echo "product_source_head=$actual"
+
+      - name: Prepare backend build context
+        run: |
+          ctx="${{ runner.temp }}/release-build"
+          rm -rf "$ctx"
+          mkdir -p "$ctx"
+          git archive "${{ env.SOURCE_SHA }}" backend | tar -x -C "$ctx"
+          if [ ! -f "$ctx/backend/Dockerfile" ]; then
+            echo "Dockerfile missing in archive context"
+            exit 1
+          fi
+          if find "$ctx/backend" \( -name .env -o -name .venv \) | grep -q .; then
+            echo "forbidden .env or .venv in build context"
+            find "$ctx/backend" \( -name .env -o -name .venv \)
+            exit 1
+          fi
+          echo "BUILD_DIR=$ctx/backend" >> "$GITHUB_ENV"
+
+      - name: Source file checksums
+        run: |
+          cd "$BUILD_DIR"
+          sha256sum \
+            app/config.py \
+            app/services/import_service.py \
+            app/services/control_totals_service.py \
+            app/services/ingestion_http_service.py \
+            app/services/ingestion_delivery_service.py \
+            app/services/delivery_validation_service.py \
+            app/services/dataset_coverage_service.py \
+            alembic/versions/20261018_0011_ingestion_delivery.py \
+            alembic/versions/20261019_0012_ingestion_delivery_scope.py \
+            alembic/versions/20261019_0013_source_revision_unpost.py \
+            alembic/versions/20261019_0014_delivery_validation_coverage.py \
+            alembic/sql/0011_ingestion_delivery.sql \
+            alembic/sql/0011_ingestion_delivery_downgrade.sql \
+            alembic/sql/0012_ingestion_delivery_scope.sql \
+            alembic/sql/0012_ingestion_delivery_scope_downgrade.sql \
+            alembic/sql/0013_source_revision_unpost.sql \
+            alembic/sql/0013_source_revision_unpost_downgrade.sql \
+            alembic/sql/0014_delivery_validation_coverage.sql \
+            alembic/sql/0014_delivery_validation_coverage_downgrade.sql \
+            > "${{ runner.temp }}/source-checksums.txt"
+          cat "${{ runner.temp }}/source-checksums.txt"
+
+      - name: Build release image
+        run: |
+          docker build \
+            --platform "${{ env.BUILD_PLATFORM }}" \
+            --label "org.opencontainers.image.revision=${{ env.SOURCE_SHA }}" \
+            -t "${{ env.IMAGE_TAG }}" \
+            "$BUILD_DIR"
+
+      - name: Offline image smoke
+        run: |
+          run_py() {
+            docker run --rm -i --network none -w /app "$@" \
+              --entrypoint /app/.venv/bin/python \
+              "${{ env.IMAGE_TAG }}" -
+          }
+
+          run_py <<'PY'
+          import importlib
+          for name in (
+              "app.config",
+              "app.services.import_service",
+              "app.services.ingestion_http_service",
+              "app.services.control_totals_service",
+              "app.errors",
+          ):
+              importlib.import_module(name)
+          print("runtime_imports_ok")
+          PY
+
+          run_py <<'PY'
+          from app.config import Settings
+          s = Settings()
+          assert s.session_ingest_enabled is False, s.session_ingest_enabled
+          assert s.balances_import_enabled is False, s.balances_import_enabled
+          print("settings_session_ingest_default_false_ok")
+          PY
+
+          run_py <<'PY'
+          from app.config import Settings
+          from app.errors import AppError
+          from app.services.ingestion_http_service import require_session_ingest_enabled
+
+          try:
+              require_session_ingest_enabled(Settings())
+          except AppError as exc:
+              assert exc.status_code == 404
+              assert exc.code == "not_found"
+          else:
+              raise AssertionError("expected AppError when session ingest disabled")
+          print("session_ingest_gate_ok")
+          PY
+
+          run_py <<PY
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+
+          script = ScriptDirectory.from_config(Config("alembic.ini"))
+          head = script.get_current_head()
+          expected = "${{ env.ALEMBIC_HEAD }}"
+          if head != expected:
+              raise AssertionError(f"alembic head {head!r} != {expected!r}")
+          print(f"alembic_head_ok={head}")
+          PY
+
+          run_py <<'PY' > "${{ runner.temp }}/image-checksums.txt"
+          import hashlib
+          from pathlib import Path
+
+          files = (
+              "app/config.py",
+              "app/services/import_service.py",
+              "app/services/control_totals_service.py",
+              "app/services/ingestion_http_service.py",
+              "app/services/ingestion_delivery_service.py",
+              "app/services/delivery_validation_service.py",
+              "app/services/dataset_coverage_service.py",
+              "alembic/versions/20261018_0011_ingestion_delivery.py",
+              "alembic/versions/20261019_0012_ingestion_delivery_scope.py",
+              "alembic/versions/20261019_0013_source_revision_unpost.py",
+              "alembic/versions/20261019_0014_delivery_validation_coverage.py",
+              "alembic/sql/0011_ingestion_delivery.sql",
+              "alembic/sql/0011_ingestion_delivery_downgrade.sql",
+              "alembic/sql/0012_ingestion_delivery_scope.sql",
+              "alembic/sql/0012_ingestion_delivery_scope_downgrade.sql",
+              "alembic/sql/0013_source_revision_unpost.sql",
+              "alembic/sql/0013_source_revision_unpost_downgrade.sql",
+              "alembic/sql/0014_delivery_validation_coverage.sql",
+              "alembic/sql/0014_delivery_validation_coverage_downgrade.sql",
+          )
+          for rel in files:
+              digest = hashlib.sha256(Path("/app", rel).read_bytes()).hexdigest()
+              print(f"{digest}  {rel}")
+          PY
+
+          sort "${{ runner.temp }}/source-checksums.txt" > "${{ runner.temp }}/source-sorted.txt"
+          sort "${{ runner.temp }}/image-checksums.txt" > "${{ runner.temp }}/image-sorted.txt"
+          if ! diff -u "${{ runner.temp }}/source-sorted.txt" "${{ runner.temp }}/image-sorted.txt"; then
+            echo "checksum mismatch between source context and image"
+            exit 1
+          fi
+          echo "checksums_match_ok"
+
+      - name: Capture image metadata
+        run: |
+          image_id="$(docker image inspect "${{ env.IMAGE_TAG }}" --format '{{.Id}}')"
+          image_size="$(docker image inspect "${{ env.IMAGE_TAG }}" --format '{{.Size}}')"
+          arch="$(docker image inspect "${{ env.IMAGE_TAG }}" --format '{{.Architecture}}')"
+          os="$(docker image inspect "${{ env.IMAGE_TAG }}" --format '{{.Os}}')"
+          revision="$(docker image inspect "${{ env.IMAGE_TAG }}" \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+          if [ "$revision" != "${{ env.SOURCE_SHA }}" ]; then
+            echo "revision label mismatch: $revision"
+            exit 1
+          fi
+          {
+            echo "workflow_sha=${{ github.sha }}"
+            echo "product_source_sha=${{ env.SOURCE_SHA }}"
+            echo "tag=${{ env.IMAGE_TAG }}"
+            echo "image_id=$image_id"
+            echo "image_size_bytes=$image_size"
+            echo "os=$os"
+            echo "architecture=$arch"
+            echo "platform=${os}/${arch}"
+            echo "revision_label=$revision"
+            echo "alembic_head=${{ env.ALEMBIC_HEAD }}"
+            echo "smoke=passed"
+            echo "note=offline image smoke only; not HTTP/DB/E2E; product acceptance is CI/E2E on product SHA"
+          } > "${{ runner.temp }}/release-manifest.txt"
+          cat "${{ runner.temp }}/release-manifest.txt"
+
+      - name: Export image artifact
+        run: |
+          out="${{ runner.temp }}/${{ env.ARTIFACT_BASENAME }}.tar.gz"
+          docker save "${{ env.IMAGE_TAG }}" | gzip -9 > "$out"
+          compressed_size="$(wc -c < "$out" | tr -d ' ')"
+          sha256sum "$out" | tee "${{ runner.temp }}/release-image.sha256"
+          ls -lh "$out"
+          {
+            echo "artifact_path=${{ env.ARTIFACT_BASENAME }}.tar.gz"
+            echo "compressed_size_bytes=$compressed_size"
+          } >> "${{ runner.temp }}/release-manifest.txt"
+          cat "${{ runner.temp }}/release-manifest.txt"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_BASENAME }}
+          path: |
+            ${{ runner.temp }}/${{ env.ARTIFACT_BASENAME }}.tar.gz
+            ${{ runner.temp }}/release-image.sha256
+            ${{ runner.temp }}/release-manifest.txt
+            ${{ runner.temp }}/source-checksums.txt
+            ${{ runner.temp }}/image-checksums.txt
+          retention-days: 7
