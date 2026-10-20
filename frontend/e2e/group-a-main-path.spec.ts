@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Request } from "@playwright/test";
 
 import { E2E_FIXTURES, FIXTURES, loadSeedMeta } from "./fixtures/seed";
 import { openAppShell, selectCompany } from "./helpers/auth";
@@ -47,16 +47,35 @@ test.describe("FA-R01.4 · A · основной путь одной фирмы"
     await expect(page.locator("ul.mb-6").getByText(/остаток 1\.50/)).toBeVisible();
 
     await page.getByRole("link", { name: "Календарь" }).click();
-    await page.getByLabel("Сумма", { exact: true }).fill("2.00");
-    await page.getByLabel("Срок (due_date)").fill("2026-10-25");
-    await page.getByLabel("Ожидаемая дата", { exact: true }).fill("2026-10-27");
-    await page.getByRole("button", { name: "Добавить платёж" }).click();
+    await expect(page.getByLabel("Сумма, ₽")).toHaveValue("");
+    await expect(page.getByLabel("Срок оплаты")).toHaveValue("");
+    await expect(page.getByLabel("Ожидаемая дата оплаты")).toHaveValue("");
+    const planEventsBefore = await page.locator("ul.mb-6 > li").count();
+    let planCreatePosts = 0;
+    const onPlanCreate = (req: Request) => {
+      if (req.method() === "POST" && /\/api\/v1\/companies\/[^/]+\/planned-cash(?:\?|$)/.test(req.url())) {
+        planCreatePosts += 1;
+      }
+    };
+    page.on("request", onPlanCreate);
+    await page.getByRole("button", { name: "Добавить в план" }).click();
+    await expect(page.getByText("Сумма в формате 1234.56")).toBeVisible();
+    expect(planCreatePosts).toBe(0);
+    await expect(page.locator("ul.mb-6 > li")).toHaveCount(planEventsBefore);
+    page.off("request", onPlanCreate);
+
+    await page.getByLabel("Сумма, ₽").fill("2.00");
+    await page.getByLabel("Срок оплаты").fill("2026-10-25");
+    await page.getByLabel("Ожидаемая дата оплаты").fill("2026-10-27");
+    await page.getByRole("button", { name: "Добавить в план" }).click();
     await expect(page.locator("ul.mb-6").getByText(/2026-10-27.*остаток 2\.00/)).toBeVisible();
 
-    await page.getByLabel("Плановое событие").selectOption({ index: 1 });
-    await page.getByLabel("Операция").selectOption({ label: "2026-10-11 · доступно 800.00 — Комиссия" });
-    await page.getByLabel("Сумма связи").fill("0.50");
-    await page.getByRole("button", { name: "Сопоставить" }).click();
+    await page.getByLabel("Плановая выплата").selectOption({ index: 1 });
+    await page.getByLabel("Фактическая операция").selectOption({
+      label: "2026-10-11 · доступно 800.00 — Комиссия",
+    });
+    await page.getByLabel("Сумма связи, ₽").fill("0.50");
+    await page.getByRole("button", { name: "Связать с операцией" }).click();
     await expect(page.locator("ul.mb-6").getByText(/остаток 1\.50/)).toBeVisible();
 
     await page.reload();

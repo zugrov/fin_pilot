@@ -8,6 +8,7 @@ import {
   loadCalendar,
   loadTransactions,
   moveExpected,
+  type PlanEvent,
   WalletRequestError,
 } from "../api";
 import { CompanyWritePicker } from "../components/CompanyWritePicker";
@@ -17,6 +18,13 @@ import {
   companyScopedData,
   useWritableCompanySelection,
 } from "../lib/companySelection";
+import {
+  directionLabel,
+  EMPTY_PLAN_DRAFT,
+  validateExpectedDateOnly,
+  validateMatchAmount,
+  validatePlanCreate,
+} from "../lib/calendarForm";
 import {
   applyAfterFailure,
   guardCompanySwitch,
@@ -39,11 +47,17 @@ function failureMeta(exc: unknown): { status: number; code: string; message: str
   return { status: 0, code: "", message: exc instanceof Error ? exc.message : "Ошибка" };
 }
 
+type MoveTarget = Pick<
+  PlanEvent,
+  "id" | "version" | "amount" | "due_date" | "expected_date" | "remaining"
+>;
+
 export function CalendarPage() {
-  const [amount, setAmount] = useState("150000.00");
-  const [dueDate, setDueDate] = useState("2026-10-15");
-  const [expectedDate, setExpectedDate] = useState("2026-10-15");
-  const [moveTo, setMoveTo] = useState("2026-10-20");
+  const [amount, setAmount] = useState<string>(EMPTY_PLAN_DRAFT.amount);
+  const [dueDate, setDueDate] = useState<string>(EMPTY_PLAN_DRAFT.dueDate);
+  const [expectedDate, setExpectedDate] = useState<string>(EMPTY_PLAN_DRAFT.expectedDate);
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  const [moveNewExpected, setMoveNewExpected] = useState("");
   const [error, setError] = useState("");
   const [createAttempt, setCreateAttempt] = useState<IdempotentAttempt<PlanCreatePayload> | null>(
     null,
@@ -57,9 +71,23 @@ export function CalendarPage() {
 
   const client = useQueryClient();
   const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
-  const onCompanyChanged = useCallback(() => {
+
+  const clearLocalDrafts = useCallback(() => {
     setError("");
+    setAmount(EMPTY_PLAN_DRAFT.amount);
+    setDueDate(EMPTY_PLAN_DRAFT.dueDate);
+    setExpectedDate(EMPTY_PLAN_DRAFT.expectedDate);
+    setMoveTarget(null);
+    setMoveNewExpected("");
+    setMatchEventId("");
+    setMatchCashId("");
+    setMatchAmount("");
   }, []);
+
+  const onCompanyChanged = useCallback(() => {
+    clearLocalDrafts();
+  }, [clearLocalDrafts]);
+
   const selection = useWritableCompanySelection(companies, { onCompanyChanged });
   const { companyId } = selection;
   const lockedCompany = lockedCompanyFromAttempts([createAttempt, matchAttempt]);
@@ -95,6 +123,9 @@ export function CalendarPage() {
     onSuccess: async () => {
       setError("");
       setCreateAttempt(null);
+      setAmount(EMPTY_PLAN_DRAFT.amount);
+      setDueDate(EMPTY_PLAN_DRAFT.dueDate);
+      setExpectedDate(EMPTY_PLAN_DRAFT.expectedDate);
       if (companyId) {
         await client.invalidateQueries({ queryKey: ["calendar", companyId] });
       }
@@ -125,6 +156,8 @@ export function CalendarPage() {
     onSuccess: async () => {
       setError("");
       setMatchAttempt(null);
+      setMatchCashId("");
+      setMatchAmount("");
       if (companyId) {
         await client.invalidateQueries({ queryKey: ["calendar", companyId] });
         await client.invalidateQueries({ queryKey: ["transactions", companyId] });
@@ -143,9 +176,12 @@ export function CalendarPage() {
   });
 
   const shift = useMutation({
-    mutationFn: (event: { id: string; version: number }) => moveExpected(event.id, event.version, moveTo),
+    mutationFn: (input: { id: string; version: number; expectedDate: string }) =>
+      moveExpected(input.id, input.version, input.expectedDate),
     onSuccess: async () => {
       setError("");
+      setMoveTarget(null);
+      setMoveNewExpected("");
       if (companyId) {
         await client.invalidateQueries({ queryKey: ["calendar", companyId] });
       }
@@ -159,11 +195,9 @@ export function CalendarPage() {
     if (!selectedEvent) {
       return [];
     }
+    const dir = selectedEvent.direction === "in" ? "in" : "out";
     return rows.filter(
-      (row) =>
-        row.status === "posted" &&
-        row.currency === "RUB" &&
-        row.direction === selectedEvent.direction,
+      (row) => row.status === "posted" && row.currency === "RUB" && row.direction === dir,
     );
   }, [selectedEvent, transactions.data?.transactions]);
 
@@ -173,12 +207,17 @@ export function CalendarPage() {
     if (!target.allowed) {
       return;
     }
+    const validated = validatePlanCreate({ amount, dueDate, expectedDate });
+    if (!validated.ok) {
+      setError(validated.message);
+      return;
+    }
     const payload: PlanCreatePayload = {
       companyId: target.companyId,
       direction: "out",
-      amount,
-      dueDate,
-      expectedDate,
+      amount: validated.amount,
+      dueDate: validated.dueDate,
+      expectedDate: validated.expectedDate,
     };
     const resolved = resolveSubmit(createAttempt, payload, newKey);
     if (resolved.kind === "blocked") {
@@ -195,11 +234,28 @@ export function CalendarPage() {
     if (!target.allowed) {
       return;
     }
+    if (!matchEventId || !selectedEvent) {
+      setError("Выберите плановую выплату.");
+      return;
+    }
+    if (selectedEvent.company_id && selectedEvent.company_id !== target.companyId) {
+      setError("Выбранная выплата относится к другой фирме.");
+      return;
+    }
+    const amountCheck = validateMatchAmount(matchAmount);
+    if (!amountCheck.ok) {
+      setError(amountCheck.message);
+      return;
+    }
+    if (!matchCashId) {
+      setError("Выберите фактическую операцию.");
+      return;
+    }
     const payload: PlanMatchPayload = {
       companyId: target.companyId,
       eventId: matchEventId,
       cashTransactionId: matchCashId,
-      amount: matchAmount,
+      amount: amountCheck.value,
     };
     const resolved = resolveSubmit(matchAttempt, payload, newKey);
     if (resolved.kind === "blocked") {
@@ -210,12 +266,49 @@ export function CalendarPage() {
     matchSave.mutate(resolved.attempt);
   }
 
+  function openMoveDialog(event: PlanEvent) {
+    if (!companyId || event.company_id && event.company_id !== companyId) {
+      setError("Нельзя перенести выплату другой фирмы.");
+      return;
+    }
+    setError("");
+    setMoveTarget({
+      id: event.id,
+      version: event.version,
+      amount: event.amount,
+      due_date: event.due_date,
+      expected_date: event.expected_date,
+      remaining: event.remaining,
+    });
+    setMoveNewExpected(event.expected_date);
+  }
+
+  function submitMove() {
+    if (!moveTarget) {
+      return;
+    }
+    if (!companyId) {
+      return;
+    }
+    const validated = validateExpectedDateOnly(moveNewExpected);
+    if (!validated.ok) {
+      setError(validated.message);
+      return;
+    }
+    shift.mutate({
+      id: moveTarget.id,
+      version: moveTarget.version,
+      expectedDate: validated.value,
+    });
+  }
+
   function onSelectCompany(nextId: string) {
     const guard = guardCompanySwitch(nextId, lockedCompany);
     if (!guard.allowed) {
       setError(guard.message);
       return;
     }
+    clearLocalDrafts();
     selection.onSelect(nextId);
   }
 
@@ -224,7 +317,9 @@ export function CalendarPage() {
   return (
     <Shell>
       <h1 className="mb-2 text-xl font-semibold">Календарь</h1>
-      <p className="mb-4 text-sm text-slate-600">Это план платежей, не движение денег.</p>
+      <p className="mb-4 text-sm text-slate-600">
+        Здесь плановые выплаты и поступления: это не фактическое движение денег и не банковский платёж.
+      </p>
       <CompanyWritePicker
         listPhase={selection.listPhase}
         list={selection.list}
@@ -233,15 +328,17 @@ export function CalendarPage() {
         disabled={selection.pickerDisabled || anyWritePending || Boolean(lockedCompany)}
         onSelect={onSelectCompany}
       />
-      {companyId && calendar.isLoading ? <p>Загрузка</p> : null}
-      {companyId && calendar.isError ? <p className="text-red-700">Не удалось загрузить календарь.</p> : null}
-      {events?.length === 0 ? <p className="mb-4">Плановых событий нет.</p> : null}
+      {companyId && calendar.isLoading ? <p>Загрузка календаря…</p> : null}
+      {companyId && calendar.isError ? (
+        <p className="text-red-700">Не удалось загрузить календарь.</p>
+      ) : null}
+      {events?.length === 0 ? <p className="mb-4">Плановых событий пока нет.</p> : null}
       <ul className="mb-6 space-y-2">
         {events?.map((event) => (
           <li key={event.id} className="rounded-xl border bg-white p-4 text-sm">
             <p>
-              {event.expected_date}: остаток {event.remaining}, оплачено {event.matched ?? "0.00"}, срок{" "}
-              {event.due_date}
+              {directionLabel(event.direction === "in" ? "in" : "out")}: ожидание {event.expected_date},
+              остаток {event.remaining}, срок {event.due_date}
               {event.overdue ? ", просрочено" : ""}
             </p>
             {event.match_links?.length ? (
@@ -257,22 +354,28 @@ export function CalendarPage() {
               type="button"
               className="mt-2 rounded border px-3 py-1 disabled:opacity-50"
               disabled={!selection.canWrite || shift.isPending}
-              onClick={() => shift.mutate(event)}
+              onClick={() => openMoveDialog(event)}
             >
               Перенести ожидание
             </button>
           </li>
         ))}
       </ul>
+
       <form
-        className="mb-8 max-w-md space-y-3"
+        className="mb-8 max-w-md space-y-3 rounded-xl border bg-white p-4"
         onSubmit={(event) => {
           event.preventDefault();
           submitCreate();
         }}
       >
+        <h2 className="text-lg font-semibold">Новая плановая выплата</h2>
+        <p className="text-sm text-slate-600">
+          Срок — когда платёж должен быть исполнен по договору. Ожидаемая дата — когда вы планируете
+          увидеть деньги на счёте (может отличаться от срока).
+        </p>
         <label className="block text-sm">
-          Сумма
+          Сумма, ₽
           <input
             className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
             value={amount}
@@ -281,7 +384,7 @@ export function CalendarPage() {
           />
         </label>
         <label className="block text-sm">
-          Срок (due_date)
+          Срок оплаты
           <input
             type="date"
             className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
@@ -291,7 +394,7 @@ export function CalendarPage() {
           />
         </label>
         <label className="block text-sm">
-          Ожидаемая дата
+          Ожидаемая дата оплаты
           <input
             type="date"
             className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
@@ -300,28 +403,23 @@ export function CalendarPage() {
             onChange={(event) => setExpectedDate(event.target.value)}
           />
         </label>
-        <label className="block text-sm">
-          Новая ожидаемая дата (перенос выбранного события)
-          <input
-            type="date"
-            className="mt-1 w-full rounded border px-3 py-2"
-            value={moveTo}
-            onChange={(event) => setMoveTo(event.target.value)}
-          />
-        </label>
         <button
           className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
           type="submit"
           disabled={!selection.canWrite || save.isPending}
         >
-          {createAttempt?.phase === "unknown" ? "Повторить отправку" : "Добавить платёж"}
+          {createAttempt?.phase === "unknown" ? "Повторить отправку" : "Добавить в план"}
         </button>
       </form>
 
       <section className="max-w-md space-y-3 border-t pt-4">
-        <h2 className="text-lg font-semibold">Сопоставление с операцией</h2>
+        <h2 className="text-lg font-semibold">Связать с фактической оплатой</h2>
+        <p className="text-sm text-slate-600">
+          Можно выбрать только проведённые операции в рублях с тем же направлением (поступление или
+          списание), что и у плановой выплаты.
+        </p>
         <label className="block text-sm">
-          Плановое событие
+          Плановая выплата
           <select
             className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
             value={matchEventId}
@@ -331,25 +429,26 @@ export function CalendarPage() {
               setMatchCashId("");
             }}
           >
-            <option value="">Выберите</option>
+            <option value="">Выберите выплату</option>
             {events
               ?.filter((event) => event.status !== "cancelled")
               .map((event) => (
                 <option key={event.id} value={event.id}>
-                  {event.expected_date} · {event.direction} · остаток {event.remaining}
+                  {event.expected_date} · {directionLabel(event.direction === "in" ? "in" : "out")} ·
+                  остаток {event.remaining}
                 </option>
               ))}
           </select>
         </label>
         <label className="block text-sm">
-          Операция (posted, та же direction и RUB)
+          Фактическая операция
           <select
             className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
             value={matchCashId}
             disabled={matchLocked || matchSave.isPending || !matchEventId}
             onChange={(event) => setMatchCashId(event.target.value)}
           >
-            <option value="">Выберите</option>
+            <option value="">Выберите операцию</option>
             {cashOptions.map((row) => (
               <option key={row.id} value={row.id}>
                 {row.business_date} · доступно {row.plan_unallocated ?? row.amount} — {row.description}
@@ -357,8 +456,22 @@ export function CalendarPage() {
             ))}
           </select>
         </label>
+        {matchEventId && transactions.isLoading ? (
+          <p className="text-sm text-slate-600">Загружаем проведённые операции…</p>
+        ) : null}
+        {matchEventId && transactions.isError ? (
+          <p className="text-sm text-red-700">Не удалось загрузить операции для сопоставления.</p>
+        ) : null}
+        {matchEventId &&
+        !transactions.isLoading &&
+        !transactions.isError &&
+        cashOptions.length === 0 ? (
+          <p className="text-sm text-slate-600">
+            Нет подходящих проведённых операций в рублях с нужным направлением.
+          </p>
+        ) : null}
         <label className="block text-sm">
-          Сумма связи
+          Сумма связи, ₽
           <input
             className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
             value={matchAmount}
@@ -372,9 +485,60 @@ export function CalendarPage() {
           disabled={!selection.canWrite || matchSave.isPending || !matchEventId || !matchCashId}
           onClick={submitMatch}
         >
-          {matchAttempt?.phase === "unknown" ? "Повторить сопоставление" : "Сопоставить"}
+          {matchAttempt?.phase === "unknown" ? "Повторить сопоставление" : "Связать с операцией"}
         </button>
       </section>
+
+      {moveTarget ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="move-dialog-title"
+        >
+          <div className="w-full max-w-md space-y-3 rounded-xl bg-white p-4 shadow-lg">
+            <h2 id="move-dialog-title" className="text-lg font-semibold">
+              Перенос ожидания
+            </h2>
+            <p className="text-sm text-slate-600">
+              Сумма {moveTarget.amount}, срок {moveTarget.due_date}, текущая ожидаемая дата{" "}
+              {moveTarget.expected_date}. Срок оплаты не изменится.
+            </p>
+            <label className="block text-sm">
+              Новая ожидаемая дата оплаты
+              <input
+                type="date"
+                className="mt-1 w-full rounded border px-3 py-2"
+                value={moveNewExpected}
+                disabled={shift.isPending}
+                onChange={(event) => setMoveNewExpected(event.target.value)}
+              />
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+                disabled={shift.isPending}
+                onClick={submitMove}
+              >
+                Сохранить перенос
+              </button>
+              <button
+                type="button"
+                className="rounded border px-4 py-2 disabled:opacity-50"
+                disabled={shift.isPending}
+                onClick={() => {
+                  setMoveTarget(null);
+                  setMoveNewExpected("");
+                }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {error ? <p className="mt-4 text-sm text-red-700">{error}</p> : null}
     </Shell>
   );

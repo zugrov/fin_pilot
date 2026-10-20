@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Request } from "@playwright/test";
 
 import {
   E2E_PASSWORD,
@@ -97,10 +97,56 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
 
     await page.getByRole("link", { name: "Календарь" }).click();
     const planRow = page.locator("li").filter({ hasText: plan.plan_marker_due }).first();
-    await page.getByLabel("Новая ожидаемая дата (перенос выбранного события)").fill(plan.moved_expected);
-    await planRow.getByRole("button", { name: "Перенести ожидание" }).click();
+    const dueBefore = plan.plan_marker_due;
+    const expectedBefore = plan.plan_marker_due;
+    await expect(planRow).toContainText(`срок ${dueBefore}`);
+    await expect(planRow).toContainText(`ожидание ${expectedBefore}`);
 
-    await expect(planRow.getByText(new RegExp(plan.calendar_expected_after))).toBeVisible();
+    let planMovePatches = 0;
+    const patchBodies: string[] = [];
+    const onPlanMovePatch = (req: Request) => {
+      if (req.method() === "PATCH" && /\/api\/v1\/planned-cash\/[^/]+$/.test(req.url())) {
+        planMovePatches += 1;
+        patchBodies.push(req.postData() ?? "");
+      }
+    };
+    page.on("request", onPlanMovePatch);
+
+    await planRow.getByRole("button", { name: "Перенести ожидание" }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    expect(planMovePatches).toBe(0);
+
+    await page.getByRole("dialog").getByLabel("Новая ожидаемая дата оплаты").fill("2026-12-01");
+    await page.getByRole("button", { name: "Отмена" }).click();
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+    expect(planMovePatches).toBe(0);
+    await expect(planRow).toContainText(`ожидание ${expectedBefore}`);
+    await expect(planRow).toContainText(`срок ${dueBefore}`);
+
+    await page.reload();
+    await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), meta.companies.services.id);
+    await selectCompany(page, meta.companies.services.name);
+    await page.getByRole("link", { name: "Календарь" }).click();
+    const planRowReloaded = page.locator("li").filter({ hasText: plan.plan_marker_due }).first();
+    await expect(planRowReloaded).toContainText(`ожидание ${expectedBefore}`);
+    await expect(planRowReloaded).toContainText(`срок ${dueBefore}`);
+
+    const patchesBeforeSave = planMovePatches;
+    await planRowReloaded.getByRole("button", { name: "Перенести ожидание" }).click();
+    await page.getByRole("dialog").getByLabel("Новая ожидаемая дата оплаты").fill(plan.moved_expected);
+    await page.getByRole("button", { name: "Сохранить перенос" }).click();
+    expect(planMovePatches).toBe(patchesBeforeSave + 1);
+    expect(patchBodies.length).toBeGreaterThan(0);
+    const lastPatch = JSON.parse(patchBodies[patchBodies.length - 1] ?? "{}") as {
+      expected_date?: string;
+      due_date?: string;
+    };
+    expect(lastPatch.expected_date).toBe(plan.moved_expected);
+    expect(lastPatch.due_date).toBeUndefined();
+
+    await expect(planRowReloaded).toContainText(`срок ${dueBefore}`);
+    await expect(planRowReloaded.getByText(new RegExp(plan.calendar_expected_after))).toBeVisible();
+    page.off("request", onPlanMovePatch);
 
     await page.getByRole("link", { name: "Прогноз" }).click();
     await expect(page.getByText(plan.forecast_unpaid_after)).toBeVisible();
