@@ -51,7 +51,9 @@ def test_restore_keeps_amount_and_attachment(
     assert_finpilot_test_database(admin)
     monkeypatch.setenv("BACKUP_PASSPHRASE", "backup-passphrase-1")
     # CLI backup запрещает 5432; integration использует тот же порт, что TEST_PG_PORT/fixtures.
-    allow_test_port = lambda _port: None
+    def allow_test_port(_port: int) -> None:
+        return None
+
     monkeypatch.setattr(backup_script, "assert_port", allow_test_port)
     monkeypatch.setattr(restore_script, "assert_port", allow_test_port)
     _bind_pg_client_tools(monkeypatch, admin)
