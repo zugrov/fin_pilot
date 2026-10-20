@@ -39,6 +39,8 @@ from sqlalchemy import create_engine, text
 
 BACKEND = Path(__file__).resolve().parents[2]
 PASSWORD = "long-password-1"
+INTEGRATION_PG_HOST = "127.0.0.1"
+INTEGRATION_PG_PORT = int(_PORT)
 TRUNCATE = """
 ingestion_delivery_parts,
 email_ingestions,
@@ -89,6 +91,27 @@ def migrated_database():
 
 HEAD_REVISION = "20261019_0014"
 
+# Baseline из alembic/sql/0002_billing.sql — после очистки test-only строк в annual_offer_versions.
+_ANNUAL_OFFER_BASELINE = text(
+    """
+    INSERT INTO annual_offer_versions (
+      id, tariff_version_id, discount_percent, status, approved_by, approved_at,
+      approval_source, offer_terms_version, valid_from, created_at
+    ) VALUES (
+      '00000000-0000-4000-8000-000000000002',
+      '00000000-0000-4000-8000-000000000001',
+      15.000000, 'approved', 'user', '2026-10-14T00:00:00Z',
+      'user', 'beta-2026-10-14', '2026-10-14T00:00:00Z', '2026-10-14T00:00:00Z'
+    )
+    """
+)
+
+
+def _reset_annual_offer_versions(connection) -> None:
+    """Удаляет test-only офферы (immutable DELETE), сохраняя tariff baseline."""
+    connection.execute(text("TRUNCATE annual_offer_versions"))
+    connection.execute(_ANNUAL_OFFER_BASELINE)
+
 
 def truncate_integration_tables(engine) -> None:
     with engine.connect() as connection:
@@ -103,6 +126,7 @@ def truncate_integration_tables(engine) -> None:
             os.chdir(previous)
     with engine.begin() as connection:
         connection.execute(text(f"TRUNCATE {TRUNCATE} RESTART IDENTITY CASCADE"))
+        _reset_annual_offer_versions(connection)
 
 
 @pytest.fixture(autouse=True)

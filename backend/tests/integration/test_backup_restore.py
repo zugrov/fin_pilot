@@ -1,20 +1,60 @@
 import hashlib
+import os
 import sys
 from pathlib import Path
 from uuid import uuid4
 
+from sqlalchemy import text
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
+import backup as backup_script
 import psycopg
+import restore as restore_script
 from backup import RESTORE_DATABASE, create_backup
 from restore import restore_backup
-from tests.integration.conftest import login, open_workspace, pay, register_and_verify
+from tests.integration.balances_test_util import assert_finpilot_test_database
+from tests.integration.conftest import (
+    INTEGRATION_PG_HOST,
+    INTEGRATION_PG_PORT,
+    login,
+    open_workspace,
+    pay,
+    register_and_verify,
+)
+
+
+def _bind_pg_client_tools(monkeypatch, admin) -> None:
+    """PG_DUMP/PG_RESTORE той же major-версии, что сервер finpilot_test (без смены scripts/)."""
+    if os.environ.get("PG_DUMP"):
+        return
+    with admin.connect() as connection:
+        major = connection.execute(
+            text("SELECT split_part(current_setting('server_version'), '.', 1)")
+        ).scalar_one()
+    candidates = (
+        Path(f"/Applications/Postgres.app/Contents/Versions/{major}/bin"),
+        Path.home() / ".local" / f"pg{major}" / "bin",
+    )
+    for root in candidates:
+        dump = root / "pg_dump"
+        restore = root / "pg_restore"
+        if dump.is_file() and restore.is_file():
+            monkeypatch.setenv("PG_DUMP", str(dump))
+            monkeypatch.setenv("PG_RESTORE", str(restore))
+            return
 
 
 def test_restore_keeps_amount_and_attachment(
     client, admin, app, fake, tmp_path, monkeypatch
 ) -> None:
+    assert_finpilot_test_database(admin)
     monkeypatch.setenv("BACKUP_PASSPHRASE", "backup-passphrase-1")
+    # CLI backup запрещает 5432; integration использует тот же порт, что TEST_PG_PORT/fixtures.
+    allow_test_port = lambda _port: None
+    monkeypatch.setattr(backup_script, "assert_port", allow_test_port)
+    monkeypatch.setattr(restore_script, "assert_port", allow_test_port)
+    _bind_pg_client_tools(monkeypatch, admin)
     storage = tmp_path / "imports"
     storage.mkdir()
     marker = storage / "marker.txt"
@@ -62,8 +102,8 @@ def test_restore_keeps_amount_and_attachment(
     archive = tmp_path / "copy.enc"
     restored = tmp_path / "restored"
     create_backup(
-        host="127.0.0.1",
-        port=5433,
+        host=INTEGRATION_PG_HOST,
+        port=INTEGRATION_PG_PORT,
         database="finpilot_test",
         storage_dir=storage,
         output=archive,
@@ -73,13 +113,16 @@ def test_restore_keeps_amount_and_attachment(
     assert b"backup-marker" not in archive.read_bytes()
     try:
         restore_backup(
-            host="127.0.0.1",
-            port=5433,
+            host=INTEGRATION_PG_HOST,
+            port=INTEGRATION_PG_PORT,
             storage_dir=restored,
             source=archive,
             passphrase="backup-passphrase-1",
         )
-        with psycopg.connect(f"postgresql://127.0.0.1:5433/{RESTORE_DATABASE}") as connection:
+        restore_url = (
+            f"postgresql://{INTEGRATION_PG_HOST}:{INTEGRATION_PG_PORT}/{RESTORE_DATABASE}"
+        )
+        with psycopg.connect(restore_url) as connection:
             amount = connection.execute(
                 "SELECT amount::text FROM cash_transactions WHERE description = 'backup-marker'"
             ).fetchone()
@@ -88,7 +131,8 @@ def test_restore_keeps_amount_and_attachment(
         restored_file = restored / "marker.txt"
         assert hashlib.sha256(restored_file.read_bytes()).hexdigest() == digest
     finally:
-        with psycopg.connect("postgresql://127.0.0.1:5433/postgres", autocommit=True) as connection:
+        admin_url = f"postgresql://{INTEGRATION_PG_HOST}:{INTEGRATION_PG_PORT}/postgres"
+        with psycopg.connect(admin_url, autocommit=True) as connection:
             connection.execute(
                 "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s",
                 (RESTORE_DATABASE,),
