@@ -2,7 +2,36 @@
 
 Это частный контур для пилота, не коммерческий запуск. `infra/docker-compose.prod.yml` на этот хост не запускать: он публикует порты 80 и 443, которые уже занимает nginx хоста.
 
-Контрольная точка приложения 2026-10-16 и проверка восстановления 2026-10-17 записаны в `docs/readiness-live.md`. Каталог `/fin_pilot` уже есть, Compose `finpilot-staging` запущен. Повторная установка из раздела «Порядок будущего запуска» этот стенд не описывает. Публичное имя `staging.maxima-consulting.ru` этой точкой не заводилось. Доступ к приложению — SSH-туннель на `127.0.0.1:8090`.
+Актуальный снимок стенда после **FA-R02 фазы A (2026-10-20)** — в `docs/readiness-live.md` и [`docs/roadmap/FA-R02-release-phase-A.md`](roadmap/FA-R02-release-phase-A.md). Историческая контрольная точка 2026-10-16 и restore 2026-10-17 сохранены в тех же документах.
+
+Каталог `/fin_pilot` на VPS, Compose **`finpilot-staging`** запущен. Публичное имя `staging.maxima-consulting.ru` не заводилось. Доступ — SSH-туннель на **`127.0.0.1:8090`**.
+
+## FA-R02 фаза A · deployed snapshot (2026-10-20)
+
+| Сервис | Образ / ID |
+|---|---|
+| `api`, `worker`, `beat` | `finpilot-api:release-be9e47af63310f3d5745eadf67dddb0e8c6c9442`; manifest `sha256:31b6986b3102b434efc65d8d91bce48d58a1a1a78642d3799b7324e3dd652e62`; config `sha256:19f676995efe664069de0f2cd8fad84735a5e899e777ef0f0fee7d562d692f1e`; **linux/amd64**; **один beat** |
+| `frontend` | `finpilot-frontend:release-7ee85e5` — **не пересоздавался** в фазе A |
+| Schema | **`20261019_0014`** |
+| Product SHA | `be9e47af63310f3d5745eadf67dddb0e8c6c9442` |
+
+**Compose (обязательный контекст для recreate api/worker/beat):**
+
+```bash
+cd /fin_pilot && docker compose \
+  --env-file /fin_pilot/.env \
+  -f infra/docker-compose.staging.yml \
+  -f /var/tmp/finpilot-release-be9e47a/compose.override.yml \
+  -p finpilot-staging
+```
+
+Без `--env-file` interpolation `POSTGRES_PASSWORD` **ломается** (инцидент 2026-10-20). После DDL: **fail-closed** — не поднимать baseline автоматически, не делать downgrade/volume delete без отдельного решения.
+
+**Override** задаёт safe flags: `SESSION_INGEST_ENABLED=false`, все `SEND_*` и `POLL_IMAP`/`REFUNDS` — false, `BALANCES_IMPORT_ENABLED=true`, `BILLING_MODE=test`, `EMAIL_PROVIDER_MODE=smtp`. Команды: `/app/.venv/bin/uvicorn`, `/app/.venv/bin/celery`.
+
+**Backup reference (не применять без решения):** `/var/backups/finpilot/finpilot-staging-FA-R02-20261020T063211Z.tar.enc`, SHA-256 `7661414aaaa7b21fadc58508b26393e91346b1183ca924c3fc2aa95b3d2c8a90`; offsite Mac — тот же hash. Откат схемы после 0014 — **restore из backup**, не `alembic downgrade`.
+
+**Rollback images (на диске):** api `sha256:d5520080a1cd6c731bcdee102ca00dfa0098622c076b58e6ea2946b1cacd55ae`; worker/beat `sha256:c7ff510499579c8e95ade8e11036a86f4ac91c55bdaac0714e2a30d1e23d490c`.
 
 Имена переменных взяты из `.env.example`. Значения секретов в репозиторий не кладутся и здесь не приводятся.
 

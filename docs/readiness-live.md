@@ -1,6 +1,72 @@
 # Готовность к live-запуску
 
-Контрольная точка приложения 2026-10-16. Проверка восстановления записана 2026-10-17. Приложение ради неё не пересобиралось. Публичный репозиторий: `https://github.com/zugrov/fin_pilot`. Описание запуска: `docs/runbook-staging.md`.
+Публичный репозиторий: `https://github.com/zugrov/fin_pilot`. Описание запуска: `docs/runbook-staging.md`. Полный release record: [`docs/roadmap/FA-R02-release-phase-A.md`](roadmap/FA-R02-release-phase-A.md).
+
+## Актуальный staging (FA-R02 · фаза A, 2026-10-20)
+
+Принято владельцем после maintenance на `my-vps`, Compose **`finpilot-staging`**, loopback **`127.0.0.1:8090`**. **Фаза B не выполнялась.** Session ingest **выключен**.
+
+| | |
+|---|---|
+| **Product SHA (api/worker/beat)** | `be9e47af63310f3d5745eadf67dddb0e8c6c9442` |
+| **Schema** | `20261019_0014` |
+| **RC tag** | `finpilot-api:release-be9e47af63310f3d5745eadf67dddb0e8c6c9442` |
+| **Manifest (VPS)** | `sha256:31b6986b3102b434efc65d8d91bce48d58a1a1a78642d3799b7324e3dd652e62` |
+| **Config (OCI)** | `sha256:19f676995efe664069de0f2cd8fad84735a5e899e777ef0f0fee7d562d692f1e` |
+| **Platform** | linux/amd64 |
+| **Beat** | один контейнер |
+| **Frontend** | `finpilot-frontend:release-7ee85e5` — **без recreate** (product UI **7ee85e5**) |
+| **Override** | `/var/tmp/finpilot-release-be9e47a/compose.override.yml` |
+| **Health** | `live=200`, `ready=200` (после deploy) |
+| **Backup (post-migration reference)** | `/var/backups/finpilot/finpilot-staging-FA-R02-20261020T063211Z.tar.enc`, SHA-256 `7661414aaaa7b21fadc58508b26393e91346b1183ca924c3fc2aa95b3d2c8a90`, offsite Mac SHA **совпадает** |
+
+### Safe flags (api / worker / beat, override)
+
+| Имя | Состояние |
+|---|---|
+| `SESSION_INGEST_ENABLED` | `false` |
+| `SEND_REAL_EMAIL` | `false` |
+| `SEND_EXTERNAL_MESSAGES` | `false` |
+| `SEND_LIVE_PAYMENTS` | `false` |
+| `POLL_IMAP` | `false` |
+| `REFUNDS_ENABLED` | `false` |
+| `BALANCES_IMPORT_ENABLED` | `true` |
+| `BILLING_MODE` | `test` |
+| `EMAIL_PROVIDER_MODE` | `smtp` |
+| `BILLING_GUARD_BYPASS` | не задан |
+
+Значения секретов и allowlists в `.env` **не** снимались и здесь **не** записываются.
+
+### Финансовый baseline ООО «Топ» (после фазы A)
+
+`company_id=2f346a28-da63-4ab1-a9e8-611fe7e2dd7d`. Снято read-only SQL после deploy.
+
+| Показатель | Значение |
+|---|---|
+| Денежные операции, posted | **5** |
+| Остаток (cash total) | **80499.50** |
+| Выручка без НДС, октябрь 2026 | **20002.00** |
+| Acceptance plan | **2.00**, due **2026-10-25**, expected **2026-10-27**; matches **0.50** |
+
+Приёмочные UUID FA-R01.3 — в `docs/roadmap/STATE.json` → `fa_r01_3_acceptance`.
+
+### Browser (не автоматизация)
+
+Ручное подтверждение владельца «Всё ок»; календарь сверен по **скриншоту**. Это **не** автоматизированный staging E2E и **не** write-smoke. Новые ingest/commit/reconcile **не** проверялись.
+
+### Инцидент на recreate (кратко)
+
+Compose **без** `--env-file /fin_pilot/.env` после успешной миграции; error-handler **кратко поднял baseline** (`d552…` api, `c7ff…` worker/beat) на schema **0014** (оценочное окно **~06:32:23–06:32:33Z UTC**, длительность по сервисам **не** одинакова). В БД признаков исходящих **не обнаружено**; SMTP/YooKassa/Telegram **независимо не проверялись**. Scripts/ops **не** менялись.
+
+### Календарь · UX-долг
+
+По скриншоту **финансового дефекта нет**. UX: фиксированные стартовые значения формы, неподписанная ожидаемая дата в карточке, общая дата переноса, технические подписи.
+
+---
+
+## Историческая контрольная точка 2026-10-16
+
+Контрольная точка приложения 2026-10-16. Проверка восстановления записана 2026-10-17. Приложение ради неё не пересобиралось. Разделы ниже описывают **эту** точку, не текущий образ после FA-R02 phase A.
 
 Один успешный тест не закрывает модуль. Статус строки — самый узкий из фактически пройденных способов:
 

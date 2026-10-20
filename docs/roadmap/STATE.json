@@ -6,7 +6,7 @@
   "created_at": "2026-10-17",
   "is_execution_authorization": false,
   "baseline": {
-    "application_sha_last_reported": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
+    "application_sha_last_reported": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
     "checkpoint_docs_sha": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
     "migration_last_reported": "20261019_0014",
     "synthetic_company_only": true,
@@ -19,7 +19,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.1",
   "status": "ready",
-  "allowed_next_action": "FA-R02 accepted (product be9e47a). Отдельное разрешение на read-only подготовку release-readiness плана принятого FA-R02. Не начинать FA-R03 implementation, deploy, server preflight, SSH, миграции на staging/prod, реальные данные/интеграции.",
+  "allowed_next_action": "FA-R02 accepted; staging phase A deployed и принята владельцем (product be9e47a, schema 0014). FA-R03 / FA-R03.1 — planned. Разрешена только read-only подготовка первого профиля выгрузок 1С и контрольных образцов по отдельному разрешению. Не начинать FA-R03 implementation, deploy, SSH-операции, миграции, реальные данные/интеграции без явного scope.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -360,13 +360,13 @@
           ]
         }
       ],
-      "accepted_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
       "acceptance_evidence": [
         "docs/roadmap/STAGE_FA-R02-bootstrap.md (G2)",
         "CI run 39316650896 (product SHA be9e47a)",
         "E2E run 39316650795 (product SHA be9e47a)",
         "tasks FA-R02.1–R02.4 accepted с сохранёнными per-task product SHA",
-        "staging deployed baseline 7ee85e5 unchanged"
+        "staging deployed baseline 7ee85e5 unchanged",
+        "docs/roadmap/FA-R02-release-phase-A.md (staging phase A accepted 2026-10-20)"
       ]
     },
     {
@@ -839,31 +839,18 @@
     }
   ],
   "last_handoff": {
-    "at": "2026-10-19",
+    "at": "2026-10-20",
     "from_stage": "FA-R02",
     "to_stage": "FA-R03",
     "from_task": "FA-R02.4",
     "to_task": "FA-R03.1",
-    "fa_r00": "accepted",
-    "g0": "accepted",
-    "fa_r01": "accepted",
-    "fa_r01_1": "accepted",
-    "fa_r01_2": "accepted",
-    "fa_r01_3": "accepted",
-    "fa_r01_4": "accepted",
     "fa_r02": "accepted",
+    "fa_r02_staging_phase_a": "accepted_by_owner",
     "fa_r02_accepted_product_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
-    "fa_r02_1": "accepted",
-    "fa_r02_1_accepted_product_sha": "9fe5c06d8778b56556baa40932aa189c231696c1",
-    "fa_r02_1b": "accepted",
-    "fa_r02_1b_accepted_product_sha": "a78080a6c072ea851db9fa2d458cb0983af5a76a",
-    "fa_r02_2": "accepted",
-    "fa_r02_2_accepted_product_sha": "aedf0b8346d3416de5da8b87dc91d108abdb1468",
-    "fa_r02_3": "accepted",
-    "fa_r02_3_accepted_product_sha": "ecb7d64c9ab91b3b0d9b1ab5d8bf057f3eea4f6c",
-    "fa_r02_4": "accepted",
-    "fa_r02_4_accepted_product_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
-    "fa_r03_started": false
+    "fa_r02_staging_deployed_product_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+    "fa_r02_staging_schema": "20261019_0014",
+    "fa_r03_started": false,
+    "fa_r03_1_started": false
   },
   "fa_r02_2_acceptance": {
     "accepted_product_sha": "aedf0b8346d3416de5da8b87dc91d108abdb1468",
@@ -1195,6 +1182,14 @@
       "status": "accepted",
       "by": "owner",
       "basis": "этап FA-R02 tasks R02.1–R02.4 accepted; repo product snapshot be9e47a; per-task SHA preserved; staging 7ee85e5 unchanged"
+    },
+    {
+      "at": "2026-10-20",
+      "stage": "FA-R02",
+      "scope": "staging_phase_A",
+      "status": "accepted_by_owner",
+      "by": "owner",
+      "basis": "product be9e47a; schema 0014; backup SHA 7661414a… offsite match; health 200/200; financial baseline preserved; manual browser OK + calendar screenshot; session ingest off; phase B not done"
     }
   ],
   "fa_r01_3_acceptance": {
@@ -1520,8 +1515,8 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R02 и FA-R02.4 accepted; repo product be9e47a. Staging baseline 7ee85e5; R02/0011–0014/HTTP boundary/session 1.1 на staging не заявлены; session_ingest flag off. Next: FA-R03.1 planned.",
-  "updated_at": "2026-10-19",
+  "note": "FA-R02 accepted (repo be9e47a). Staging phase A deployed 2026-10-20: api/worker/beat RC manifest 31b698…, schema 20261019_0014, frontend release-7ee85e5 без recreate; session ingest off. Next: FA-R03.1 planned (read-only 1C profile prep — отдельное разрешение).",
+  "updated_at": "2026-10-20",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
     "documentation": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
@@ -1536,5 +1531,92 @@
   ],
   "g0_accepted": true,
   "g0_accepted_at": "2026-10-17",
-  "architecture_package_commit_note": "SHA коммита архитектурного пакета — HEAD после push docs/roadmap (см. git log)"
+  "architecture_package_commit_note": "SHA коммита архитектурного пакета — HEAD после push docs/roadmap (см. git log)",
+  "fa_r02_staging_phase_a": {
+    "accepted_at": "2026-10-20",
+    "accepted_by": "owner",
+    "phase": "A",
+    "phase_b_not_performed": true,
+    "product_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+    "previous_staging_product_sha": "7ee85e501735efcfa449ad8f44ef11258e5e4cf2",
+    "previous_staging_schema": "20261017_0010",
+    "schema_after": "20261019_0014",
+    "freeze_start_utc": "2026-10-20T06:32:11Z",
+    "maintenance_log_vps": "/var/backups/finpilot/fa-r02-maintenance-20261020T063211Z.log",
+    "backup_enc_vps": "/var/backups/finpilot/finpilot-staging-FA-R02-20261020T063211Z.tar.enc",
+    "backup_sha256": "7661414aaaa7b21fadc58508b26393e91346b1183ca924c3fc2aa95b3d2c8a90",
+    "backup_size_bytes": 327712,
+    "backup_verify": "decrypt_list_hash_ok",
+    "offsite_mac": "/Users/maximzugrov/Backups/finpilot-staging/finpilot-staging-FA-R02-20261020T063211Z.tar.enc",
+    "offsite_sha256_match": true,
+    "passphrase_file_removed": true,
+    "rc_artifact_sha256": "6f73a54a5a7be9896963745256c3560b62e06c9d9ec6f33d0eaba0f4cb8a6fcd",
+    "release_image_smoke_run_id": 39375731256,
+    "release_workflow_commit": "485bbcad88a20d465d5e9754f970cef2e6058db1",
+    "api_image_tag": "finpilot-api:release-be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+    "api_manifest_digest": "sha256:31b6986b3102b434efc65d8d91bce48d58a1a1a78642d3799b7324e3dd652e62",
+    "api_config_digest": "sha256:19f676995efe664069de0f2cd8fad84735a5e899e777ef0f0fee7d562d692f1e",
+    "platform": "linux/amd64",
+    "compose_override_vps": "/var/tmp/finpilot-release-be9e47a/compose.override.yml",
+    "frontend_recreated": false,
+    "frontend_image_tag": "finpilot-frontend:release-7ee85e5",
+    "frontend_image_id": "sha256:a00f7ddfcb005257654b6fde15951b09e805aadde30bf6b0ad7a51c5daf84697",
+    "rollback_api_image_id": "sha256:d5520080a1cd6c731bcdee102ca00dfa0098622c076b58e6ea2946b1cacd55ae",
+    "rollback_worker_beat_image_id": "sha256:c7ff510499579c8e95ade8e11036a86f4ac91c55bdaac0714e2a30d1e23d490c",
+    "health_live_ready": "200/200",
+    "one_beat": true,
+    "worker_ready": true,
+    "session_ingest_enabled": false,
+    "safe_flags": {
+      "SESSION_INGEST_ENABLED": false,
+      "SEND_REAL_EMAIL": false,
+      "SEND_EXTERNAL_MESSAGES": false,
+      "SEND_LIVE_PAYMENTS": false,
+      "POLL_IMAP": false,
+      "REFUNDS_ENABLED": false,
+      "BALANCES_IMPORT_ENABLED": true,
+      "BILLING_MODE": "test",
+      "EMAIL_PROVIDER_MODE": "smtp",
+      "BILLING_GUARD_BYPASS": "absent"
+    },
+    "financial_baseline": {
+      "cash_transactions_posted": 5,
+      "overview_cash_total": "80499.50",
+      "overview_revenue_ex_vat_october": "20002.00",
+      "plan_amount": "2.00",
+      "plan_due_date": "2026-10-25",
+      "plan_expected_date": "2026-10-27",
+      "plan_matched": "0.50",
+      "acceptance_artifacts_ref": "fa_r01_3_acceptance.staging_acceptance_artifacts"
+    },
+    "browser_evidence": {
+      "type": "owner_manual_confirmation",
+      "statement": "Всё ок",
+      "calendar_screenshot_checked": true,
+      "not_automated_staging_e2e": true,
+      "not_agent_write_smoke": true
+    },
+    "not_verified_on_staging": [
+      "session_ingest_write_path",
+      "ingest_commit_reconcile_new_records",
+      "phase_B"
+    ],
+    "incident": {
+      "cause": "compose_without_explicit_env_file",
+      "violation": "auto_start_baseline_after_ddl",
+      "estimated_window_utc": "2026-10-20T06:32:23Z to 2026-10-20T06:32:33Z",
+      "not_equal_duration_all_services": true,
+      "db_outbound_signs_in_window": "none_observed",
+      "external_providers_independently_checked": false,
+      "error_handler_scripts_fixed": false
+    },
+    "calendar_ux_debt": [
+      "fixed_form_defaults",
+      "unsigned_expected_date_in_card",
+      "shared_postpone_date",
+      "technical_labels"
+    ],
+    "calendar_no_financial_defect_on_screenshot": true,
+    "docs": "docs/roadmap/FA-R02-release-phase-A.md"
+  }
 }

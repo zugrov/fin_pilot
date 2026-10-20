@@ -4,7 +4,9 @@
 
 **Repo accepted product snapshot:** `be9e47af63310f3d5745eadf67dddb0e8c6c9442` (R02.4 финальный product; включает R02.1–R02.3 в истории коммитов, per-task SHA см. STATE.json).
 
-**Snapshot vs deploy.** Staging deployed baseline остаётся `7ee85e501735efcfa449ad8f44ef11258e5e4cf2`; R02, миграции **0011–0014**, HTTP transaction boundary, session **1.1**, reconcile и R02.2 revision/unpost на staging **не** заявлены; `session_ingest_enabled` **не** включать.
+**Snapshot vs deploy (repo).** Per-task и G2 accepted product SHA **сохранены** (см. STATE.json). Исторически до 2026-10-20 staging baseline был `7ee85e501735efcfa449ad8f44ef11258e5e4cf2` @ schema **0010**.
+
+**Staging после фазы A (2026-10-20, принято владельцем):** product **`be9e47a…`**, schema **`20261019_0014`**, api/worker/beat — один RC (`manifest 31b698…`, `config 19f676…`), frontend **`release-7ee85e5`** без recreate. Детали: [`FA-R02-release-phase-A.md`](FA-R02-release-phase-A.md). **`session_ingest_enabled` не включать.** Фаза B не выполнялась.
 
 Опора: ADR-001-B, `contracts/*`.
 
@@ -219,9 +221,34 @@ UI file и почта создают delivery; transport idempotency по `deliv
 
 **Локально (вне product CI):** R02.4 matrix green; полный backend pytest — **2 failed** (backup_restore `:5433`; billing `annual_offer_versions` UUID pollution).
 
-**Staging.** Baseline **7ee85e5** без изменений.
+**Staging (на момент приёмки R02.4 в repo).** Deploy baseline **7ee85e5** без изменений.
 
-**Handoff:** **FA-R03 / FA-R03.1** — planned; `allowed_next_action` — read-only release-readiness план FA-R02 по отдельному разрешению.
+**Handoff после G2:** **FA-R03 / FA-R03.1** — planned.
+
+## Staging release · фаза A (2026-10-20)
+
+**Статус:** deployed и **принята владельцем**. **Фаза B — не выполнялась.**
+
+| Компонент | Значение |
+| --- | --- |
+| Product | `be9e47af63310f3d5745eadf67dddb0e8c6c9442` |
+| Schema | `20261019_0014` (0010→0014 в maintenance) |
+| api/worker/beat | `finpilot-api:release-be9e47a…`, manifest `sha256:31b6986b3102…`, config `sha256:19f676995efe…`, **linux/amd64**, **один beat** |
+| frontend | `finpilot-frontend:release-7ee85e5`, **без recreate** |
+| Override | `/var/tmp/finpilot-release-be9e47a/compose.override.yml` |
+| Backup | `finpilot-staging-FA-R02-20261020T063211Z.tar.enc`, SHA `7661414aaaa7b21fadc58508b26393e91346b1183ca924c3fc2aa95b3d2c8a90`, offsite Mac match, PASSFILE удалён |
+
+**Evidence:** health **200/200**, worker ready; финансы **5** tx, cash **80499.50**, revenue Oct **20002.00**; acceptance UUID/даты сохранены; **ручное** browser OK владельца + скриншот календаря (не Playwright E2E).
+
+**Ограничения:** session ingest **off**; новые ingest/commit/reconcile **не** проверялись.
+
+**Инцидент recreate:** compose **без** `--env-file` → после DDL краткий **auto-start baseline** (`d552…`/`c7ff…`); оценочное окно **~06:32:23–06:32:33Z**; в БД исходящих признаков **не обнаружено**; внешние провайдеры **не** проверялись; error-handler **не** исправлен (scripts/ops без изменений).
+
+**Правило:** `docker compose --env-file /fin_pilot/.env` + оба compose-файла + `-p finpilot-staging`; после DDL — **fail-closed**, без auto baseline restart.
+
+**Календарь UX-долг:** форма/подписи/ожидаемая дата — без финансового дефекта на скриншоте.
+
+**Handoff:** FA-R02 **accepted**; **FA-R03.1 planned** — read-only профиль 1С только по отдельному разрешению.
 
 ## G2 · Итог этапа FA-R02
 
