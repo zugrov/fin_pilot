@@ -40,6 +40,14 @@ FA-R02. FA-R03 и клиентские адаптеры остаются **не*
 Не включает реальный IMAP, карантин FA-R04.2 целиком, миграции и staging.
 См. `docs/roadmap/STAGE_FA-R04.md`.
 
+### FA-R04.2.2 · проект постоянного карантина — accepted design (2026-10-21)
+
+Статус: **accepted design**, **не** implemented. Схема и контракт:
+`docs/roadmap/FA-R04.2-quarantine-design.md` (allowlist headers, anomaly при
+разном digest на slot, retention через `app_expire_mail_quarantine_entries` без
+BYPASSRLS). Миграции, код, staging и реальная почта этим решением **не**
+разрешаются — отдельный scope реализации.
+
 ### D4. Целевой продукт
 
 Полный ОПиУ, управленческий баланс и четыре уровня дашбордов
