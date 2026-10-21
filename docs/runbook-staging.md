@@ -2,16 +2,59 @@
 
 Это частный контур для пилота, не коммерческий запуск. `infra/docker-compose.prod.yml` на этот хост не запускать: он публикует порты 80 и 443, которые уже занимает nginx хоста.
 
-Актуальный снимок стенда после **FA-R02 фазы A (2026-10-20)** — в `docs/readiness-live.md` и [`docs/roadmap/FA-R02-release-phase-A.md`](roadmap/FA-R02-release-phase-A.md). Историческая контрольная точка 2026-10-16 и restore 2026-10-17 сохранены в тех же документах.
+Актуальный снимок стенда (**backend FA-R02 фаза A + frontend UX-CALENDAR-01, 2026-10-21**) — в `docs/readiness-live.md`, [`docs/roadmap/FA-R02-release-phase-A.md`](roadmap/FA-R02-release-phase-A.md) и [`docs/roadmap/UX-CALENDAR-01.md`](roadmap/UX-CALENDAR-01.md). Историческая контрольная точка 2026-10-16 и restore 2026-10-17 сохранены в `readiness-live.md`.
 
 Каталог `/fin_pilot` на VPS, Compose **`finpilot-staging`** запущен. Публичное имя `staging.maxima-consulting.ru` не заводилось. Доступ — SSH-туннель на **`127.0.0.1:8090`**.
 
-## FA-R02 фаза A · deployed snapshot (2026-10-20)
+## UX-CALENDAR-01 · frontend on staging (2026-10-21)
+
+Frontend-only deploy. **Backend, schema, postgres, redis, proxy, api, worker, beat не пересоздавались** этим шагом.
+
+| Поле | Значение |
+|---|---|
+| Frontend source SHA | `15555751aafffe1743e60107508ea3df6ca93724` |
+| Tag | `finpilot-frontend:release-15555751aafffe1743e60107508ea3df6ca93724` |
+| Image ID | `sha256:3330c797afceab82eb55a6ce6cdedc5912d49282c1f4bab0b7369c40aa411b56` |
+| Platform | linux/amd64 |
+| Bundle | `assets/index-Dh8wFLHG.js` |
+| Override | `/var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml` |
+
+Содержимое override (только image frontend):
+
+```yaml
+services:
+  frontend:
+    image: finpilot-frontend:release-15555751aafffe1743e60107508ea3df6ca93724
+```
+
+**Compose (полный контекст для recreate frontend):**
+
+```bash
+cd /fin_pilot && docker compose \
+  --env-file /fin_pilot/.env \
+  -f infra/docker-compose.staging.yml \
+  -f /var/tmp/finpilot-release-be9e47a/compose.override.yml \
+  -f /var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml \
+  -p finpilot-staging \
+  up -d --no-deps --no-build --pull never frontend
+```
+
+Без имени сервиса `up` **не** выполнять. `compose down`, `docker prune`, откат backend или схемы — **вне** этой процедуры.
+
+### Откат только frontend
+
+Образ на VPS сохранён: `finpilot-frontend:release-7ee85e5` → `sha256:a00f7ddfcb005257654b6fde15951b09e805aadde30bf6b0ad7a51c5daf84697`.
+
+1. В `/var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml` указать `image: finpilot-frontend:release-7ee85e5` (или отдельный rollback-override с тем же содержимым).
+2. Тот же **полный** контекст compose, что выше, снова `up -d --no-deps --no-build --pull never frontend`.
+3. Проверить `GET /health/live` и `GET /health/ready` на `127.0.0.1:8090`.
+
+## FA-R02 фаза A · backend snapshot (2026-10-20)
 
 | Сервис | Образ / ID |
 |---|---|
 | `api`, `worker`, `beat` | `finpilot-api:release-be9e47af63310f3d5745eadf67dddb0e8c6c9442`; manifest `sha256:31b6986b3102b434efc65d8d91bce48d58a1a1a78642d3799b7324e3dd652e62`; config `sha256:19f676995efe664069de0f2cd8fad84735a5e899e777ef0f0fee7d562d692f1e`; **linux/amd64**; **один beat** |
-| `frontend` | `finpilot-frontend:release-7ee85e5` — **не пересоздавался** в фазе A |
+| `frontend` | в фазе A **не пересоздавался** (`release-7ee85e5`); с 2026-10-21 — см. раздел **UX-CALENDAR-01** выше |
 | Schema | **`20261019_0014`** |
 | Product SHA | `be9e47af63310f3d5745eadf67dddb0e8c6c9442` |
 

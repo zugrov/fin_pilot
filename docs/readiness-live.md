@@ -1,10 +1,14 @@
 # Готовность к live-запуску
 
-Публичный репозиторий: `https://github.com/zugrov/fin_pilot`. Описание запуска: `docs/runbook-staging.md`. Полный release record: [`docs/roadmap/FA-R02-release-phase-A.md`](roadmap/FA-R02-release-phase-A.md).
+Публичный репозиторий: `https://github.com/zugrov/fin_pilot`. Описание запуска: `docs/runbook-staging.md`. Backend release: [`docs/roadmap/FA-R02-release-phase-A.md`](roadmap/FA-R02-release-phase-A.md). UX календаря: [`docs/roadmap/UX-CALENDAR-01.md`](roadmap/UX-CALENDAR-01.md).
 
-## Актуальный staging (FA-R02 · фаза A, 2026-10-20)
+## Актуальный staging (2026-10-21)
 
-Принято владельцем после maintenance на `my-vps`, Compose **`finpilot-staging`**, loopback **`127.0.0.1:8090`**. **Фаза B не выполнялась.** Session ingest **выключен**.
+Compose **`finpilot-staging`**, loopback **`127.0.0.1:8090`**. **Фаза B FA-R02 не выполнялась.** Session ingest **выключен**.
+
+**Backend и frontend на staging — разные source SHA** (см. таблицы ниже). Это не заявление «весь стенд на одном коммите».
+
+### Backend (api / worker / beat) — FA-R02 фаза A, без изменений с 2026-10-20
 
 | | |
 |---|---|
@@ -15,10 +19,19 @@
 | **Config (OCI)** | `sha256:19f676995efe664069de0f2cd8fad84735a5e899e777ef0f0fee7d562d692f1e` |
 | **Platform** | linux/amd64 |
 | **Beat** | один контейнер |
-| **Frontend** | `finpilot-frontend:release-7ee85e5` — **без recreate** (product UI **7ee85e5**) |
 | **Override** | `/var/tmp/finpilot-release-be9e47a/compose.override.yml` |
-| **Health** | `live=200`, `ready=200` (после deploy) |
 | **Backup (post-migration reference)** | `/var/backups/finpilot/finpilot-staging-FA-R02-20261020T063211Z.tar.enc`, SHA-256 `7661414aaaa7b21fadc58508b26393e91346b1183ca924c3fc2aa95b3d2c8a90`, offsite Mac SHA **совпадает** |
+
+### Frontend — UX-CALENDAR-01 (frontend-only deploy)
+
+| | |
+|---|---|
+| **Frontend source SHA** | `15555751aafffe1743e60107508ea3df6ca93724` |
+| **Tag** | `finpilot-frontend:release-15555751aafffe1743e60107508ea3df6ca93724` |
+| **Image ID** | `sha256:3330c797afceab82eb55a6ce6cdedc5912d49282c1f4bab0b7369c40aa411b56` |
+| **Bundle** | `assets/index-Dh8wFLHG.js` |
+| **Override** | `/var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml` |
+| **Health** | `live=200`, `ready=200` (после frontend recreate и smoke) |
 
 ### Safe flags (api / worker / beat, override)
 
@@ -52,15 +65,17 @@
 
 ### Browser (не автоматизация)
 
-Ручное подтверждение владельца «Всё ок»; календарь сверен по **скриншоту**. Это **не** автоматизированный staging E2E и **не** write-smoke. Новые ingest/commit/reconcile **не** проверялись.
+**2026-10-20 (FA-R02 фаза A):** ручное подтверждение владельца «Всё ок»; календарь на UI **7ee85e5** — по скриншоту.
+
+**2026-10-21 (UX-CALENDAR-01):** read-only staging smoke в авторизованном сеансе — фирма/reload, основные экраны, пустая форма плана, диалог переноса, отмена без PATCH, сохранность due/expected, подписи сопоставления. Подробности — [`UX-CALENDAR-01.md`](roadmap/UX-CALENDAR-01.md). Это **не** staging E2E в CI и **не** write-smoke. Успешные записи на staging **не** выполнялись.
 
 ### Инцидент на recreate (кратко)
 
 Compose **без** `--env-file /fin_pilot/.env` после успешной миграции; error-handler **кратко поднял baseline** (`d552…` api, `c7ff…` worker/beat) на schema **0014** (оценочное окно **~06:32:23–06:32:33Z UTC**, длительность по сервисам **не** одинакова). В БД признаков исходящих **не обнаружено**; SMTP/YooKassa/Telegram **независимо не проверялись**. Scripts/ops **не** менялись.
 
-### Календарь · UX-долг
+### Календарь · UX-CALENDAR-01
 
-По скриншоту **финансового дефекта нет**. UX: фиксированные стартовые значения формы, неподписанная ожидаемая дата в карточке, общая дата переноса, технические подписи.
+Принят владельцем **2026-10-21** (реализация, CI, frontend-only deploy, read-only smoke). Запись: [`UX-CALENDAR-01.md`](roadmap/UX-CALENDAR-01.md). Скриншоты smoke — в agent store (`staging-ux-calendar-create-20261021.png`, `staging-ux-calendar-move-20261021.png`, `staging-ux-calendar-match-20261021.png`), **не** в репозитории.
 
 ---
 
