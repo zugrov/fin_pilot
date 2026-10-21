@@ -240,10 +240,12 @@ FA-R00.3 не блокируют.
 
 ### FA-R06.1 · правила управленческого учёта v1 (2026-10-21)
 
-- **Статус:** proposed.
+- **Статус:** **accepted design**, not implemented (поправки 1–6 и Q1–Q5 в документе).
 - **Документ:** [FA-R06.1-management-rules-v1.md](FA-R06.1-management-rules-v1.md) — ОДДС по деятельности и
   возрастная дебиторка; без ОПиУ/баланса/закрытия периода.
-- **ORACLE:** три профиля полигона (services, retail, subscription) на 2026-10-31; группа 117500/46000 не меняется.
+- **ORACLE:** три профиля полигона (services, retail, subscription) на 2026-10-31; группа 117500/46000 не меняется;
+  профиль **`cashflow_sections`** — только FA-R06.1-P1, в группу не входит.
+- **As-is API:** `GET .../cashflow`; match — `POST /api/v1/revenue-cash-matches` + `Idempotency-Key`.
 
 ### FA-R09.P3 · первый срочный high/critical (2026-10-21)
 

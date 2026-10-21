@@ -1,7 +1,7 @@
-# FA-R06.1 · Правила управленческого учёта v1 (proposed)
+# FA-R06.1 · Правила управленческого учёта v1 (accepted design)
 
-**Статус:** proposed (2026-10-21)
-**База:** `e07bb52` · зависимости: [MASTER_PLAN.md](MASTER_PLAN.md) FA-R06 / FA-R07
+**Статус:** accepted design, not implemented (2026-10-21)
+**База:** `35235738` · зависимости: [MASTER_PLAN.md](MASTER_PLAN.md) FA-R06 / FA-R07
 **Связанные нормы:** [accounting-policy.md](../accounting-policy.md), [import-formats.md](../import-formats.md)
 
 Документ фиксирует **правила v1** для двух отчётов управленческого блока: **ОДДС по видам деятельности** и **возрастной анализ дебиторки**. Реализация, миграции и API — в последующих пакетах; здесь только согласованная методология и контракт.
@@ -36,7 +36,7 @@
 | Регистр | Есть в продукте | Обязательно для v1 | Не хватает для v1 | Примечание |
 |---------|-----------------|--------------------|-------------------|------------|
 | **CashTransaction** | `business_date`, `direction`, `amount`, `wallet_id`, `category_id`, `status`, `transfer_group_id`, контрагент, `document_number` | `posted`, сумма > 0, дата, кошелёк, направление | Стабильный `direction_code` в импорте → категория; доля операций без `category_id` | ОДДС строится из posted; см. [import-formats.md](../import-formats.md) |
-| **CashCategory** | `code`, `cash_flow_section`, `direction` | Секция ∈ {operating, investing, financing, technical} | Единый tenant-справочник кодов импорта → категория | `technical` в v1 не в отчёте, попадает в unmapped или отдельный флаг |
+| **CashCategory** | `code`, `cash_flow_section`, `direction` | Секция ∈ {operating, investing, financing, technical} | Единый tenant-справочник кодов импорта → категория | As-is API: секция **`technical`** в `sections[]`; Q5 — не сливать в unmapped до FA-R07 UI |
 | **Wallet / OpeningBalance** | anchor, валюта | Active opening для cash_total | — | Без anchor — обороты ОДДС возможны, остаток `unavailable` (как сейчас) |
 | **TransferGroup** | `internal`, `intercompany`, `linked` | — | — | Исключение из внешнего ОДДС по правилам [accounting-policy.md](../accounting-policy.md) |
 | **RevenueEntry** | `recognition_date`, `entry_type`, `amount_ex_vat`, `amount_inc_vat`, `vat_amount`, контрагент, `document_number`, `status` | `posted`, дата признания, тип sale/return | `due_date` / срок оплаты **нет** | Дебиторка v1: якорь возраста — см. §4 |
@@ -116,7 +116,7 @@ net_external = external_in − external_out
 |---------|----------------|
 | Нет enabled cash-источника | **нет данных** |
 | `coverage_through` < `date_to` | **предварительно** + `partial_period` / `stale_cash_source` |
-| Есть unmapped | **предварительно** (или **полно** с явным предупреждением — см. открытые вопросы) |
+| Есть unmapped | **предварительно** + `unclassified_operations` (Q2) |
 | Покрытие полное, классификация полная | **полно** |
 
 ---
@@ -192,8 +192,8 @@ age_days = as_of − age_base_date
 ### Новая логика (код, не схема)
 
 - **`receivable_aging_service`** (рабочее имя): read-only агрегация entry + matches + buckets; quality flags.
-- **API** `/reports/cash-flow` — расширить метаданными v1 (статус полноты); при необходимости alias `/reports/odds`.
-- **API** `/reports/receivable-aging` — новый read endpoint.
+- **API** as-is: `GET /api/v1/companies/{id}/cashflow` — расширить метаданными v1 (`completeness`); целевой alias `/reports/cash-flow` — FA-R06.1-P3.
+- **API** `/reports/receivable-aging` — новый read endpoint (FA-R06.1-P3).
 
 ### Таблицы / миграции (не создавать в v1)
 
@@ -232,7 +232,7 @@ age_days = as_of − age_base_date
 | Профиль | Продажи (gross) | Возвраты | Matched | **Balance** | current bucket |
 |---------|-----------------|----------|---------|-------------|----------------|
 | **services** | 12 000 + 6 000 = **18 000** | 0 | **0** | **18 000.00** | весь на 2026-10-31 (age от recognition) |
-| **retail** | 28 800 + 7 200 + 1 000 = **37 000** | **3 600** | **0** | **33 400.00** | r1 age 26d, r2 age 20d, return −20d |
+| **retail** | 28 800 + 7 200 + 1 000 = **37 000** | **3 600** | **0** | **33 400.00** | r1 age 26d (2026-10-05→31), r2 age 20d (2026-10-11→31), return age 11d (2026-10-20→31) |
 | **subscription** | 3 × 1 200 = **3 600** | 0 | **0** | **3 600.00** | cash 4 800 > sales — **аванс не зачтён** |
 
 **Проверка retail вручную:** ex VAT net = 28 000 ([expectations.py](../../backend/tests/synthetic_polygon/expectations.py)); gross AR = 33 400 после return 3 600 inc.
@@ -250,8 +250,8 @@ age_days = as_of − age_base_date
 
 | Операция | Права | Ответ |
 |----------|-------|--------|
-| `GET /api/v1/companies/{id}/reports/cash-flow?date_from&date_to` | finance read, entitlement | `sections[]`, `net_external`, `quality_flags`, `completeness: full\|preliminary\|unavailable` |
-| `GET /api/v1/workspaces/{id}/reports/group-cash-flow?...` | scope группы | аналогично + `excluded_transfer_ids` |
+| `GET /api/v1/companies/{company_id}/cashflow?date_from&date_to` | finance read, entitlement | as-is: `sections[]`, `net_external`, `quality_flags`; целевое v1: `completeness: full\|preliminary\|unavailable` (P3) |
+| `GET /api/v1/workspaces/{tenant_id}/cashflow?date_from&date_to&company_ids=...` | scope группы | as-is: секции + `excluded_transfer_ids`; `completeness` — P3 |
 
 **Ошибки:** 403 entitlement/email; 404 company; 422 неверный период.
 **UI:** таблица секций, drill-down в cash list по `transaction_ids`; баннер при `unclassified_operations`.
@@ -261,7 +261,7 @@ age_days = as_of − age_base_date
 | Операция | Права | Ответ |
 |----------|-------|--------|
 | `GET /api/v1/companies/{id}/reports/receivable-aging?as_of` | finance read | `rows[]` {counterparty, document, balance, bucket, age_days}, `totals_by_bucket`, `quality_flags`, `completeness` |
-| `POST /api/v1/revenue-cash-matches` | finance write | создание match (существующий домен) |
+| `POST /api/v1/revenue-cash-matches` | finance write | создание `RevenueCashMatch` (заголовок **`Idempotency-Key`** обязателен); тело: `company_id`, `revenue_entry_id`, `cash_transaction_id`, `amount` |
 
 **Ошибки:** 409 при превышении sum match над entry.
 **UI:** heatmap корзин; строки без контрагента; «нет данных» без таблицы нулей.
@@ -272,7 +272,7 @@ age_days = as_of − age_base_date
 
 | Пакет | Содержание | Критерии приёмки |
 |-------|------------|------------------|
-| **FA-R06.1-P1** | ORACLE ОДДС октябрь, 3 профиля; интеграция с `cashflow_payload` | Совпадение секций operating с таблицей §6.1; unmapped=0 на полигоне |
+| **FA-R06.1-P1** | ORACLE ОДДС октябрь, 3 профиля + профиль **`cashflow_sections`** (не `ALL_PROFILES`); `cashflow_payload` | §6.1; секции нового профиля; internal transfer через **`POST /api/v1/transfers/link`** после импорта |
 | **FA-R06.1-P2** | Профиль `receivable_demo` (fixtures only, не ALL_PROFILES) + ORACLE AR | Match частичный, return, аванс не уменьшает чужой entry |
 | **FA-R06.1-P3** | API `receivable-aging` + completeness | 403/404; flags; без миграций |
 | **FA-R06.1-P4** | UI блоки ОДДС + AR | Состояния нет данных / предварительно / полно |
@@ -282,21 +282,32 @@ age_days = as_of − age_base_date
 
 ---
 
-## 9. Открытые вопросы (требуют владельца)
+## 9. Принятые решения и поправки при приёмке (2026-10-21)
 
-| # | Вопрос | Рекомендация v1 |
-|---|--------|-----------------|
-| Q1 | AR в **gross** (inc VAT) или **net** (ex VAT)? | **Gross** для согласования с cash match; net — колонка-справка |
-| Q2 | unmapped > 0: отчёт **preliminary** или **full** с warning? | **preliminary** — меньше риска ложного «полно» |
-| Q3 | Якорь возраста без `due_date` | **`recognition_date`** до появления obligation link |
-| Q4 | Групповая дебиторка | **v2**; v1 только company scope |
-| Q5 | Показывать **technical** секцию отдельно? | Obъединять в unmapped с flag до появления статей investing |
+### Решения Q1–Q5
+
+| # | Решение |
+|---|---------|
+| **Q1** | Дебиторка v1 в **gross** (`amount_inc_vat`); net ex VAT — справочная колонка, не замена balance |
+| **Q2** | При unmapped > 0 статус отчёта **preliminary** (не «полно с warning») |
+| **Q3** | `age_base_date = recognition_date`, пока нет связанного `Obligation.due_date` |
+| **Q4** | AR только **company scope**; групповая дебиторка — v2 |
+| **Q5** | As-is **`technical`** — отдельная секция в `cashflow_payload`; свёртка в unmapped — улучшение UI (FA-R07), не меняет формулы P1 |
+
+### Поправки 1–6 к черновику proposed
+
+1. Статус документа: **accepted design, not implemented** (реализация — пакеты P2–P4).
+2. **§3.6:** unmapped → только **preliminary** (Q2); убрана оговорка «полно с warning».
+3. **§6.2:** исправлены возрасты retail по фикстурам (return **11d**, не «−20d»).
+4. **§7:** фактические маршруты **`/cashflow`** (компания и workspace); `completeness` — контракт **P3**, не as-is.
+5. **§7:** связь продажи с оплатой — **`POST /api/v1/revenue-cash-matches`** + **`Idempotency-Key`** (см. `app/api/v1/revenue.py`).
+6. **§8 / P1:** профиль **`cashflow_sections`** вне `ALL_PROFILES`; paired internal transfer — **`POST /api/v1/transfers/link`** (импорт CSV переводы не связывает).
 
 ---
 
 ## Ссылки
 
 - [MASTER_PLAN.md](MASTER_PLAN.md) — FA-R06, FA-R07
-- [DECISIONS.md](DECISIONS.md) — статус proposed FA-R06.1
+- [DECISIONS.md](DECISIONS.md) — статус accepted FA-R06.1
 - [accounting-policy.md](../accounting-policy.md) — инварианты
 - [import-formats.md](../import-formats.md) — контракты CSV
