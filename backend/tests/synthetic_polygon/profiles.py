@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-ProfileKind = Literal["services", "retail", "subscription", "gap_digest"]
+ProfileKind = Literal["services", "retail", "subscription", "gap_digest", "cashflow_sections"]
 
 
 @dataclass(frozen=True)
@@ -235,6 +235,67 @@ GAP_DIGEST = CompanyProfile(
         ),
     ),
     plan=(PlanRow("gap-p1", "out", "90000.00", "2026-11-05", "2026-11-05"),),
+)
+
+# FA-R06.1-P1: все секции ОДДС + unmapped/technical; не в ALL_PROFILES / group ORACLE.
+CASHFLOW_SECTIONS = CompanyProfile(
+    slug="cashflow_sections",
+    display_name="Synth Cashflow Sections LLC",
+    industry_label="сценарий секций ОДДС",
+    tax=TaxParams(
+        legal_form="OOO",
+        vat_payer=False,
+        default_vat_rate="0.00",
+        note="Только cashflow P1; internal transfer связывается через POST /transfers/link.",
+    ),
+    balances=(
+        BalanceRow("main", "2026-10-01", "100000.00"),
+        BalanceRow("reserve", "2026-10-01", "0.00"),
+    ),
+    cash=(
+        CashRow("cfs-op-in", "main", "2026-10-04", "in", "5000.00", category_code="operating"),
+        CashRow("cfs-op-out", "main", "2026-10-06", "out", "1200.00", category_code="operating"),
+        CashRow(
+            "cfs-fin-in",
+            "main",
+            "2026-10-08",
+            "in",
+            "10000.00",
+            category_code="owner_contribution",
+        ),
+        CashRow("cfs-inv-out", "main", "2026-10-10", "out", "800.00", category_code="investing"),
+        CashRow(
+            "cfs-unmapped",
+            "main",
+            "2026-10-12",
+            "in",
+            "300.00",
+            "",
+            "No Category Payer",
+            "Без категории",
+            "CFS-U1",
+            "",
+        ),
+        CashRow("cfs-tech-out", "main", "2026-10-14", "out", "150.00", category_code="technical"),
+        CashRow(
+            "cfs-xfer-out",
+            "main",
+            "2026-10-16",
+            "out",
+            "2000.00",
+            category_code="operating",
+            description="На резерв",
+        ),
+        CashRow(
+            "cfs-xfer-in",
+            "reserve",
+            "2026-10-16",
+            "in",
+            "2000.00",
+            category_code="operating",
+            description="С основного",
+        ),
+    ),
 )
 
 ALL_PROFILES: tuple[CompanyProfile, ...] = (SERVICES, RETAIL, SUBSCRIPTION)

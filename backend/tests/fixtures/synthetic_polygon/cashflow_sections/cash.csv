@@ -1,0 +1,9 @@
+external_id,wallet_code,business_date,direction,amount,currency,counterparty_inn,counterparty_name,description,document_number,category_code,direction_code
+cfs-op-in,main,2026-10-04,in,5000.00,RUB,,,Операционный приход,CFS-OP-IN,operating,
+cfs-op-out,main,2026-10-06,out,1200.00,RUB,,,Операционный расход,CFS-OP-OUT,operating,
+cfs-fin-in,main,2026-10-08,in,10000.00,RUB,,,Вклад,CFS-FIN-IN,owner_contribution,
+cfs-inv-out,main,2026-10-10,out,800.00,RUB,,,Инвестиционный расход,CFS-INV-OUT,investing,
+cfs-unmapped,main,2026-10-12,in,300.00,RUB,,No Category Payer,Без категории,CFS-U1,,
+cfs-tech-out,main,2026-10-14,out,150.00,RUB,,,Техническая,CFS-TECH,technical,
+cfs-xfer-out,main,2026-10-16,out,2000.00,RUB,,,На резерв,CFS-XFER-OUT,operating,
+cfs-xfer-in,reserve,2026-10-16,in,2000.00,RUB,,,С основного,CFS-XFER-IN,operating,
