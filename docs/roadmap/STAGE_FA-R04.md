@@ -112,7 +112,28 @@ Legacy `poll_mailboxes` / `ingest_mailbox` не изменялись и не в�
 - `tests/unit/test_mail_quarantine.py`, `tests/integration/test_mail_quarantine_integration.py`
 - `tests/integration/conftest.py` — `HEAD_REVISION=20261021_0015`, TRUNCATE карантина
 
+## FA-R04.3.1 · API просмотра и закрытия карантина (2026-10-21)
+
+**Статус:** `local_verified` на базе `6cd1dd5271456f8bab5e7f9704ac874084e7bb0c`.
+**Не** UI, **не** staging, **не** миграции.
+
+### Эндпоинты (session + CSRF + `X-Tenant-Id`)
+
+| Метод | Путь | Назначение |
+| --- | --- | --- |
+| GET | `/api/v1/companies/{company_id}/mail-quarantine` | Список (`status`, `limit`≤100, `offset`) |
+| GET | `/api/v1/companies/{company_id}/mail-quarantine/{entry_id}` | Карточка |
+| POST | `/api/v1/companies/{company_id}/mail-quarantine/{entry_id}/close` | `open`→`closed`, Idempotency-Key |
+
+При `mail_quarantine_enabled=false` — **404**. Закрытие: finance write, verified email,
+paid write, audit `mail_quarantine_resolved` (без note в audit).
+
+### Файлы
+
+- `backend/app/api/v1/mail_quarantine.py`, `services/mail_quarantine_api_service.py`
+- `backend/app/main.py`, `tests/integration/test_mail_quarantine_api.py`
+- `tests/unit/test_http_db_dependency_guard.py` (OpenAPI ops **104**)
+
 ### Следующий пакет (не этот scope)
 
-Расписание retention на worker, HTTP/UI resolve, реальный транспортный адаптер, включение
-на стенде — отдельные задачи. `POLL_IMAP` и `SEND_*` не менялись.
+UI карантина, Celery retention schedule, staging, реальный транспорт. `POLL_IMAP` и `SEND_*` не менялись.

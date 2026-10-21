@@ -459,6 +459,16 @@
           "evidence": []
         },
         {
+          "id": "FA-R04.3.1",
+          "title": "API просмотра и закрытия карантина",
+          "status": "local_verified",
+          "evidence": [
+            "docs/roadmap/STAGE_FA-R04.md",
+            "baseline 6cd1dd5271456f8bab5e7f9704ac874084e7bb0c",
+            "not deployed/accepted; no UI"
+          ]
+        },
+        {
           "id": "FA-R04.4",
           "title": "Испытания и включение",
           "status": "planned",
