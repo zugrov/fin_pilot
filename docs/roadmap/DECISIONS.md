@@ -238,6 +238,13 @@ MASTER_PLAN, STATE.
 Почтовый провайдер, граница OCR и LLM и судьба скриптов `ops/`
 FA-R00.3 не блокируют.
 
+### FA-R06.1 · правила управленческого учёта v1 (2026-10-21)
+
+- **Статус:** proposed.
+- **Документ:** [FA-R06.1-management-rules-v1.md](FA-R06.1-management-rules-v1.md) — ОДДС по деятельности и
+  возрастная дебиторка; без ОПиУ/баланса/закрытия периода.
+- **ORACLE:** три профиля полигона (services, retail, subscription) на 2026-10-31; группа 117500/46000 не меняется.
+
 ### FA-R09.P3 · первый срочный high/critical (2026-10-21)
 
 - `consider_urgent` создаёт срочное для **critical/high** без prior materiality,
