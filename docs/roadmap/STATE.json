@@ -416,8 +416,12 @@
         {
           "id": "FA-R04.1",
           "title": "Правила идентификации",
-          "status": "planned",
-          "evidence": []
+          "status": "local_verified",
+          "evidence": [
+            "docs/roadmap/STAGE_FA-R04.md",
+            "baseline 749ab5a00ef6b97cd7bf135972d8eb6f712eef56",
+            "gate не подключён к legacy IMAP/poll; не deployed/accepted"
+          ]
         },
         {
           "id": "FA-R04.2",
