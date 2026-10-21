@@ -40,6 +40,13 @@ FA-R02. FA-R03 и клиентские адаптеры остаются **не*
 Не включает реальный IMAP, карантин FA-R04.2 целиком, миграции и staging.
 См. `docs/roadmap/STAGE_FA-R04.md`.
 
+### FA-R04.2.3 · локальная реализация карантина (2026-10-21)
+
+Миграция `20261021_0015`, домен/сервис, hook в ingress и тесты на изолированной БД
+разрешены. `MAIL_QUARANTINE_ENABLED` по умолчанию **false**; staging, реальная почта,
+Celery-retention, HTTP/UI и resolve — **не** в scope. Правки accepted design внесены в
+`docs/roadmap/FA-R04.2-quarantine-design.md`. Статус пакета: `local_verified`, не deployed.
+
 ### FA-R04.2.2 · проект постоянного карантина — accepted design (2026-10-21)
 
 Статус: **accepted design**, **не** implemented. Схема и контракт:

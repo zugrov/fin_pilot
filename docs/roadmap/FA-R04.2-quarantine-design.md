@@ -1,7 +1,7 @@
 # FA-R04.2.2 · Проект постоянного карантина входящей почты
 
-**Статус документа:** `accepted design`, **не** `implemented` (2026-10-21).
-**База описания кода:** `c0ca4368e4ca20638740816219ef8371b1057f13` (`origin/main`).
+**Статус документа:** `accepted design` + локальная реализация **FA-R04.2.3** (`local_verified`, не deployed).
+**База описания кода:** `56a68ec822887a7a8226b88d776beb0665cb3c86` + миграция `20261021_0015`.
 **Связанные локальные пакеты (реализованы, не карантин):** [STAGE_FA-R04.md](STAGE_FA-R04.md) — FA-R04.1 gate, FA-R04.2.1 ingress.
 
 Документ **не** является миграцией, API или включением почты. DDL ниже — проект для отдельного решения владельца.
@@ -39,7 +39,7 @@
 
 ---
 
-## 2. Модель данных (проект DDL, без применения)
+## 2. Модель данных (миграция `20261021_0015`, локально)
 
 ### Таблица `mail_quarantine_entries`
 
@@ -57,11 +57,9 @@
 | `ingress_stage` | `text` | NOT NULL | `rejected` \| `review` (mirror gate/ingress) |
 | `reason_code` | `text` | NOT NULL | Стабильный код FA-R04.1/2.1 + карантин |
 | `admission_outcome` | `text` | NOT NULL | `reject` \| `review` |
-| `sender_normalized` | `text` | NULL | From после normalize; NULL если не извлечён |
-| `headers_allowed` | `jsonb` | NOT NULL DEFAULT `{}` | Только ключи из allowlist (§3); CHECK через trigger |
-| `attachment_summary` | `jsonb` | NOT NULL DEFAULT `[]` | `{filename, size_bytes, content_type}` без содержимого |
-| `slot_content_anomaly` | `boolean` | NOT NULL DEFAULT `false` | Другой digest на том же slot уже зафиксирован |
-| `anomaly_peer_id` | `uuid` | NULL, FK → self | Связь с «парной» записью того же slot |
+| `sender_normalized` | `text` | NULL | Только при `admission_outcome=review`; на reject всегда NULL |
+| `metadata_allowed` | `jsonb` | NOT NULL DEFAULT `{}` | Allowlist §3 (без subject/From/имён файлов) |
+| `slot_content_anomaly` | `boolean` | NOT NULL DEFAULT `false` | `true` на **всех** строках слота при ≥2 digest |
 | `status` | `text` | NOT NULL DEFAULT `open` | См. переходы ниже |
 | `reviewer_user_id` | `uuid` | NULL, FK → users | Кто закрыл/эскалировал |
 | `resolution` | `text` | NULL | `dismissed` \| `escalated` |
@@ -101,7 +99,15 @@ closed → expired
 
 **Запрещено:** `closed` → `open` без новой доставки; изменение `reason_code` / `ingress_stage` после insert; **тихое** скрытие или удаление строки при новом digest на том же slot.
 
-**Аномалия slot (другой digest):** INSERT новой строки; **обе** записи остаются; у обеих `slot_content_anomaly = true`, `anomaly_peer_id` указывает на соседа (симметрично обновить вторую строку в той же транзакции). Статус `open`/`closed` не сбрасывается автоматически.
+**Аномалия slot (другой digest):** INSERT новой строки; **все** записи слота остаются; у **каждой** строки слота `slot_content_anomaly = true` (в одной транзакции с insert). Статус `open`/`closed` не сбрасывается автоматически.
+
+**Суточный лимит:** таблица `mail_quarantine_daily_stats` — счётчик `entries_created` и `overflow_count` на `(tenant, company, connection, day_utc)`. Default лимита **`200`** записей/connection/UTC-сутки (`mail_quarantine_daily_entry_limit`): защита от шторма reject/review без скрытия факта переполнения (overflow только в stats, не в entries).
+
+**Нет источника в БД:** `app_record_mail_quarantine` не INSERT; инкремент `mail_quarantine_miss_metrics` (`source_missing`).
+
+**`mail_quarantine_daily_stats` / `mail_quarantine_miss_metrics`:** без полей отправителя (только tenant/company/connection, день UTC или код `reason`, счётчики). Кардинальность ограничена PK: одна строка на connection×день и на connection×reason. Очистка v1 — вместе с tenant-scoped TRUNCATE в integration/tests и при удалении компании (CASCADE по FK); отдельный retention-job для stats **не** включён (строк мало, нет PII).
+
+**RLS (0015):** каждая политика `mail_quarantine_*` с явным `TO finpilot_app` или `TO finpilot_worker`. Обход tenant через `app.mail_quarantine_retention=1` только в политиках **`TO finpilot_worker`**; `finpilot_app` при любом `app.tenant_id` видит только свой tenant. `DELETE` на трёх таблицах для app/worker **не** выдан (REVOKE). `app_expire_mail_quarantine_entries` — **`SECURITY INVOKER`**, owner `finpilot_worker`.
 
 ### Что нельзя хранить в БД
 
@@ -121,32 +127,33 @@ closed → expired
 | A. Только метаданные в Postgres | Минимальный риск утечки, проще RLS/backup | Расследование без повторной доставки |
 | B. Метаданные + blob store для review | Удобнее расследование | FS ACL, шифрование, GDPR, malware |
 
-### Выбор: **A (метаданные + allowlist headers в JSONB)**
+### Выбор: **A (метаданные + allowlist JSONB)**
 
-**Обоснование:** reject с стабильным `reason_code` не требует тела. Review опирается на allowlist заголовков. Полный MIME **не** хранится в v1; blob v2 — только по решению §10.
+**Обоснование:** reject с стабильным `reason_code` не требует тела. Review опирается на домен отправителя и агрегаты вложений. Полный MIME **не** хранится в v1.
 
-### Allowlist заголовков (единственный способ сохранить header-поля)
+### Allowlist `metadata_allowed` (FA-R04.2.3)
 
-Ingress при записи **отбрасывает** всё, что не в списке (не «redact in place»):
+Ingress собирает **только** ключи из списка; subject, raw From, Reply-To и **имена файлов** не сохраняются:
 
-| Ключ JSON | Источник | Лимит |
-| --- | --- | --- |
-| `from` | From (raw string) | 320 символов |
-| `reply_to` | Reply-To | 320 |
-| `message_id` | Message-ID | 200 |
-| `subject` | Subject | 200 |
-| `date` | Date | 80 |
-| `content_type_top` | Content-Type верхнего уровня | 120 |
+| Ключ JSON | Смысл |
+| --- | --- |
+| `reason_code` | Код исхода |
+| `stage` | `rejected` \| `review` |
+| `sender_domain` | Доменная часть единственного From (если извлечён) |
+| `attachment_count` | Число вложений |
+| `attachment_total_bytes` | Сумма размеров |
+| `content_types` | Уникальные MIME (guess по расширению, без имён) |
+| `extensions` | Расширения без path/имени |
 
-Запрещены: `Authentication-Results`, `Received`, `DKIM-Signature`, `Return-Path`, произвольные `X-*`, HTML-тела, ссылки.
+CHECK: `mail_quarantine_metadata_keys_ok(metadata_allowed)`.
 
-Trigger/CHECK: `headers_allowed ?| array_only_keys(allowlist)`; иначе INSERT reject на уровне БД (будущая миграция).
+**Audit:** только на resolve (HTTP/UI resolve **не** в FA-R04.2.3).
 
 **Retention:**
 
 - `reject`: `retain_until = created_at + 90 days` (`MAIL_QUARANTINE_REJECT_TTL_DAYS`, default **90** — принято).
 - `review`: `retain_until = created_at + 180 days` (default **180** — принято).
-- Worker вызывает только **`app_expire_mail_quarantine_entries(p_before timestamptz, p_limit int)`** (§4): `SECURITY DEFINER`, но роль caller **`finpilot_worker` без BYPASSRLS**; функция обновляет **только** `status`, `headers_allowed`, `attachment_summary` для строк с `retain_until <= p_before` и `status IN ('open','closed')`; прочие колонки и таблицы недоступны из тела функции.
+- Worker вызывает **`app_expire_mail_quarantine_entries(p_before, p_limit)`** (§4): `SECURITY DEFINER`, owner `finpilot_app` (NOBYPASSRLS), `search_path=public`; caller `finpilot_worker`; обновляет **только** `status='expired'` и `metadata_allowed='{}'`; `reason_code`, slot, digest не меняются. Celery-расписание **не** включено в FA-R04.2.3.
 
 **Файловая система (если v2 blob):** отдельный каталог вне `import_storage_dir`, права `0700`, owner app user, шифрование at-rest (KMS/ключ из `secret_encryption_key`), без path из имени вложения. **v1 проекта — без blob.**
 
@@ -191,7 +198,7 @@ USING (
 - Запрещено в функции: DELETE, TRUNCATE, доступ к другим таблицам, `SET ROLE`, bypass RLS.
 - Grant: только `finpilot_worker` EXECUTE.
 
-**Запись карантина (будущее):** `app_record_mail_quarantine(...)` — INSERT + allowlist filter + anomaly linking; не HTTP.
+**Запись карантина:** `app_record_mail_quarantine(...)` — `SECURITY DEFINER`, owner `finpilot_app`, trigger запрещает прямой INSERT/UPDATE; EXECUTE `finpilot_app`, `finpilot_worker`. Ingress вызывает из Python при `mail_quarantine_enabled`.
 
 ### API (будущее)
 

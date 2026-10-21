@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     session_ingest_max_envelope_bytes: int = 64 * 1024
     session_ingest_max_body_bytes: int = 32 * 1024 * 1024
     session_ingest_max_parts: int = 8
+    mail_quarantine_enabled: bool = False
+    mail_quarantine_reject_ttl_days: int = 90
+    mail_quarantine_review_ttl_days: int = 180
+    mail_quarantine_daily_entry_limit: int = 200
 
     @field_validator("app_env")
     @classmethod

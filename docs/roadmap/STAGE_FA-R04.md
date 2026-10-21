@@ -93,6 +93,26 @@ Gate **не** подключён к legacy `poll_mailboxes` / `ingest_mailbox`.
 
 Legacy `poll_mailboxes` / `ingest_mailbox` не изменялись и не вызываются.
 
+## FA-R04.2.3 · Локальная реализация постоянного карантина (2026-10-21)
+
+**Статус:** `local_verified` на базе `56a68ec822887a7a8226b88d776beb0665cb3c86` + пакет 0015.
+**Не** deployed/accepted, **не** staging, **не** реальная почта, **не** HTTP/UI/resolve.
+
+### Поведение
+
+При `mail_quarantine_enabled=true` ingress вызывает `app_record_mail_quarantine` для
+исходов **reject/review** до возврата результата; при `false` — как FA-R04.2.1. Сбой записи
+→ `AppError` `mail_quarantine_write_failed`, без превращения reject в allow.
+
+### Файлы
+
+- `backend/alembic/versions/20261021_0015_mail_quarantine.py`, `alembic/sql/0015_*`
+- `backend/app/domain/mail_quarantine.py`, `services/mail_quarantine_service.py`, `models/mail_quarantine.py`
+- правка `mail_ingress_service.py`, `config.py`
+- `tests/unit/test_mail_quarantine.py`, `tests/integration/test_mail_quarantine_integration.py`
+- `tests/integration/conftest.py` — `HEAD_REVISION=20261021_0015`, TRUNCATE карантина
+
 ### Следующий пакет (не этот scope)
 
-Постоянный карантин, реальный транспортный адаптер, HTTP/worker/IMAP, включение на стенде — отдельные задачи FA-R04.2+. `POLL_IMAP` и `SEND_*` не менялись.
+Расписание retention на worker, HTTP/UI resolve, реальный транспортный адаптер, включение
+на стенде — отдельные задачи. `POLL_IMAP` и `SEND_*` не менялись.

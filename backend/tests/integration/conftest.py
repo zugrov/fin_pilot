@@ -42,6 +42,9 @@ PASSWORD = "long-password-1"
 INTEGRATION_PG_HOST = "127.0.0.1"
 INTEGRATION_PG_PORT = int(_PORT)
 TRUNCATE = """
+mail_quarantine_entries,
+mail_quarantine_daily_stats,
+mail_quarantine_miss_metrics,
 ingestion_delivery_parts,
 email_ingestions,
 notification_outbox, bot_drafts, digest_snapshots, digest_subscriptions,
@@ -89,7 +92,7 @@ def migrated_database():
     engine.dispose()
 
 
-HEAD_REVISION = "20261019_0014"
+HEAD_REVISION = "20261021_0015"
 
 # Baseline из alembic/sql/0002_billing.sql — после очистки test-only строк в annual_offer_versions.
 _ANNUAL_OFFER_BASELINE = text(

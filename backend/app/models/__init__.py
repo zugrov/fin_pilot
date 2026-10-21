@@ -46,6 +46,7 @@ from app.models.imports import (
     SourceConnection,
     SourceIdentity,
 )
+from app.models.mail_quarantine import MailQuarantineEntry
 from app.models.plan import (
     ForecastContribution,
     ForecastPoint,
@@ -109,6 +110,7 @@ __all__ = [
     "ImportBatch",
     "ImportProfile",
     "Invitation",
+    "MailQuarantineEntry",
     "Invoice",
     "InvoiceLine",
     "Membership",

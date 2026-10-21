@@ -438,7 +438,18 @@
           "evidence": [
             "docs/roadmap/STAGE_FA-R04.md",
             "baseline bc2720fcaac47cc52f61de4003f95898b133462b",
-            "legacy IMAP/poll не подключён; не deployed/accepted"
+            "legacy IMAP/poll не подключён; not deployed/accepted"
+          ]
+        },
+        {
+          "id": "FA-R04.2.3",
+          "title": "Локальная реализация карантина",
+          "status": "local_verified",
+          "evidence": [
+            "docs/roadmap/STAGE_FA-R04.md",
+            "docs/roadmap/FA-R04.2-quarantine-design.md",
+            "migration 20261021_0015",
+            "MAIL_QUARANTINE_ENABLED default false; not deployed/accepted"
           ]
         },
         {

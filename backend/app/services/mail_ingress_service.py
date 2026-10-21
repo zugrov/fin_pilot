@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.config import Settings
-from app.domain.mail_admission import MailAdmissionOutcome
+from app.domain.mail_admission import MailAdmissionOutcome, UntrustedMailEnvelope
 from app.domain.mail_ingress import (
     MailIngressResult,
     MailIngressStage,
@@ -20,6 +20,7 @@ from app.domain.mail_ingress import (
     ingress_raw_byte_limit,
 )
 from app.errors import AppError
+from app.integrations.imap_client import MailAttachment
 from app.models.identity import Company, User
 from app.models.imports import EmailIngestion, IngestionDelivery, SourceConnection
 from app.security.access import require_membership
@@ -27,6 +28,7 @@ from app.security.context import set_context
 from app.services import mail_service
 from app.services.ingestion_delivery_service import mail_delivery_key
 from app.services.mail_admission_service import evaluate_mail_admission
+from app.services.mail_quarantine_service import record_mail_quarantine_for_ingress
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,47 +41,70 @@ def ingest_trusted_local_mail(
     bundle: TrustedIngressBundle,
     at: datetime,
 ) -> MailIngressResult:
+    envelope: UntrustedMailEnvelope | None = None
+    attachments: list[MailAttachment] | None = None
+
+    def finish(result: MailIngressResult) -> MailIngressResult:
+        record_mail_quarantine_for_ingress(
+            session,
+            settings,
+            raw_message=raw_message,
+            bundle=bundle,
+            result=result,
+            at=at,
+            envelope=envelope,
+            attachments=attachments,
+        )
+        return result
+
     max_bytes = ingress_raw_byte_limit(settings)
     size_code = check_raw_message_size(raw_message, max_bytes)
     if size_code is not None:
-        return _reject(size_code, admission=None)
+        return finish(_reject(size_code, admission=None))
 
     mismatch = bind_message_to_transport(raw_message, bundle.message_digest)
     if mismatch is not None:
-        return _reject(mismatch, admission=None)
+        return finish(_reject(mismatch, admission=None))
 
     envelope_or_error = extract_envelope_from_raw(raw_message)
     if isinstance(envelope_or_error, str):
         if envelope_or_error == "ambiguous_sender":
-            return MailIngressResult(
-                stage=MailIngressStage.REVIEW,
-                reason_code="ambiguous_sender",
-                admission=None,
+            return finish(
+                MailIngressResult(
+                    stage=MailIngressStage.REVIEW,
+                    reason_code="ambiguous_sender",
+                    admission=None,
+                )
             )
-        return _reject(envelope_or_error, admission=None)
+        return finish(_reject(envelope_or_error, admission=None))
 
+    envelope = envelope_or_error
     admission = evaluate_mail_admission(
         session,
         settings,
-        envelope=envelope_or_error,
+        envelope=envelope,
         transport=bundle.transport,
         binding=bundle.binding,
         at=at,
     )
     if admission.outcome == MailAdmissionOutcome.REJECT:
-        return MailIngressResult(
-            stage=MailIngressStage.REJECTED,
-            reason_code=admission.reason_code,
-            admission=admission,
+        return finish(
+            MailIngressResult(
+                stage=MailIngressStage.REJECTED,
+                reason_code=admission.reason_code,
+                admission=admission,
+            )
         )
     if admission.outcome == MailAdmissionOutcome.REVIEW:
-        return MailIngressResult(
-            stage=MailIngressStage.REVIEW,
-            reason_code=admission.reason_code,
-            admission=admission,
+        return finish(
+            MailIngressResult(
+                stage=MailIngressStage.REVIEW,
+                reason_code=admission.reason_code,
+                admission=admission,
+            )
         )
     if admission.context is None:
-        return _reject("admission_context_missing", admission=admission)
+        return finish(_reject("admission_context_missing", admission=admission))
 
     ctx = admission.context
     if (
@@ -88,14 +113,14 @@ def ingest_trusted_local_mail(
         or ctx.connection_id != bundle.binding.connection_id
         or ctx.actor_user_id != bundle.binding.actor_user_id
     ):
-        return _reject("routing_binding_conflict", admission=admission)
+        return finish(_reject("routing_binding_conflict", admission=admission))
 
     set_context(session, tenant_id=ctx.tenant_id, user_id=ctx.actor_user_id)
     connection = session.get(SourceConnection, bundle.binding.connection_id)
     if connection is None:
-        return _reject("source_not_found", admission=admission)
+        return finish(_reject("source_not_found", admission=admission))
     if not connection.enabled or connection.status != "active":
-        return _reject("source_disabled", admission=admission)
+        return finish(_reject("source_disabled", admission=admission))
 
     config_sender = str((connection.config_redacted or {}).get("sender") or "")
     attachments_or_error = extract_attachments_from_raw(
@@ -104,12 +129,13 @@ def ingest_trusted_local_mail(
         attachment_sender=config_sender,
     )
     if isinstance(attachments_or_error, str):
-        return _reject(attachments_or_error, admission=admission)
+        return finish(_reject(attachments_or_error, admission=admission))
 
+    attachments = attachments_or_error
     user = session.get(User, ctx.actor_user_id)
     company = session.get(Company, ctx.company_id)
     if user is None or company is None:
-        return _reject("not_found", admission=admission)
+        return finish(_reject("not_found", admission=admission))
 
     membership = require_membership(session, user.id, ctx.tenant_id)
     try:
@@ -120,16 +146,18 @@ def ingest_trusted_local_mail(
             membership,
             company,
             user,
-            attachments_or_error,
+            attachments,
             config_sender,
             at,
         )
     except AppError as exc:
         if exc.code == "delivery_conflict":
-            return MailIngressResult(
-                stage=MailIngressStage.REJECTED,
-                reason_code="delivery_conflict",
-                admission=admission,
+            return finish(
+                MailIngressResult(
+                    stage=MailIngressStage.REJECTED,
+                    reason_code="delivery_conflict",
+                    admission=admission,
+                )
             )
         raise
 
