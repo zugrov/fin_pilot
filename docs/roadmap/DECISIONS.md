@@ -246,6 +246,11 @@ FA-R00.3 не блокируют.
 - Privacy **full**: `new_counterparty` показывает контрагент/inn из evidence (≤60 символов, HTML);
   **compact** — без контрагента.
 - Исправлен контекст tenant при отмене outbox после потери доступа (`telegram_dispatch`).
+- **Принято владельцем (выход за список P3):** правка `telegram_dispatch.py` —
+  без восстановления `app_tenant()` после `require_membership()` при inactive membership
+  dispatch падает `StaleDataError` (UPDATE outbox 0 rows под RLS), очередь не
+  переводится в `cancelled`. Воспроизведение: тест отзыва membership на `ed812cb`
+  dispatch + `18421ac` fix.
 
 ### Что эта подготовка не делает
 

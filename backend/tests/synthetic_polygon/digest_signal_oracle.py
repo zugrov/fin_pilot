@@ -73,3 +73,14 @@ def gap_worsened_amount() -> str:
     base = Decimal(CASH_GAP.gap_amount)
     worsened = (base * Decimal("1.25")).quantize(Decimal("0.01"))
     return format(worsened, "f")
+
+
+# Порог materiality_worsened: current >= previous × 1.20 (см. app/domain/telegram_text.py).
+WORSENING_PREVIOUS = Decimal(CASH_GAP.gap_amount)
+WORSENING_TWENTY_PCT_FLOOR = (WORSENING_PREVIOUS * Decimal("1.20")).quantize(Decimal("0.01"))
+# Доп. план out после dispatch: 85000 → urgent 0; 87000 → urgent 1 (калибровка полигона).
+PLAN_OUT_BELOW_WORSENING_THRESHOLD = "85000.00"
+PLAN_OUT_ABOVE_WORSENING_THRESHOLD = "87000.00"
+# 543750 = 435000 × 1.25; новая materiality cash_gap = 435000 + 543750 = 978750.00.
+PLAN_OUT_FOR_978750_MATERIALITY = gap_worsened_amount()
+URGENT_MATERIALITY_AFTER_25PCT_PLAN = "978750.00"
