@@ -359,6 +359,71 @@ def _parallel_commit(
     return sorted(results, key=lambda item: item[0])
 
 
+def _parallel_commit_diag(
+    results: list[tuple[int, int, dict]],
+    revision_by_slot: dict[int, int],
+) -> str:
+    parts: list[str] = []
+    for slot, status, body in sorted(results, key=lambda item: item[0]):
+        revision = revision_by_slot.get(slot, -1)
+        parts.append(
+            f"slot={slot} revision={revision} status={status} code={body.get('code')!r}"
+        )
+    return "; ".join(parts)
+
+
+def _identity_count(admin, external_id: str) -> int:
+    with admin.connect() as connection:
+        return int(
+            connection.execute(
+                text("SELECT count(*) FROM source_identities WHERE external_id = :id"),
+                {"id": external_id},
+            ).scalar_one()
+        )
+
+
+def _import_row_payload_hash(admin, batch_id: str) -> str:
+    with admin.connect() as connection:
+        value = connection.execute(
+            text(
+                "SELECT payload_hash FROM raw_import_rows "
+                "WHERE batch_id = :batch_id ORDER BY row_number LIMIT 1"
+            ),
+            {"batch_id": batch_id},
+        ).scalar_one()
+    assert value, "import row payload_hash missing"
+    return str(value)
+
+
+def _assert_concurrent_first_identity_commits(
+    results: list[tuple[int, int, dict]],
+) -> None:
+    revision_by_slot = {0: 1, 1: 2}
+    diag = _parallel_commit_diag(results, revision_by_slot)
+    by_slot = {slot: (status, body) for slot, status, body in results}
+    assert by_slot.keys() == {0, 1}, diag
+
+    rev2_status, rev2_body = by_slot[1]
+    assert rev2_status == 200, f"revision 2 must commit successfully: {diag}"
+    assert rev2_body.get("code") is None, f"revision 2 must not carry error code: {diag}"
+
+    rev1_status, rev1_body = by_slot[0]
+    if rev1_status == 200:
+        assert rev1_body.get("code") is None, (
+            f"revision 1 success must not carry error code: {diag}"
+        )
+    elif rev1_status == 409:
+        assert rev1_body.get("code") == "stale_revision", (
+            f"revision 1 may only be rejected as stale_revision: {diag}"
+        )
+    else:
+        raise AssertionError(
+            f"revision 1 must be 200 or 409 stale_revision, got {rev1_status}: {diag}"
+        )
+
+    assert rev2_status == 200 and rev1_status in {200, 409}, diag
+
+
 def _alembic_downgrade(target: str) -> None:
     config = Config(str(BACKEND / "alembic.ini"))
     previous = os.getcwd()
@@ -455,6 +520,7 @@ def test_concurrent_first_identity_single_financial_row(
         "conc-b",
     )
     assert batch_a.status_code == batch_b.status_code == 200
+    expected_rev2_payload_hash = _import_row_payload_hash(admin, batch_b.json()["id"])
     results = _parallel_commit(
         app,
         _tenant_id(client),
@@ -462,10 +528,14 @@ def test_concurrent_first_identity_single_financial_row(
         [batch_a.json()["id"], batch_b.json()["id"]],
     )
     assert len(results) == 2
-    assert all(status == 200 for _, status, _ in results)
-    assert _financial_count(admin, case.financial_table) == 1
-    assert _watermark(admin, external_id) == 2
-    assert _identity_payload_hash(admin, external_id)
+    revision_by_slot = {0: 1, 1: 2}
+    diag = _parallel_commit_diag(results, revision_by_slot)
+    _assert_concurrent_first_identity_commits(results)
+    assert _financial_count(admin, case.financial_table) == 1, diag
+    assert _identity_count(admin, external_id) == 1, diag
+    assert _watermark(admin, external_id) == 2, diag
+    assert _cash_amount(admin, external_id) == Decimal("200.00"), diag
+    assert _identity_payload_hash(admin, external_id) == expected_rev2_payload_hash, diag
 
 
 def test_concurrent_existing_identity_keeps_max_revision(
