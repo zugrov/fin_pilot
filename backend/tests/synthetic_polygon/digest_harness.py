@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from datetime import datetime
 
 from app.domain.telegram_text import content_hash
@@ -12,10 +13,11 @@ from app.services.telegram_dispatch import dispatch_outbox
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from tests.integration.conftest import login, open_workspace, pay, register_and_verify
 from tests.integration.test_synthetic_polygon import _workspace_three_companies
 from tests.synthetic_polygon.constants import polygon_frozen_moment
 from tests.synthetic_polygon.harness import load_profile
-from tests.synthetic_polygon.profiles import ALL_PROFILES
+from tests.synthetic_polygon.profiles import ALL_PROFILES, GAP_DIGEST
 
 TELEGRAM_USER = 901
 
@@ -117,3 +119,33 @@ def metrics_hash_stable(metrics: dict) -> bool:
     first = content_hash(metrics)
     render_parts(metrics, "https://example.test")
     return content_hash(metrics) == first
+
+
+def seed_gap_company(
+    client: TestClient, admin: Engine, app, fake, tmp_path
+) -> tuple[str, str]:
+    app.state.settings.balances_import_enabled = True
+    app.state.settings.import_storage_dir = str(tmp_path)
+    register_and_verify(client, admin, "gap-digest@example.com", name="Gap Digest")
+    login(client, "gap-digest@example.com")
+    tenant_id = open_workspace(client, "Gap Digest WS")
+    pay(client, app, fake, 1, "month")
+    created = client.post(
+        f"/api/v1/workspaces/{tenant_id}/companies",
+        json={"name": GAP_DIGEST.display_name, "kind": "company", "timezone": "Europe/Moscow"},
+    )
+    assert created.status_code == 200, created.text
+    company_id = created.json()["id"]
+    activated = client.post(f"/api/v1/billing/companies/{company_id}/activate")
+    assert activated.status_code == 200, activated.text
+    load_profile(client, company_id, GAP_DIGEST, admin=admin)
+    return tenant_id, company_id
+
+
+def telegram_visible_length(text: str) -> int:
+    return len(html.unescape(text))
+
+
+def assert_parts_within_telegram_limit(admin: Engine, *, limit: int = 4096) -> None:
+    for part_text, _ in outbox_parts(admin):
+        assert telegram_visible_length(part_text) <= limit

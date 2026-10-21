@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from app.domain.money import money, money_str
+from tests.synthetic_polygon.constants import COVERAGE_THROUGH
 from tests.synthetic_polygon.expectations import (
     GROUP_CASH_ORACLE,
     GROUP_REVENUE_ORACLE,
@@ -16,6 +17,11 @@ from tests.synthetic_polygon.profiles import ALL_PROFILES, CompanyProfile, Profi
 
 DIGEST_REPORT_DATE = date(2026, 10, 31)
 REPORT_ISO = DIGEST_REPORT_DATE.isoformat()
+
+# Обоснование revenue_yesterday (FA-R09.P2):
+# По _coverage(sources, date_to): covered ⇔ min(coverage_through) >= report_date.
+# При covered и нуле строк recognition_date=report_date → amount 0.00 (assess_revenue).
+# При не covered (нет источника, coverage_through is null или < report_date) → unavailable (None).
 
 
 def _d(value: str) -> Decimal:
@@ -81,6 +87,25 @@ def revenue_mtd(profile: CompanyProfile, through: date) -> str:
     return money_str(money(total))
 
 
+def revenue_yesterday_oracle(
+    profile: CompanyProfile,
+    *,
+    coverage_through: date | None,
+) -> str | None:
+    if not profile.revenue:
+        return None
+    if coverage_through is None or coverage_through < DIGEST_REPORT_DATE:
+        return None
+    day_value = revenue_for_day(profile, REPORT_ISO)
+    if day_value is not None:
+        return day_value
+    return "0.00"
+
+
+def polygon_revenue_coverage_through() -> date:
+    return date.fromisoformat(COVERAGE_THROUGH)
+
+
 def plan_overdue_out(profile: CompanyProfile, report: date) -> str:
     overdue = Decimal("0")
     matched = _plan_matched_out(profile)
@@ -130,9 +155,10 @@ def company_card_oracle(slug: ProfileKind) -> dict[str, str | None]:
     profile = next(item for item in ALL_PROFILES if item.slug == slug)
     exp = ORACLE[slug]
     incoming, outgoing = day_cash_flows(profile, REPORT_ISO)
+    coverage = polygon_revenue_coverage_through()
     return {
         "cash_total": exp.cash_total,
-        "revenue_yesterday": revenue_for_day(profile, REPORT_ISO),
+        "revenue_yesterday": revenue_yesterday_oracle(profile, coverage_through=coverage),
         "revenue_mtd": revenue_mtd(profile, DIGEST_REPORT_DATE),
         "incoming": incoming,
         "outgoing": outgoing,
@@ -141,22 +167,23 @@ def company_card_oracle(slug: ProfileKind) -> dict[str, str | None]:
     }
 
 
-def group_totals_oracle() -> dict[str, str]:
+def group_totals_oracle() -> dict[str, str | None]:
     rollup = group_rollup()
     assert rollup["cash_total"] == GROUP_CASH_ORACLE
     assert rollup["revenue"] == GROUP_REVENUE_ORACLE
     incoming = Decimal("0")
     outgoing = Decimal("0")
-    rev_yesterday: list[str] = []
+    rev_parts: list[str] = []
+    coverage = polygon_revenue_coverage_through()
     for profile in ALL_PROFILES:
         inc, out = day_cash_flows(profile, REPORT_ISO)
         incoming += _d(inc)
         outgoing += _d(out)
-        day_rev = revenue_for_day(profile, REPORT_ISO)
-        if day_rev is not None:
-            rev_yesterday.append(day_rev)
+        rev = revenue_yesterday_oracle(profile, coverage_through=coverage)
+        assert rev is not None
+        rev_parts.append(rev)
     net = money_str(money(incoming - outgoing))
-    rev_y = None if not rev_yesterday else money_str(money(sum(_d(item) for item in rev_yesterday)))
+    rev_y = money_str(money(sum(_d(item) for item in rev_parts)))
     return {
         "cash_total": GROUP_CASH_ORACLE,
         "revenue_mtd": GROUP_REVENUE_ORACLE,
@@ -171,28 +198,17 @@ def assert_card_matches_oracle(card: dict, slug: ProfileKind) -> None:
     expected = company_card_oracle(slug)
     for key, want in expected.items():
         got = card.get(key)
-        if want is None and got == "0.00" and key == "revenue_yesterday":
-            continue
         if want is None:
             assert got is None, f"{slug}.{key}: ожидали unavailable, получили {got!r}"
         else:
             assert got == want, f"{slug}.{key}: oracle {want} != metrics {got!r}"
 
 
-def assert_group_totals_match_oracle(totals: dict) -> list[str]:
-    """Сверка с оракулом; возвращает список задокументированных расхождений."""
+def assert_group_totals_match_oracle(totals: dict) -> None:
     expected = group_totals_oracle()
-    notes: list[str] = []
     for key, want in expected.items():
         got = totals.get(key)
-        if want is None and got == "0.00" and key == "revenue_yesterday":
-            notes.append(
-                "group.revenue_yesterday: оракул unavailable (нет recognition_date), "
-                "сервис assess_revenue при покрытии возвращает 0.00"
-            )
-            continue
         if want is None:
             assert got is None, f"group.{key}: oracle unavailable != {got!r}"
         else:
             assert got == want, f"group.{key}: oracle {want} != {got!r}"
-    return notes

@@ -7,7 +7,6 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from app.domain.telegram_text import signal_type_label
 from app.integrations.telegram import MockTelegram
 from app.security.context import set_context
 from app.services.telegram_bot import ingest_update
@@ -82,8 +81,7 @@ def test_polygon_group_digest_matches_oracle(client, admin, app, fake, tmp_path)
     metrics = latest_metrics(admin)
     assert metrics["report_date"] == "2026-10-31"
     assert metrics["partial"] is False
-    oracle_notes = assert_group_totals_match_oracle(metrics["totals"])
-    assert oracle_notes, "ожидали зафиксированное расхождение revenue_yesterday"
+    assert_group_totals_match_oracle(metrics["totals"])
     slug_by_id = {value: key for key, value in company_ids.items()}
     for card in metrics["companies"]:
         assert_card_matches_oracle(card, slug_by_id[card["company_id"]])
@@ -91,7 +89,7 @@ def test_polygon_group_digest_matches_oracle(client, admin, app, fake, tmp_path)
     svc = next(
         card for card in metrics["companies"] if slug_by_id[card["company_id"]] == "services"
     )
-    assert svc["revenue_yesterday"] in {None, "0.00"}
+    assert svc["revenue_yesterday"] == "0.00"
     assert metrics_hash_stable(metrics)
 
     transport = MockTelegram()
@@ -101,13 +99,14 @@ def test_polygon_group_digest_matches_oracle(client, admin, app, fake, tmp_path)
     oracle = group_totals_oracle()
     assert oracle["cash_total"] in text_value
     assert oracle["revenue_mtd"] in text_value
-    assert "Выручка вчера: 0.00" in text_value or "Выручка вчера: нет данных" in text_value
+    assert "Выручка вчера: 0.00" in text_value
     assert "ограниченные средства" in text_value
     assert "&lt;Synth &amp; Retail&gt;" in text_value
     for token in FORBIDDEN_IN_TEXT:
         assert token not in text_value
-    for part_text, _ in outbox_parts(admin):
-        assert len(part_text) <= 4096
+    from tests.synthetic_polygon.digest_harness import assert_parts_within_telegram_limit
+
+    assert_parts_within_telegram_limit(admin)
 
 
 def test_polygon_per_company_subscription(client, admin, app, fake, tmp_path) -> None:
@@ -342,15 +341,3 @@ def test_previous_materiality_scan_cost_on_large_outbox(
     print(f"PERF_PREVIOUS_MATERIALITY_SECONDS={elapsed:.4f}")
 
 
-def test_signal_labels_in_digest_text(client, admin, app, fake, tmp_path) -> None:
-    freeze(app, SCHEDULE_AT)
-    seed_polygon(client, admin, app, fake, tmp_path)
-    link_and_confirm(client, app, SCHEDULE_AT)
-    schedule(app, SCHEDULE_AT)
-    metrics = latest_metrics(admin)
-    if not metrics["alerts"]:
-        pytest.skip("на полигоне нет открытых сигналов в сводке")
-    text_value = outbox_parts(admin)[0][0]
-    for alert in metrics["alerts"]:
-        assert alert["type"] not in text_value
-        assert signal_type_label(alert["type"]) in text_value or "Проверить" in text_value

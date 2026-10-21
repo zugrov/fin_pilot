@@ -1,0 +1,2 @@
+external_id,wallet_code,business_date,direction,amount,currency,counterparty_inn,counterparty_name,description,document_number,category_code,direction_code
+gap-c1,main,2026-10-12,out,350000.00,RUB,,Privacy Oracle CP,Крупный платёж,GAP-OUT-1,operating,

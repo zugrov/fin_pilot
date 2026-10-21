@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-ProfileKind = Literal["services", "retail", "subscription"]
+ProfileKind = Literal["services", "retail", "subscription", "gap_digest"]
 
 
 @dataclass(frozen=True)
@@ -207,6 +207,34 @@ SUBSCRIPTION = CompanyProfile(
     ),
     plan=(PlanRow("sub-p1", "in", "2400.00", "2026-10-30", "2026-10-31"),),
     plan_match=(("sub-c1", "sub-p1", "1200.00"),),
+)
+
+# Отдельный профиль для FA-R09.P2 (сигналы дайджеста); не входит в ALL_PROFILES / group ORACLE.
+GAP_DIGEST = CompanyProfile(
+    slug="gap_digest",
+    display_name="Synth Gap Digest LLC",
+    industry_label="сценарий дефицита",
+    tax=TaxParams(
+        legal_form="OOO",
+        vat_payer=False,
+        default_vat_rate="0.00",
+        note="Только дайджест/сигналы; не влияет на групповой ORACLE 117500/46000.",
+    ),
+    balances=(BalanceRow("main", "2026-10-01", "5000.00"),),
+    cash=(
+        CashRow(
+            "gap-c1",
+            "main",
+            "2026-10-12",
+            "out",
+            "350000.00",
+            "",
+            "Privacy Oracle CP",
+            "Крупный платёж",
+            "GAP-OUT-1",
+        ),
+    ),
+    plan=(PlanRow("gap-p1", "out", "90000.00", "2026-11-05", "2026-11-05"),),
 )
 
 ALL_PROFILES: tuple[CompanyProfile, ...] = (SERVICES, RETAIL, SUBSCRIPTION)
