@@ -8,6 +8,29 @@ from app.domain.money import money
 
 PART_LIMIT = 3500
 
+# Русские названия типов сигналов для текста Telegram (не меняют расчёты и content_hash).
+SIGNAL_TYPE_LABELS: dict[str, str] = {
+    "cash_gap": "Дефицит денег",
+    "reserve_breach": "Пробой резерва",
+    "expense_overrun": "Перерасход",
+    "revenue_shortfall": "Недобор выручки",
+    "large_outgoing": "Крупный расход",
+    "unusual_outgoing": "Нетипичный расход",
+    "new_counterparty": "Новый контрагент",
+    "duplicate_candidate": "Возможный дубликат",
+    "stale_source": "Устаревший источник",
+    "overdue_obligation": "Просроченное обязательство",
+    "unclassified_share": "Доля без категории",
+}
+
+UNKNOWN_SIGNAL_LABEL = "Финансовый сигнал"
+
+RESTRICTED_FUNDS_LABEL = "ограниченные средства"
+
+
+def signal_type_label(rule_type: str) -> str:
+    return SIGNAL_TYPE_LABELS.get(rule_type, UNKNOWN_SIGNAL_LABEL)
+
 
 class SlotState(Enum):
     WAITING = "waiting"

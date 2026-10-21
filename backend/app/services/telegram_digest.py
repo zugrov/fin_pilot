@@ -5,12 +5,14 @@ from decimal import Decimal
 from app.config import Settings
 from app.domain.money import money, money_str
 from app.domain.telegram_text import (
+    RESTRICTED_FUNDS_LABEL,
     SlotState,
     content_hash,
     escape_html,
     in_quiet,
     local_to_utc,
     materiality_worsened,
+    signal_type_label,
     slot_state,
     split_parts,
 )
@@ -314,8 +316,9 @@ def _enqueue_urgent(session, subscription, binding, item: dict, at: datetime) ->
     if sent_at + timedelta(minutes=cooldown) > at:
         return False
     level = money_str(current)
+    label = escape_html(signal_type_label(str(item["type"])))
     text = (
-        f"{escape_html(item['type'])}: {money_str(previous)} → {level}. "
+        f"{label}: {money_str(previous)} → {level}. "
         "Повтор сигнала после ухудшения. Подтверждение условие не снимает."
     )
     try:
@@ -484,7 +487,7 @@ def _money_block(totals: dict) -> str:
     return (
         "Деньги всего "
         f"{_shown(totals['cash_total'])}, доступны {_shown(totals['available'])}, "
-        f"restricted {_shown(totals['restricted'])}."
+        f"{RESTRICTED_FUNDS_LABEL} {_shown(totals['restricted'])}."
     )
 
 
@@ -633,7 +636,7 @@ def _alert_text(item: dict, privacy: str) -> str:
     evidence = item.get("evidence") or {}
     magnitude = _magnitude(item)
     amount = "" if magnitude is None else money_str(magnitude)
-    text = f"{escape_html(item['type'])} {escape_html(amount)}".strip()
+    text = f"{escape_html(signal_type_label(str(item['type'])))} {escape_html(amount)}".strip()
     if privacy == "full":
         for key, value in evidence.items():
             if key in HIDDEN and value:
