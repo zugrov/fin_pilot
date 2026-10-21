@@ -238,6 +238,15 @@ MASTER_PLAN, STATE.
 Почтовый провайдер, граница OCR и LLM и судьба скриптов `ops/`
 FA-R00.3 не блокируют.
 
+### FA-R09.P3 · первый срочный high/critical (2026-10-21)
+
+- `consider_urgent` создаёт срочное для **critical/high** без prior materiality,
+  если сигнал не в pending плановом дайджесте и нет pending/sent/unknown по `alert_id`.
+- Лимит **5** срочных на подписку за локальные сутки; ухудшение ≥20% и cooldown сохранены.
+- Privacy **full**: `new_counterparty` показывает контрагент/inn из evidence (≤60 символов, HTML);
+  **compact** — без контрагента.
+- Исправлен контекст tenant при отмене outbox после потери доступа (`telegram_dispatch`).
+
 ### Что эта подготовка не делает
 
 - Не переводит FA-R00.2 в `local_verified` и не закрывает FA-R00.

@@ -307,20 +307,40 @@ def _enqueue_urgent(session, subscription, binding, item: dict, at: datetime) ->
     current = _magnitude(item)
     if current is None:
         return False
-    previous, sent_at = _previous_materiality(session, subscription.tenant_id, item["id"])
-    if previous is None or sent_at is None:
+    if _urgent_pending(session, subscription.tenant_id, binding.id, item["id"]):
         return False
-    if not materiality_worsened(previous, current):
+    if _alert_in_pending_digest(session, subscription.tenant_id, binding.id, item["id"]):
         return False
-    cooldown = _cooldown(session, item)
-    if sent_at + timedelta(minutes=cooldown) > at:
+    if _urgent_daily_count(session, subscription, binding.id, at) >= 5:
         return False
     level = money_str(current)
+    previous, sent_at = _previous_materiality(session, subscription.tenant_id, item["id"])
+    if previous is not None and sent_at is not None:
+        if not materiality_worsened(previous, current):
+            return False
+        cooldown = _cooldown(session, item)
+        if sent_at + timedelta(minutes=cooldown) > at:
+            return False
+        label = escape_html(signal_type_label(str(item["type"])))
+        text = (
+            f"{label}: {money_str(previous)} → {level}. "
+            "Повтор сигнала после ухудшения. Подтверждение условие не снимает."
+        )
+        return _store_urgent(
+            session, subscription, binding, item, at, level=level, text=text
+        )
+    if item["severity"] not in {"critical", "high"}:
+        return False
+    if _urgent_notified(session, subscription.tenant_id, binding.id, item["id"]):
+        return False
     label = escape_html(signal_type_label(str(item["type"])))
-    text = (
-        f"{label}: {money_str(previous)} → {level}. "
-        "Повтор сигнала после ухудшения. Подтверждение условие не снимает."
-    )
+    text = f"Срочно: {label} {escape_html(level)}. Подтверждение условие не снимает."
+    return _store_urgent(session, subscription, binding, item, at, level=level, text=text)
+
+
+def _store_urgent(
+    session, subscription, binding, item: dict, at: datetime, *, level: str, text: str
+) -> bool:
     try:
         with session.begin_nested():
             session.add(
@@ -354,6 +374,65 @@ def _enqueue_urgent(session, subscription, binding, item: dict, at: datetime) ->
     except IntegrityError:
         return False
     return True
+
+
+def _urgent_pending(session, tenant_id, binding_id, alert_id: str) -> bool:
+    found = session.scalar(
+        select(NotificationOutbox.id).where(
+            NotificationOutbox.tenant_id == tenant_id,
+            NotificationOutbox.binding_id == binding_id,
+            NotificationOutbox.alert_id == uuid.UUID(alert_id),
+            NotificationOutbox.status.in_(("pending", "retry")),
+        )
+    )
+    return found is not None
+
+
+def _urgent_notified(session, tenant_id, binding_id, alert_id: str) -> bool:
+    found = session.scalar(
+        select(NotificationOutbox.id).where(
+            NotificationOutbox.tenant_id == tenant_id,
+            NotificationOutbox.binding_id == binding_id,
+            NotificationOutbox.alert_id == uuid.UUID(alert_id),
+            NotificationOutbox.status.in_(("pending", "retry", "sent", "unknown")),
+        )
+    )
+    return found is not None
+
+
+def _alert_in_pending_digest(session, tenant_id, binding_id, alert_id: str) -> bool:
+    rows = session.scalars(
+        select(NotificationOutbox).where(
+            NotificationOutbox.tenant_id == tenant_id,
+            NotificationOutbox.binding_id == binding_id,
+            NotificationOutbox.snapshot_id.isnot(None),
+            NotificationOutbox.status.in_(("pending", "retry")),
+        )
+    ).all()
+    for row in rows:
+        payload = row.payload or {}
+        for alert in payload.get("alerts") or []:
+            if alert.get("id") == alert_id:
+                return True
+    return False
+
+
+def _urgent_daily_count(session, subscription: DigestSubscription, binding_id, at: datetime) -> int:
+    zone = zone_of(subscription.timezone)
+    local_date = at.astimezone(zone).date()
+    rows = session.scalars(
+        select(NotificationOutbox).where(
+            NotificationOutbox.tenant_id == subscription.tenant_id,
+            NotificationOutbox.binding_id == binding_id,
+            NotificationOutbox.alert_id.isnot(None),
+            NotificationOutbox.status.in_(("pending", "retry", "sent", "unknown")),
+        )
+    ).all()
+    total = 0
+    for row in rows:
+        if row.created_at.astimezone(zone).date() == local_date:
+            total += 1
+    return total
 
 
 def _metrics(
@@ -640,7 +719,11 @@ def _alert_text(item: dict, privacy: str) -> str:
     if privacy == "full":
         for key, value in evidence.items():
             if key in HIDDEN and value:
-                text += f" {escape_html(str(value))}"
+                text += f" {escape_html(str(value)[:60])}"
+        if item["type"] == "new_counterparty":
+            extra = (evidence.get("counterparty") or evidence.get("inn") or "").strip()
+            if extra:
+                text += f" {escape_html(extra[:60])}"
     return text
 
 

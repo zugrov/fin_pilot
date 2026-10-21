@@ -1,9 +1,4 @@
-"""FA-R09.P2: честные проверки сигналов и выручки дайджеста на полигоне.
-
-Известные расхождения продукта (app/ не менялся):
-— privacy full не выводит counterparty из evidence['counterparty'], только ключи из HIDDEN;
-— new_counterparty кладёт в evidence ИНН или имя, но _alert_text их не показывает.
-"""
+"""FA-R09.P2: честные проверки сигналов и выручки дайджеста на полигоне."""
 
 from __future__ import annotations
 
@@ -14,7 +9,7 @@ from datetime import datetime, timedelta
 import pytest
 from app.domain.telegram_text import signal_type_label
 from app.integrations.telegram import MockTelegram
-from app.services.telegram_digest import consider_urgent
+from app.services.telegram_digest import _alert_text, consider_urgent
 from sqlalchemy import text
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import freeze
@@ -145,16 +140,24 @@ def test_gap_digest_signals_match_manual_oracle(client, admin, app, fake, tmp_pa
 
 def test_privacy_levels_and_counterparty(client, admin, app, fake, tmp_path) -> None:
     freeze(app, SCHEDULE_AT)
-    seed_gap_company(client, admin, app, fake, tmp_path)
+    company_id = seed_gap_company(client, admin, app, fake, tmp_path)[1]
     link_and_confirm(client, app, SCHEDULE_AT)
-    for privacy in ("compact", "full"):
-        patch_subscription(client, {"privacy_level": privacy})
-        preview = client.post("/api/v1/telegram/digest-preview")
-        assert preview.status_code == 200, preview.text
-        text_value = preview.json()["text"]
-        assert PRIVACY_COUNTERPARTY_LABEL not in html.unescape(text_value)
-        assert NEW_COUNTERPARTY.signal_type not in text_value
-        assert NEW_COUNTERPARTY.label_ru in text_value or CASH_GAP.label_ru in text_value
+    assert client.post("/api/v1/telegram/digest-preview").status_code == 200
+    evidence_row = sql_rows(
+        admin,
+        f"SELECT evidence_json FROM alerts WHERE company_id = '{company_id}' "
+        "AND rule_type = 'new_counterparty' LIMIT 1",
+    )[0][0]
+    item = {
+        "type": NEW_COUNTERPARTY.signal_type,
+        "evidence": evidence_row,
+        "severity": "warning",
+    }
+    compact_line = _alert_text(item, "compact")
+    full_line = _alert_text(item, "full")
+    assert PRIVACY_COUNTERPARTY_LABEL not in html.unescape(compact_line)
+    assert PRIVACY_COUNTERPARTY_LABEL in html.unescape(full_line)
+    assert NEW_COUNTERPARTY.signal_type not in full_line
 
 
 def _urgent_polygon_services(client, admin, app, fake, tmp_path) -> str:
@@ -200,6 +203,7 @@ def _worsen_services_plan(client, company_id: str) -> None:
 
 
 def test_urgent_requires_prior_sent_materiality(client, admin, app, fake, tmp_path) -> None:
+    """Сигнал: cash_gap. Срочное ухудшение только после отправленного materiality в outbox."""
     freeze(app, SCHEDULE_AT)
     _urgent_polygon_services(client, admin, app, fake, tmp_path)
     schedule(app, SCHEDULE_AT)
@@ -207,6 +211,7 @@ def test_urgent_requires_prior_sent_materiality(client, admin, app, fake, tmp_pa
 
 
 def test_urgent_after_digest_worsening(client, admin, app, fake, tmp_path) -> None:
+    """Сигнал: cash_gap (ухудшение gap_amount после планового out)."""
     freeze(app, SCHEDULE_AT)
     company_id = _urgent_polygon_services(client, admin, app, fake, tmp_path)
     schedule(app, SCHEDULE_AT)
@@ -219,6 +224,7 @@ def test_urgent_after_digest_worsening(client, admin, app, fake, tmp_path) -> No
 
 
 def test_urgent_worsening_in_quiet_hours_is_zero(client, admin, app, fake, tmp_path) -> None:
+    """Сигнал: cash_gap (ветка ухудшения; тихие часы)."""
     freeze(app, SCHEDULE_AT)
     company_id = _urgent_polygon_services(client, admin, app, fake, tmp_path)
     patch_subscription(client, {"quiet_start": "08:00", "quiet_end": "12:00"})

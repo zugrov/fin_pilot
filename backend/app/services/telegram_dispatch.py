@@ -35,6 +35,7 @@ def dispatch_outbox(session: Session, settings: Settings, transport, at) -> int:
             continue
         set_context(session, tenant_id=item.tenant_id, user_id=user.id)
         if not _allowed(session, settings, item, binding, user, at):
+            set_context(session, tenant_id=item.tenant_id, user_id=user.id)
             _cancel(item, "access")
             handled += 1
             continue

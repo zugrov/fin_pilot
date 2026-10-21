@@ -337,6 +337,7 @@ def test_t12_group_keeps_company_risk(client, admin, app, fake, tmp_path) -> Non
 
 
 def test_urgent_resend_needs_twenty_percent(client, admin, app, fake, tmp_path) -> None:
+    """Сигнал: cash_gap (план out увеличивает gap_amount ≥20% после dispatch)."""
     _tenant, company_id = _ready(client, admin, app, fake, tmp_path, "urgent@example.com")
     _wallet(client, company_id, "cash", "100000.00")
     _plan(client, company_id, "150000.00")

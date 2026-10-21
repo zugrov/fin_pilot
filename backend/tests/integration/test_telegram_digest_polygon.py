@@ -170,6 +170,7 @@ def test_missed_slot_does_not_backfill_digest(client, admin, app, fake, tmp_path
 
 
 def test_quiet_hours_block_urgent(client, admin, app, fake, tmp_path) -> None:
+    """Сигнал: открытые alerts полигона (в т.ч. cash_gap); instant в тихие часы."""
     freeze(app, SCHEDULE_AT)
     _tenant, company_ids = seed_polygon(client, admin, app, fake, tmp_path)
     link_and_confirm(client, app, SCHEDULE_AT)
@@ -190,10 +191,10 @@ def test_quiet_hours_block_urgent(client, admin, app, fake, tmp_path) -> None:
     assert urgent[0][0] == 0
 
 
-def test_first_open_alert_is_not_urgent_until_prior_sent(
+def test_first_open_alert_is_not_urgent_while_digest_pending(
     client, admin, app, fake, tmp_path
 ) -> None:
-    """Текущее поведение: срочная очередь только после materiality в уже отправленном outbox."""
+    """Сигнал: cash_gap и др. Срочное не дублирует сигнал в pending плановом дайджесте."""
     freeze(app, SCHEDULE_AT)
     seed_polygon(client, admin, app, fake, tmp_path)
     link_and_confirm(client, app, SCHEDULE_AT)
@@ -201,11 +202,11 @@ def test_first_open_alert_is_not_urgent_until_prior_sent(
     schedule(app, SCHEDULE_AT)
     session = app.state.worker_session_factory()
     try:
-        before_dispatch = consider_urgent(session, app.state.settings, SCHEDULE_AT)
+        while_digest_pending = consider_urgent(session, app.state.settings, SCHEDULE_AT)
         session.commit()
     finally:
         session.close()
-    assert before_dispatch == 0
+    assert while_digest_pending == 0
     dispatch(app, MockTelegram(), SCHEDULE_AT)
 
 
