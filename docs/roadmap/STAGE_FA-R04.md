@@ -60,6 +60,39 @@ Gate **не** подключён к legacy `poll_mailboxes` / `ingest_mailbox`.
 - `backend/tests/unit/test_mail_admission_policy.py`
 - `backend/tests/integration/test_mail_admission.py`
 
+## FA-R04.2.1 · Локальный ingress через gate в FA-R02 (2026-10-21)
+
+**Статус:** `local_verified` на базе `bc2720fcaac47cc52f61de4003f95898b133462b`.
+**Не** полный FA-R04.2, **не** deployed/accepted, **не** production email-канал.
+
+### Решение владельца
+
+Локальный пакет разрешён после FA-R02 без accepted FA-R03. Реальная почта, миграции, staging и IMAP/poll не включаются.
+
+### Цепочка
+
+Синтетическое MIME → лимит размера (`import_max_bytes`) → привязка `message_digest` к fixture-транспорту → разбор заголовков → `evaluate_mail_admission` → проверка `enabled/status` источника → разбор вложений → `mail_service._ingest_message` (delivery/parts/`receive_import`/preview).
+
+| Этап | reject/review | preview |
+| --- | --- | --- |
+| Gate / источник | Структурированный `MailIngressResult`, без `receive_import` | — |
+| После allow | — | Delivery + parts + `email_ingestions` preview, без commit_import |
+
+**Лимиты ingress:** размер сырого MIME ≤ `Settings.import_max_bytes`; вложения только как attachment; запрет `..` и абсolute path в имени файла; без архивов, макросов, HTML/JS и сети.
+
+**Reason codes (ingress, дополнительно к gate):** `message_too_large`, `message_empty`, `message_transport_mismatch`, `mime_invalid`, `attachment_missing`, `unsafe_attachment_name`, `source_disabled`, `delivery_conflict`, `admission_context_missing`.
+
+`TrustedIngressBundle` связывает transport, binding, `MailDeliverySlot` (uidvalidity+uid) и SHA-256 тела письма. Хеш не заменяет SPF/DKIM; подмена тела при том же transport → `message_transport_mismatch`.
+
+### Файлы
+
+- `backend/app/domain/mail_ingress.py`
+- `backend/app/services/mail_ingress_service.py`
+- `backend/tests/unit/test_mail_ingress_policy.py` (domain unit; basename как у FA-R04.1)
+- `backend/tests/integration/test_mail_ingress.py`
+
+Legacy `poll_mailboxes` / `ingest_mailbox` не изменялись и не вызываются.
+
 ### Следующий пакет (не этот scope)
 
-Подключение доверенного транспорта (провайдер, ingress), вызов gate из адаптера, карантин FA-R04.2+, включение на стенде — отдельное решение. `POLL_IMAP` и `SEND_*` не менялись.
+Постоянный карантин, реальный транспортный адаптер, HTTP/worker/IMAP, включение на стенде — отдельные задачи FA-R04.2+. `POLL_IMAP` и `SEND_*` не менялись.

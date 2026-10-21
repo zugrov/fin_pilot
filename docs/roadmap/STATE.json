@@ -427,7 +427,19 @@
           "id": "FA-R04.2",
           "title": "Получение и карантин",
           "status": "planned",
-          "evidence": []
+          "evidence": [
+            "FA-R04.2.1 local_verified — не закрывает весь FA-R04.2"
+          ]
+        },
+        {
+          "id": "FA-R04.2.1",
+          "title": "Локальный ingress через gate",
+          "status": "local_verified",
+          "evidence": [
+            "docs/roadmap/STAGE_FA-R04.md",
+            "baseline bc2720fcaac47cc52f61de4003f95898b133462b",
+            "legacy IMAP/poll не подключён; не deployed/accepted"
+          ]
         },
         {
           "id": "FA-R04.3",
