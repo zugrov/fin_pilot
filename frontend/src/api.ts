@@ -228,11 +228,70 @@ export type CashTransactionRow = {
   amount: string;
   currency: string;
   description: string;
+  counterparty_name?: string;
+  counterparty_inn?: string;
+  category_id: string | null;
   status: string;
+  version: number;
+  locked_classification?: boolean;
   revenue_matched?: string;
   plan_matched?: string;
   revenue_unallocated?: string;
   plan_unallocated?: string;
+};
+
+export type CashCategoryRow = {
+  id: string;
+  code: string;
+  name: string;
+  cash_flow_section: string;
+  direction: string;
+};
+
+export type ClassificationRuleRow = {
+  id: string;
+  name: string;
+  priority: number;
+  conditions: Record<string, string>;
+  actions: { category_code: string };
+  enabled: boolean;
+  version: number;
+};
+
+export type RulePreviewResult = {
+  matches: { transaction_id: string; description: string; category_code: string }[];
+  total_matches: number;
+  truncated: boolean;
+  skipped_locked: number;
+  skipped_categorized: number;
+  skipped_higher_priority: number;
+};
+
+export type RuleApplyResult = {
+  applied: number;
+  skipped_locked: number;
+  skipped_categorized: number;
+  skipped_higher_priority: number;
+  total_matches: number;
+  has_more: boolean;
+  cursor: { business_date: string; transaction_id: string } | null;
+};
+
+export type UnclassifiedSummary = {
+  period: { date_from: string; date_to: string };
+  in: { count: number; amount: string };
+  out: { count: number; amount: string };
+};
+
+export type UnclassifiedList = {
+  transactions: CashTransactionRow[];
+  has_more: boolean;
+  cursor: { business_date: string; transaction_id: string } | null;
+};
+
+export type CashflowReport = {
+  sections: { code: string; in: string; out: string }[];
+  net_external: string;
 };
 
 export type Source = {
@@ -770,4 +829,114 @@ export function activateCompany(companyId: string) {
     `/api/v1/billing/companies/${companyId}/activate`,
     { method: "POST" },
   );
+}
+
+export function listClassificationRules(companyId: string) {
+  return request<{ rules: ClassificationRuleRow[] }>(
+    `/api/v1/companies/${companyId}/classification-rules`,
+  );
+}
+
+export function createClassificationRule(
+  companyId: string,
+  body: {
+    name: string;
+    priority: number;
+    conditions: Record<string, string>;
+    category_code: string;
+  },
+) {
+  return request<ClassificationRuleRow>(`/api/v1/companies/${companyId}/classification-rules`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchClassificationRule(
+  ruleId: string,
+  body: {
+    company_id: string;
+    enabled?: boolean;
+    priority?: number;
+    name?: string;
+  },
+) {
+  return request<ClassificationRuleRow>(`/api/v1/rules/${ruleId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function previewClassificationRule(ruleId: string, companyId: string) {
+  return request<RulePreviewResult>(`/api/v1/rules/${ruleId}/preview`, {
+    method: "POST",
+    body: JSON.stringify({ company_id: companyId }),
+  });
+}
+
+export function applyClassificationRulePage(
+  ruleId: string,
+  companyId: string,
+  cursor: { business_date: string; transaction_id: string } | null,
+) {
+  const body: Record<string, string> = { company_id: companyId };
+  if (cursor) {
+    body.after_business_date = cursor.business_date;
+    body.after_transaction_id = cursor.transaction_id;
+  }
+  return request<RuleApplyResult>(`/api/v1/rules/${ruleId}/apply`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function loadUnclassifiedSummary(companyId: string, dateFrom: string, dateTo: string) {
+  const query = new URLSearchParams({ date_from: dateFrom, date_to: dateTo });
+  return request<UnclassifiedSummary>(
+    `/api/v1/companies/${companyId}/transactions/unclassified/summary?${query.toString()}`,
+  );
+}
+
+export function loadUnclassifiedTransactions(
+  companyId: string,
+  params: {
+    dateFrom: string;
+    dateTo: string;
+    limit: number;
+    cursor: { business_date: string; transaction_id: string } | null;
+  },
+) {
+  const query = new URLSearchParams({
+    date_from: params.dateFrom,
+    date_to: params.dateTo,
+    limit: String(params.limit),
+  });
+  if (params.cursor) {
+    query.set("after_business_date", params.cursor.business_date);
+    query.set("after_transaction_id", params.cursor.transaction_id);
+  }
+  return request<UnclassifiedList>(
+    `/api/v1/companies/${companyId}/transactions/unclassified?${query.toString()}`,
+  );
+}
+
+export function listCashCategories(companyId: string) {
+  return request<{ categories: CashCategoryRow[] }>(
+    `/api/v1/companies/${companyId}/cash-categories`,
+  );
+}
+
+export function classifyCashTransaction(
+  transactionId: string,
+  body: { version: number; category_id: string },
+) {
+  return request<CashTransactionRow>(`/api/v1/transactions/${transactionId}/classify`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function loadCashflow(companyId: string, dateFrom: string, dateTo: string) {
+  const query = new URLSearchParams({ date_from: dateFrom, date_to: dateTo });
+  return request<CashflowReport>(`/api/v1/companies/${companyId}/cashflow?${query.toString()}`);
 }

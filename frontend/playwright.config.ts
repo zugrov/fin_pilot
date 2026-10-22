@@ -29,6 +29,7 @@ export default defineConfig({
       testIgnore: [
         /auth\.setup\.ts/,
         /group-e-synthetic-polygon\.spec\.ts/,
+        /classification-polygon\.spec\.ts/,
         /polygon\//,
       ],
       use: {

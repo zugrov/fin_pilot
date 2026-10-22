@@ -6,6 +6,7 @@ const LINKS = [
   ["/wallets", "Кошельки"],
   ["/sales", "Продажи"],
   ["/calendar", "Календарь"],
+  ["/classification", "Классификация"],
   ["/forecast", "Прогноз"],
   ["/budgets", "Бюджет"],
   ["/alerts", "Алерты"],

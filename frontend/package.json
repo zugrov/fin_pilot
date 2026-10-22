@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:polygon": "playwright test -c playwright.polygon.config.ts",
+    "test:e2e:classification": "playwright test -c playwright.classification.config.ts",
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {

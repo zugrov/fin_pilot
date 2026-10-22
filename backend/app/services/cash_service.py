@@ -518,6 +518,8 @@ def transaction_payload(session: Session, row: CashTransaction) -> dict:
         "currency": row.currency,
         "category_id": None if row.category_id is None else str(row.category_id),
         "description": row.description,
+        "counterparty_name": row.counterparty_name or "",
+        "counterparty_inn": row.counterparty_inn or "",
         "status": row.status,
         "version": row.version,
         "transfer_group_id": None if row.transfer_group_id is None else str(row.transfer_group_id),
