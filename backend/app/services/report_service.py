@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 SECTIONS = ("operating", "investing", "financing", "technical", "unmapped")
+_COMPLETENESS_RANK = {"unavailable": 0, "preliminary": 1, "full": 2}
 
 
 def default_period(at: datetime) -> tuple[date, date]:
@@ -183,6 +184,16 @@ def cashflow_payload(session: Session, company, at: datetime, period: tuple[date
         }
         for code in SECTIONS
     ]
+    has_unmapped = incoming["unmapped"] > 0 or outgoing["unmapped"] > 0
+    completeness = _cashflow_completeness(
+        session,
+        company,
+        date_from,
+        date_to,
+        external_count,
+        has_unmapped,
+        flags,
+    )
     return {
         "company_id": str(company.id),
         "as_of": at.isoformat(),
@@ -196,6 +207,7 @@ def cashflow_payload(session: Session, company, at: datetime, period: tuple[date
             }
         ),
         "quality_flags": flags,
+        "completeness": completeness,
         "metric_basis": "cash",
         "external_count": external_count,
         "net_external": money_str(money(external_in - external_out)),
@@ -318,6 +330,14 @@ def group_cashflow_payload(session: Session, companies: list, at: datetime, peri
                 outgoing[section] += row.amount
     external_in = sum(incoming.values(), Decimal("0"))
     external_out = sum(outgoing.values(), Decimal("0"))
+    company_parts = [
+        cashflow_payload(session, company, at, period) for company in companies
+    ]
+    company_statuses = [
+        {"company_id": part["company_id"], "completeness": part["completeness"]}
+        for part in company_parts
+    ]
+    statuses = [part["completeness"] for part in company_parts]
     return {
         "as_of": at.isoformat(),
         "date_from": date_from.isoformat(),
@@ -327,6 +347,8 @@ def group_cashflow_payload(session: Session, companies: list, at: datetime, peri
         "external_in": money_str(external_in),
         "external_out": money_str(external_out),
         "net_external": money_str(money(external_in - external_out)),
+        "completeness": _aggregate_group_completeness(statuses),
+        "companies": company_statuses,
         "sections": [
             {"code": code, "in": money_str(incoming[code]), "out": money_str(outgoing[code])}
             for code in SECTIONS
@@ -355,6 +377,73 @@ def _internal(session: Session, row: CashTransaction) -> bool:
         return False
     group = session.get(TransferGroup, row.transfer_group_id)
     return group is not None and group.kind == "internal" and group.status == "linked"
+
+
+def _enabled_cash_sources(session: Session, company) -> list[SourceConnection]:
+    return list(
+        session.scalars(
+            select(SourceConnection).where(
+                SourceConnection.tenant_id == company.tenant_id,
+                SourceConnection.company_id == company.id,
+                SourceConnection.dataset == "cash",
+                SourceConnection.enabled.is_(True),
+            )
+        ).all()
+    )
+
+
+def _cashflow_completeness(
+    session: Session,
+    company,
+    date_from: date,
+    date_to: date,
+    external_count: int,
+    has_unmapped: bool,
+    flags: list[str],
+) -> str:
+    sources = _enabled_cash_sources(session, company)
+    if external_count == 0 and not sources:
+        return "unavailable"
+    if external_count > 0 and not sources:
+        if "manual_entry_only" not in flags:
+            flags.append("manual_entry_only")
+        return "preliminary"
+    partial = False
+    for source in sources:
+        covered, _ = _coverage([source], date_to)
+        if not covered:
+            partial = True
+            break
+    if partial and "partial_period" not in flags:
+        flags.append("partial_period")
+    if has_unmapped or "unclassified_operations" in flags:
+        return "preliminary"
+    if partial or "manual_entry_only" in flags:
+        return "preliminary"
+    from app.services.dataset_coverage_service import effective_reconciled_coverage
+
+    period_tz = company.timezone or "Europe/Moscow"
+    unverified = False
+    for source in sources:
+        if (
+            effective_reconciled_coverage(
+                session, source, date_from, date_to, period_tz
+            )
+            is None
+        ):
+            unverified = True
+            break
+    if unverified and "coverage_unverified" not in flags:
+        flags.append("coverage_unverified")
+    return "full"
+
+
+def _aggregate_group_completeness(statuses: list[str]) -> str:
+    if not statuses:
+        return "unavailable"
+    if all(item == "unavailable" for item in statuses):
+        return "unavailable"
+    return min(statuses, key=lambda item: _COMPLETENESS_RANK[item])
 
 
 def _missing_anchor(session: Session, wallet: Wallet) -> bool:

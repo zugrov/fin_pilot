@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
 from typing import Literal
 
 CompletenessDesign = Literal["full", "preliminary", "unavailable"]
@@ -24,8 +23,8 @@ class CashflowOracle:
     net_external: str
     external_count: int
     excluded_internal_amount: str
-    design_completeness: CompletenessDesign
-    expect_unclassified_flag: bool
+    completeness: CompletenessDesign
+    expect_flags: frozenset[str] = frozenset()
 
 
 def _sections_map(*pairs: tuple[str, str, str]) -> tuple[SectionOracle, ...]:
@@ -41,8 +40,8 @@ OCTOBER_POLYGON_CASHFLOW: dict[str, CashflowOracle] = {
         net_external="17000.00",
         external_count=3,
         excluded_internal_amount="0.00",
-        design_completeness="full",
-        expect_unclassified_flag=False,
+        completeness="full",
+        expect_flags=frozenset({"coverage_unverified"}),
     ),
     "retail": CashflowOracle(
         sections=_sections_map(
@@ -52,16 +51,16 @@ OCTOBER_POLYGON_CASHFLOW: dict[str, CashflowOracle] = {
         net_external="19700.00",
         external_count=3,
         excluded_internal_amount="0.00",
-        design_completeness="preliminary",
-        expect_unclassified_flag=True,
+        completeness="preliminary",
+        expect_flags=frozenset({"unclassified_operations", "partial_period"}),
     ),
     "subscription": CashflowOracle(
         sections=_sections_map(("operating", "4800.00", "0.00")),
         net_external="4800.00",
         external_count=4,
         excluded_internal_amount="0.00",
-        design_completeness="full",
-        expect_unclassified_flag=False,
+        completeness="full",
+        expect_flags=frozenset({"coverage_unverified"}),
     ),
     "cashflow_sections": CashflowOracle(
         sections=_sections_map(
@@ -74,29 +73,10 @@ OCTOBER_POLYGON_CASHFLOW: dict[str, CashflowOracle] = {
         net_external="13150.00",
         external_count=6,
         excluded_internal_amount="2000.00",
-        design_completeness="preliminary",
-        expect_unclassified_flag=True,
+        completeness="preliminary",
+        expect_flags=frozenset({"unclassified_operations", "partial_period"}),
     ),
 }
-
-
-def design_completeness(
-    *,
-    has_cash_source: bool,
-    coverage_through: date | None,
-    date_to: date,
-    has_unmapped: bool,
-    external_count: int,
-) -> CompletenessDesign:
-    if not has_cash_source:
-        return "unavailable"
-    if coverage_through is None or coverage_through < date_to:
-        return "preliminary"
-    if has_unmapped:
-        return "preliminary"
-    if external_count == 0:
-        return "full"
-    return "full"
 
 
 def section_amounts(body: dict) -> dict[str, tuple[str, str]]:

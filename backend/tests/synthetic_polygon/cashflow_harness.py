@@ -3,8 +3,30 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
 from tests.synthetic_polygon.harness import ensure_wallet, load_profile
 from tests.synthetic_polygon.profiles import CASHFLOW_SECTIONS
+
+
+def set_cash_sources_coverage(
+    admin: Engine, company_id: str, coverage_through: str
+) -> None:
+    """coverage_through на enabled cash-источниках (API POST /coverage только revenue)."""
+    with admin.connect() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE source_connections
+                SET coverage_through = CAST(:through AS date)
+                WHERE company_id = CAST(:cid AS uuid)
+                  AND dataset = 'cash'
+                  AND enabled IS TRUE
+                """
+            ),
+            {"cid": company_id, "through": coverage_through},
+        )
+        connection.commit()
 
 
 def load_cashflow_sections_profile(client: TestClient, company_id: str) -> str:
