@@ -44,13 +44,35 @@ def load_retail_polygon(
 
 
 def apply_rule_to_posted(client: TestClient, company_id: str, rule_id: str) -> dict:
-    """POST /rules/{id}/preview с apply=true — retroactive rule application."""
-    response = client.post(
-        f"/api/v1/rules/{rule_id}/preview",
-        json={"company_id": company_id, "apply": True},
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
+    """POST /rules/{id}/apply с пагинацией по cursor."""
+    totals = {
+        "applied": 0,
+        "skipped_locked": 0,
+        "skipped_categorized": 0,
+        "skipped_higher_priority": 0,
+        "total_matches": 0,
+        "has_more": False,
+    }
+    payload: dict = {"company_id": company_id}
+    while True:
+        response = client.post(f"/api/v1/rules/{rule_id}/apply", json=payload)
+        assert response.status_code == 200, response.text
+        body = response.json()
+        for key in totals:
+            if key == "has_more":
+                totals[key] = body[key]
+            else:
+                totals[key] += body[key]
+        if not body["has_more"]:
+            break
+        cursor = body["cursor"]
+        assert cursor is not None
+        payload = {
+            "company_id": company_id,
+            "after_business_date": cursor["business_date"],
+            "after_transaction_id": cursor["transaction_id"],
+        }
+    return totals
 
 
 def recommit_clientbank(

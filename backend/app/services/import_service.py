@@ -3,7 +3,7 @@ import hashlib
 import time
 import uuid
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 
@@ -61,7 +61,7 @@ from app.services.budget_import import (
 from app.services.budget_import import (
     revise_imported as revise_budget_row,
 )
-from app.services.cash_service import _audit, _remember_revision
+from app.services.cash_service import _audit, _remember_revision, lock_transaction_for_match
 from app.services.dataset_coverage_service import invalidate_reconciled_for_connection
 from app.services.delivery_validation_service import (
     assert_commit_allowed,
@@ -96,11 +96,14 @@ from app.services.revenue_import import (
     revise_imported,
 )
 from app.services.wallet_service import open_company
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 SCOPE = "import-upload"
+RULE_PREVIEW_MATCH_LIMIT = 200
+RULE_APPLY_SCAN_LIMIT = 1000
+RULE_TX_FETCH_BATCH = 500
 TYPES = {
     "file": {"csv", "xlsx"},
     "clientbank": {"clientbank"},
@@ -663,71 +666,149 @@ def preview_rule(
     settings: Settings,
     company: Company,
     rule_id: uuid.UUID,
-    *,
-    apply: bool = False,
-    at: datetime | None = None,
 ) -> dict:
     _deny(membership)
-    open_company(session, user, company.id, settings, "write" if apply else "read")
-    rule = session.get(ClassificationRule, rule_id)
-    if rule is None or rule.tenant_id != company.tenant_id:
-        raise AppError(404, "not_found", "Правило не найдено")
-    if rule.company_id is not None and rule.company_id != company.id:
-        raise AppError(404, "not_found", "Правило не найдено")
-    if apply and not rule.enabled:
+    open_company(session, user, company.id, settings, "read")
+    rule = _load_company_rule(session, company, rule_id)
+    view = _as_view(rule)
+    all_rules = _rule_views(session, company)
+    matches: list[dict] = []
+    total_matches = 0
+    skipped_locked = 0
+    skipped_categorized = 0
+    skipped_higher_priority = 0
+    for batch in _posted_transaction_batches(session, company):
+        for tx in batch:
+            outcome = _rule_transaction_outcome(view, all_rules, tx)
+            if outcome == "no_match":
+                continue
+            if outcome == "higher_priority":
+                skipped_higher_priority += 1
+                continue
+            if outcome == "locked":
+                skipped_locked += 1
+                continue
+            if outcome == "categorized":
+                skipped_categorized += 1
+                continue
+            total_matches += 1
+            if len(matches) < RULE_PREVIEW_MATCH_LIMIT:
+                matches.append(_rule_match_payload(tx, view.category_code))
+    return {
+        "matches": matches,
+        "total_matches": total_matches,
+        "truncated": total_matches > RULE_PREVIEW_MATCH_LIMIT,
+        "skipped_locked": skipped_locked,
+        "skipped_categorized": skipped_categorized,
+        "skipped_higher_priority": skipped_higher_priority,
+    }
+
+
+def apply_classification_rule(
+    session: Session,
+    membership: Membership,
+    user: User,
+    settings: Settings,
+    company: Company,
+    rule_id: uuid.UUID,
+    *,
+    after_business_date=None,
+    after_transaction_id: uuid.UUID | None = None,
+    at: datetime,
+) -> dict:
+    _deny(membership)
+    open_company(session, user, company.id, settings, "write")
+    rule = _load_company_rule(session, company, rule_id)
+    if not rule.enabled:
         raise AppError(409, "conflict", "Правило отключено")
     view = _as_view(rule)
-    rows = session.scalars(
-        select(CashTransaction)
-        .where(
-            CashTransaction.tenant_id == company.tenant_id,
-            CashTransaction.company_id == company.id,
-            CashTransaction.status == "posted",
-        )
-        .limit(200)
-    ).all()
-    matches = []
-    skipped = 0
+    all_rules = _rule_views(session, company)
+    category = _category_by_code(session, company, view.category_code)
+    if category is None:
+        raise AppError(422, "validation_error", "Категория правила не найдена")
     applied = 0
-    moment = at or datetime.now(UTC)
-    for tx in rows:
-        found = matching_category(
-            (view,),
-            description=tx.description or "",
-            counterparty_inn=tx.counterparty_inn or "",
-            direction=tx.direction,
-            amount=tx.amount,
-        )
-        if found is None:
-            continue
-        if tx.locked_classification:
-            skipped += 1
-            continue
-        if tx.category_id is not None:
-            skipped += 1
-            continue
-        matches.append(
-            {
-                "transaction_id": str(tx.id),
-                "description": tx.description,
-                "category_code": found,
-            }
-        )
-        if apply:
-            category = _category_by_code(session, company, found)
-            if category is None:
+    skipped_locked = 0
+    skipped_categorized = 0
+    skipped_higher_priority = 0
+    total_matches = 0
+    scanned = 0
+    last_date = None
+    last_id = None
+    for batch in _posted_transaction_batches(
+        session,
+        company,
+        after_date=after_business_date,
+        after_id=after_transaction_id,
+    ):
+        for tx in batch:
+            scanned += 1
+            if scanned > RULE_APPLY_SCAN_LIMIT:
+                break
+            last_date = tx.business_date
+            last_id = tx.id
+            outcome = _rule_transaction_outcome(view, all_rules, tx)
+            if outcome == "no_match":
                 continue
-            _remember_revision(session, tx, user, moment)
-            tx.category_id = category.id
-            tx.classification_origin = "rule"
-            tx.version += 1
-            tx.updated_at = moment
+            if outcome == "higher_priority":
+                skipped_higher_priority += 1
+                continue
+            if outcome == "locked":
+                skipped_locked += 1
+                continue
+            if outcome == "categorized":
+                skipped_categorized += 1
+                continue
+            total_matches += 1
+            row = lock_transaction_for_match(
+                session,
+                tenant_id=company.tenant_id,
+                company_id=company.id,
+                transaction_id=tx.id,
+            )
+            if row.status != "posted":
+                continue
+            locked_outcome = _rule_transaction_outcome(view, all_rules, row)
+            if locked_outcome == "locked":
+                skipped_locked += 1
+                continue
+            if locked_outcome == "categorized":
+                skipped_categorized += 1
+                continue
+            if locked_outcome == "higher_priority":
+                skipped_higher_priority += 1
+                continue
+            if locked_outcome != "eligible":
+                continue
+            _remember_revision(session, row, user, at)
+            row.category_id = category.id
+            row.classification_origin = "rule"
+            row.version += 1
+            row.updated_at = at
+            session.flush()
             applied += 1
-    if apply:
-        session.flush()
-    payload = {"matches": matches, "skipped_locked": skipped}
-    if apply:
-        payload["applied"] = applied
+        if scanned > RULE_APPLY_SCAN_LIMIT:
+            break
+    has_more = False
+    if last_id is not None and scanned >= RULE_APPLY_SCAN_LIMIT:
+        has_more = _posted_transactions_remain(session, company, last_date, last_id)
+    elif last_id is not None and scanned < RULE_APPLY_SCAN_LIMIT:
+        has_more = False
+    cursor = None
+    if has_more and last_date is not None and last_id is not None:
+        cursor = {
+            "business_date": last_date.isoformat(),
+            "transaction_id": str(last_id),
+        }
+    payload = {
+        "applied": applied,
+        "skipped_locked": skipped_locked,
+        "skipped_categorized": skipped_categorized,
+        "skipped_higher_priority": skipped_higher_priority,
+        "total_matches": total_matches,
+        "has_more": has_more,
+        "cursor": cursor,
+    }
+    _rule_apply_audit(session, user, company.tenant_id, rule.id, payload, at)
     return payload
 
 
@@ -1306,6 +1387,157 @@ def _as_view(rule: ClassificationRule) -> RuleView:
         rule.enabled,
         dict(rule.conditions_json),
         str(rule.actions_json.get("category_code") or ""),
+    )
+
+
+def _load_company_rule(
+    session: Session,
+    company: Company,
+    rule_id: uuid.UUID,
+) -> ClassificationRule:
+    rule = session.get(ClassificationRule, rule_id)
+    if rule is None or rule.tenant_id != company.tenant_id:
+        raise AppError(404, "not_found", "Правило не найдено")
+    if rule.company_id is not None and rule.company_id != company.id:
+        raise AppError(404, "not_found", "Правило не найдено")
+    return rule
+
+
+def _rule_match_payload(tx: CashTransaction, category_code: str) -> dict:
+    return {
+        "transaction_id": str(tx.id),
+        "description": tx.description,
+        "category_code": category_code,
+    }
+
+
+def _rule_transaction_outcome(
+    view: RuleView,
+    all_rules: tuple[RuleView, ...],
+    tx: CashTransaction,
+) -> str:
+    if not _rule_matches_view(view, tx):
+        return "no_match"
+    winner = matching_category(
+        all_rules,
+        description=tx.description or "",
+        counterparty_inn=tx.counterparty_inn or "",
+        direction=tx.direction,
+        amount=tx.amount,
+    )
+    if winner != view.category_code:
+        return "higher_priority"
+    if tx.locked_classification:
+        return "locked"
+    if tx.category_id is not None:
+        return "categorized"
+    return "eligible"
+
+
+def _rule_matches_view(view: RuleView, tx: CashTransaction) -> bool:
+    return (
+        matching_category(
+            (view,),
+            description=tx.description or "",
+            counterparty_inn=tx.counterparty_inn or "",
+            direction=tx.direction,
+            amount=tx.amount,
+        )
+        is not None
+    )
+
+
+def _posted_transaction_batches(
+    session: Session,
+    company: Company,
+    *,
+    after_date=None,
+    after_id: uuid.UUID | None = None,
+):
+    cursor_date = after_date
+    cursor_id = after_id
+    while True:
+        query = (
+            select(CashTransaction)
+            .where(
+                CashTransaction.tenant_id == company.tenant_id,
+                CashTransaction.company_id == company.id,
+                CashTransaction.status == "posted",
+            )
+            .order_by(CashTransaction.business_date, CashTransaction.id)
+            .limit(RULE_TX_FETCH_BATCH)
+        )
+        if cursor_id is not None:
+            query = query.where(
+                or_(
+                    CashTransaction.business_date > cursor_date,
+                    and_(
+                        CashTransaction.business_date == cursor_date,
+                        CashTransaction.id > cursor_id,
+                    ),
+                )
+            )
+        rows = session.scalars(query).all()
+        if not rows:
+            break
+        yield rows
+        last = rows[-1]
+        cursor_date = last.business_date
+        cursor_id = last.id
+
+
+def _posted_transactions_remain(
+    session: Session,
+    company: Company,
+    after_date,
+    after_id: uuid.UUID,
+) -> bool:
+    found = session.scalar(
+        select(CashTransaction.id)
+        .where(
+            CashTransaction.tenant_id == company.tenant_id,
+            CashTransaction.company_id == company.id,
+            CashTransaction.status == "posted",
+            or_(
+                CashTransaction.business_date > after_date,
+                and_(
+                    CashTransaction.business_date == after_date,
+                    CashTransaction.id > after_id,
+                ),
+            ),
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
+def _rule_apply_audit(
+    session: Session,
+    user: User,
+    tenant_id: uuid.UUID,
+    rule_id: uuid.UUID,
+    counters: dict,
+    at: datetime,
+) -> None:
+    session.add(
+        AuditLog(
+            tenant_id=tenant_id,
+            user_id=user.id,
+            action="rule_applied",
+            entity_type="classification_rule",
+            entity_id=rule_id,
+            before_redacted=None,
+            after_redacted={
+                "applied": counters["applied"],
+                "skipped_locked": counters["skipped_locked"],
+                "skipped_categorized": counters["skipped_categorized"],
+                "skipped_higher_priority": counters["skipped_higher_priority"],
+                "total_matches": counters["total_matches"],
+                "has_more": counters["has_more"],
+            },
+            request_id=None,
+            created_at=at,
+        )
     )
 
 

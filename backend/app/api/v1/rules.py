@@ -1,11 +1,12 @@
+from datetime import date
 from uuid import UUID
 
-from app.api.deps import DbSession, current_session, require_csrf, settings_of, tenant_of
+from app.api.deps import DbSession, current_session, require_csrf, settings_of
 from app.clock import now
 from app.services import import_service
 from app.services.wallet_service import open_company
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 router = APIRouter(tags=["rules"])
@@ -20,7 +21,18 @@ class RuleIn(BaseModel):
 
 class RulePreviewIn(BaseModel):
     company_id: UUID
-    apply: bool = False
+
+
+class RuleApplyIn(BaseModel):
+    company_id: UUID
+    after_business_date: date | None = None
+    after_transaction_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def cursor_pair(self) -> "RuleApplyIn":
+        if (self.after_business_date is None) ^ (self.after_transaction_id is None):
+            raise ValueError("cursor requires business_date and transaction_id")
+        return self
 
 
 def _actor(request: Request, session: Session, company_id: UUID, mode: str, *, mutate: bool):
@@ -63,26 +75,33 @@ def post_preview(
     request: Request,
     session: DbSession,
 ):
-    row, user = current_session(request, session)
-    require_csrf(request, row)
-    tenant_of(request, session, user)
-    if payload.apply:
-        user_w, membership, company = _actor(
-            request, session, payload.company_id, "write", mutate=True
-        )
-        return import_service.preview_rule(
-            session,
-            membership,
-            user_w,
-            settings_of(request),
-            company,
-            rule_id,
-            apply=True,
-            at=now(),
-        )
+    _row, user = current_session(request, session)
     _user, membership, company = _actor(
         request, session, payload.company_id, "read", mutate=False
     )
     return import_service.preview_rule(
         session, membership, user, settings_of(request), company, rule_id
+    )
+
+
+@router.post("/rules/{rule_id}/apply")
+def post_apply(
+    rule_id: UUID,
+    payload: RuleApplyIn,
+    request: Request,
+    session: DbSession,
+):
+    user, membership, company = _actor(
+        request, session, payload.company_id, "write", mutate=True
+    )
+    return import_service.apply_classification_rule(
+        session,
+        membership,
+        user,
+        settings_of(request),
+        company,
+        rule_id,
+        after_business_date=payload.after_business_date,
+        after_transaction_id=payload.after_transaction_id,
+        at=now(),
     )

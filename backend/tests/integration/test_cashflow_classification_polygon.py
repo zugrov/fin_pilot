@@ -76,7 +76,7 @@ def test_rule_after_import_via_preview_apply(client, admin, app, fake, tmp_path)
     rule_id = create_rule(client, company_id, RETAIL_CLIENTBANK_IN_RULE)
     preview = client.post(
         f"/api/v1/rules/{rule_id}/preview",
-        json={"company_id": company_id, "apply": False},
+        json={"company_id": company_id},
     )
     assert preview.status_code == 200, preview.text
     assert len(preview.json()["matches"]) == 1
