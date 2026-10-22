@@ -53,6 +53,8 @@ test.describe("Classification screen · polygon retail", () => {
     const ruleCard = page.locator("li").filter({ hasText: "Retail ClientBank operating in" });
     await ruleCard.getByRole("button", { name: "Проверить" }).click();
     await expect(page.getByText(/Совпадений: 1/)).toBeVisible();
+    await ruleCard.getByRole("button", { name: "Проверить" }).click();
+    await expect(page.getByText(/Совпадений: 1/)).toBeVisible();
     expect(applyPosts).toBe(0);
 
     await ruleCard.getByRole("button", { name: "Применить" }).click();

@@ -260,6 +260,7 @@ def test_i9_locked_classification_survives_import(client, admin, app, fake, tmp_
             "conditions": {"description_contains": "аренда", "direction": "out"},
             "category_code": "operating",
         },
+        headers={"Idempotency-Key": "import-api-rule-rent"},
     )
     assert rule.status_code == 200, rule.text
     preview = client.post(

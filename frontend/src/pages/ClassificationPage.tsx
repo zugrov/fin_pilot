@@ -71,6 +71,7 @@ export function ClassificationPage() {
     null,
   );
   const [previewRuleId, setPreviewRuleId] = useState<string | null>(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
   const [previewResult, setPreviewResult] = useState<string>("");
   const [applyDialog, setApplyDialog] = useState<ClassificationRuleRow | null>(null);
   const [applyPreview, setApplyPreview] = useState<{
@@ -186,12 +187,16 @@ export function ClassificationPage() {
   const createRule = useMutation({
     mutationFn: (attempt: IdempotentAttempt<RuleCreatePayload>) => {
       const p = attempt.payload;
-      return createClassificationRule(p.companyId, {
-        name: p.name,
-        priority: p.priority,
-        conditions: p.conditions,
-        category_code: p.categoryCode,
-      });
+      return createClassificationRule(
+        p.companyId,
+        {
+          name: p.name,
+          priority: p.priority,
+          conditions: p.conditions,
+          category_code: p.categoryCode,
+        },
+        attempt.key,
+      );
     },
     onSuccess: async () => {
       setCreateAttempt(null);
@@ -326,6 +331,7 @@ export function ClassificationPage() {
       return;
     }
     setPreviewRuleId(ruleId);
+    setPreviewLoadingId(ruleId);
     setPreviewResult("");
     try {
       const body = await previewClassificationRule(ruleId, companyId);
@@ -338,6 +344,8 @@ export function ClassificationPage() {
       );
     } catch (exc) {
       setPreviewResult(failureMessage(exc));
+    } finally {
+      setPreviewLoadingId(null);
     }
   }
 
@@ -602,8 +610,8 @@ export function ClassificationPage() {
                 </button>
                 <button
                   type="button"
-                  className="rounded border px-2 py-1"
-                  disabled={previewRuleId === rule.id}
+                  className="rounded border px-2 py-1 disabled:opacity-50"
+                  disabled={previewLoadingId === rule.id}
                   onClick={() => void runPreview(rule.id)}
                 >
                   Проверить

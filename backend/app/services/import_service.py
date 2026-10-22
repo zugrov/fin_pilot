@@ -61,7 +61,12 @@ from app.services.budget_import import (
 from app.services.budget_import import (
     revise_imported as revise_budget_row,
 )
-from app.services.cash_service import _audit, _remember_revision, lock_transaction_for_match
+from app.services.cash_service import (
+    _audit,
+    _remember_revision,
+    lock_transaction_for_match,
+    request_hash,
+)
 from app.services.dataset_coverage_service import invalidate_reconciled_for_connection
 from app.services.delivery_validation_service import (
     assert_commit_allowed,
@@ -101,6 +106,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 SCOPE = "import-upload"
+RULE_CREATE_SCOPE = "classification-rule-create"
 RULE_PREVIEW_MATCH_LIMIT = 200
 RULE_APPLY_SCAN_LIMIT = 1000
 RULE_TX_FETCH_BATCH = 500
@@ -621,10 +627,25 @@ def create_rule(
     priority: int,
     conditions: dict,
     category_code: str,
+    idempotency_key: str,
     at: datetime,
 ) -> dict:
     _deny(membership)
     open_company(session, user, company.id, settings, "write")
+    fingerprint = request_hash(
+        {
+            "company_id": str(company.id),
+            "name": name.strip(),
+            "priority": priority,
+            "conditions": conditions,
+            "category_code": category_code,
+        }
+    )
+    replay = _idempotent(
+        session, user, idempotency_key, fingerprint, scope=RULE_CREATE_SCOPE
+    )
+    if replay is not None:
+        return replay.response_body
     if not set(conditions).issubset(CONDITION_KEYS):
         raise AppError(422, "validation_error", "Неизвестное условие правила")
     if not _has_rule_condition(conditions):
@@ -645,7 +666,18 @@ def create_rule(
     )
     session.add(rule)
     session.flush()
-    return _rule_payload(rule)
+    payload = _rule_payload(rule)
+    _remember(
+        session,
+        user,
+        company.tenant_id,
+        idempotency_key,
+        fingerprint,
+        payload,
+        at,
+        scope=RULE_CREATE_SCOPE,
+    )
+    return payload
 
 
 def update_classification_rule(
@@ -1769,29 +1801,43 @@ def _finalize_transport_and_remember(
     return payload
 
 
-def _idempotent(session, user, key: str, request_hash: str) -> IdempotencyRecord | None:
+def _idempotent(
+    session,
+    user,
+    key: str,
+    request_hash: str,
+    *,
+    scope: str = SCOPE,
+) -> IdempotencyRecord | None:
     row = session.scalar(
         select(IdempotencyRecord).where(
             IdempotencyRecord.user_id == user.id,
-            IdempotencyRecord.scope == SCOPE,
+            IdempotencyRecord.scope == scope,
             IdempotencyRecord.idempotency_key == key,
         )
     )
     if row is None:
         return None
     if row.request_hash != request_hash:
-        raise AppError(409, "idempotency_conflict", "Другой файл для того же ключа")
+        conflict = (
+            "Другой payload для того же ключа"
+            if scope == RULE_CREATE_SCOPE
+            else "Другой файл для того же ключа"
+        )
+        raise AppError(409, "idempotency_conflict", conflict)
     return row
 
 
-def _remember(session, user, tenant_id, key, request_hash, payload, at) -> None:
+def _remember(
+    session, user, tenant_id, key, request_hash, payload, at, *, scope: str = SCOPE
+) -> None:
     try:
         with session.begin_nested():
             session.add(
                 IdempotencyRecord(
                     tenant_id=tenant_id,
                     user_id=user.id,
-                    scope=SCOPE,
+                    scope=scope,
                     idempotency_key=key,
                     request_hash=request_hash,
                     status_code=200,
@@ -1801,7 +1847,7 @@ def _remember(session, user, tenant_id, key, request_hash, payload, at) -> None:
             )
             session.flush()
     except IntegrityError as exc:
-        row = _idempotent(session, user, key, request_hash)
+        row = _idempotent(session, user, key, request_hash, scope=scope)
         if row is None:
             raise AppError(409, "conflict", "Ключ idempotency уже занят") from exc
 

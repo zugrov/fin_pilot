@@ -845,11 +845,16 @@ export function createClassificationRule(
     conditions: Record<string, string>;
     category_code: string;
   },
+  idempotencyKey: string,
 ) {
-  return request<ClassificationRuleRow>(`/api/v1/companies/${companyId}/classification-rules`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  return walletRequest<ClassificationRuleRow>(
+    `/api/v1/companies/${companyId}/classification-rules`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export function patchClassificationRule(

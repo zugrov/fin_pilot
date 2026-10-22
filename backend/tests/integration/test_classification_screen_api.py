@@ -132,9 +132,38 @@ def test_create_rule_rejects_empty_conditions(client, admin, app, fake, tmp_path
             "conditions": {},
             "category_code": "operating",
         },
+        headers={"Idempotency-Key": "empty-cond-key"},
     )
     assert response.status_code == 422, response.text
     assert response.json()["message"] == "Нужно хотя бы одно условие"
+
+
+def test_create_rule_idempotent(client, admin, app, fake, tmp_path) -> None:
+    from uuid import uuid4
+
+    company_id = _company(client, admin, app, fake, tmp_path, "idem-rule@example.com")
+    body = {
+        "name": "Idem",
+        "priority": 5,
+        "conditions": {"direction": "in"},
+        "category_code": "operating",
+    }
+    key = str(uuid4())
+    first = client.post(
+        f"/api/v1/companies/{company_id}/classification-rules",
+        json=body,
+        headers={"Idempotency-Key": key},
+    )
+    second = client.post(
+        f"/api/v1/companies/{company_id}/classification-rules",
+        json=body,
+        headers={"Idempotency-Key": key},
+    )
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["id"] == second.json()["id"]
+    listed = client.get(f"/api/v1/companies/{company_id}/classification-rules")
+    assert len(listed.json()["rules"]) == 1
 
 
 def test_patch_rule_guards_and_audit(client, admin, app, fake, tmp_path) -> None:

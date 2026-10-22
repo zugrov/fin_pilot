@@ -32,6 +32,7 @@ def create_rule(client: TestClient, company_id: str, rule: dict) -> str:
     created = client.post(
         f"/api/v1/companies/{company_id}/classification-rules",
         json=rule,
+        headers={"Idempotency-Key": str(uuid4())},
     )
     assert created.status_code == 200, created.text
     return created.json()["id"]

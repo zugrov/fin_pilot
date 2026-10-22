@@ -5,7 +5,9 @@ import {
   formatRuleConditionsHuman,
   validateRuleCreate,
   EMPTY_RULE_DRAFT,
+  type RuleCreatePayload,
 } from "./classificationForm";
+import { applyAfterFailure, resolveSubmit } from "./salesPlanForm";
 
 describe("classificationForm", () => {
   it("formats conditions in Russian", () => {
@@ -70,5 +72,30 @@ describe("classificationForm", () => {
       amountMax: "",
     });
     expect(payload).toEqual({ description_contains: "Bulk", direction: "in" });
+  });
+
+  it("reuses idempotency key after unknown create outcome", () => {
+    const payload: RuleCreatePayload = {
+      companyId: "c1",
+      name: "Rule",
+      priority: 10,
+      categoryCode: "operating",
+      conditions: { direction: "in" },
+    };
+    const prior = { key: "rule-key-1", payload, phase: "unknown" as const };
+    const resolved = resolveSubmit(prior, payload, () => "new-key");
+    expect(resolved.kind).toBe("submit");
+    if (resolved.kind === "submit") {
+      expect(resolved.attempt.key).toBe("rule-key-1");
+    }
+  });
+
+  it("clears create attempt on 422 validation", () => {
+    const attempt = {
+      key: "rule-key-2",
+      payload: { companyId: "c1" },
+      phase: "executing" as const,
+    };
+    expect(applyAfterFailure(attempt, 422, "validation_error")).toBeNull();
   });
 });

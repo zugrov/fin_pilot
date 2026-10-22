@@ -3,6 +3,7 @@ from uuid import UUID
 
 from app.api.deps import DbSession, current_session, require_csrf, settings_of
 from app.clock import now
+from app.errors import AppError
 from app.services import import_service
 from app.services.wallet_service import open_company
 from fastapi import APIRouter, Request
@@ -56,6 +57,13 @@ def _actor(request: Request, session: Session, company_id: UUID, mode: str, *, m
     return user, membership, company
 
 
+def _idempotency(request: Request) -> str:
+    key = request.headers.get("idempotency-key")
+    if not key:
+        raise AppError(400, "validation_error", "Нужен Idempotency-Key")
+    return key
+
+
 @router.get("/companies/{company_id}/classification-rules")
 def get_rules(company_id: UUID, request: Request, session: DbSession):
     _user, _membership, company = _actor(request, session, company_id, "read", mutate=False)
@@ -77,6 +85,7 @@ def post_rule(
         priority=payload.priority,
         conditions=payload.conditions,
         category_code=payload.category_code,
+        idempotency_key=_idempotency(request),
         at=now(),
     )
 
