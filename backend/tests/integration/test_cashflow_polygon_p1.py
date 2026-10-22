@@ -75,7 +75,7 @@ def test_polygon_cashflow_matches_october_oracle(
     company_id = _company(client, admin, app, fake, tmp_path, f"p1-{profile.slug}@example.com")
     load_profile(client, company_id, profile, admin=admin)
     if profile.slug in {"services", "subscription"}:
-        set_cash_sources_coverage(admin, company_id, COVERAGE_THROUGH)
+        set_cash_sources_coverage(client, company_id, COVERAGE_THROUGH)
     body = _cashflow(client, company_id)
     _assert_matches_oracle(body, profile.slug)
 
@@ -94,7 +94,7 @@ def test_empty_period_with_full_coverage_returns_zeros(client, admin, app, fake,
     freeze(app, polygon_frozen_moment())
     company_id = _company(client, admin, app, fake, tmp_path, "p1-empty-period@example.com")
     load_profile(client, company_id, ALL_PROFILES[0], admin=admin)
-    set_cash_sources_coverage(admin, company_id, "2026-11-30")
+    set_cash_sources_coverage(client, company_id, "2026-11-30")
     november = "date_from=2026-11-01&date_to=2026-11-30"
     body = _cashflow(client, company_id, november)
     assert body["net_external"] == "0.00"
@@ -110,7 +110,7 @@ def test_partial_cash_coverage_is_preliminary(client, admin, app, fake, tmp_path
     freeze(app, polygon_frozen_moment())
     company_id = _company(client, admin, app, fake, tmp_path, "p1-partial-cov@example.com")
     load_cashflow_sections_profile(client, company_id)
-    set_cash_sources_coverage(admin, company_id, "2026-10-15")
+    set_cash_sources_coverage(client, company_id, "2026-10-15")
     body = _cashflow(client, company_id)
     assert body["completeness"] == "preliminary"
     assert "partial_period" in body["quality_flags"]
@@ -194,7 +194,7 @@ def test_group_cashflow_uses_least_complete_member(client, admin, app, fake, tmp
     for profile in ALL_PROFILES:
         load_profile(client, company_ids[profile.slug], profile, admin=admin)
         if profile.slug in {"services", "subscription"}:
-            set_cash_sources_coverage(admin, company_ids[profile.slug], COVERAGE_THROUGH)
+            set_cash_sources_coverage(client, company_ids[profile.slug], COVERAGE_THROUGH)
     group = client.get(f"/api/v1/workspaces/{tenant_id}/cashflow?{PERIOD_QUERY}")
     assert group.status_code == 200, group.text
     payload = group.json()

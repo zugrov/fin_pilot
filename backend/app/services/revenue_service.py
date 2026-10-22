@@ -281,9 +281,14 @@ def set_coverage(
         connection is None
         or connection.tenant_id != company.tenant_id
         or connection.company_id != company.id
-        or connection.dataset != "revenue"
     ):
-        raise AppError(404, "not_found", "Источник продаж не найден")
+        raise AppError(404, "not_found", "Источник не найден")
+    if connection.dataset == "revenue":
+        pass
+    elif connection.dataset == "cash":
+        pass
+    else:
+        raise AppError(404, "not_found", "Источник не найден")
     connection.coverage_through = coverage_through
     from app.services.dataset_coverage_service import legacy_revenue_coverage_claim
 
@@ -291,7 +296,10 @@ def set_coverage(
         session, connection, coverage_through, at, timezone=company.timezone
     )
     session.flush()
-    _audit(session, user, company.tenant_id, "revenue_coverage_set", connection.id, at)
+    audit_action = (
+        "revenue_coverage_set" if connection.dataset == "revenue" else "cash_coverage_set"
+    )
+    _audit(session, user, company.tenant_id, audit_action, connection.id, at)
     return {
         "id": str(connection.id),
         "dataset": connection.dataset,

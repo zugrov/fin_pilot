@@ -247,7 +247,11 @@ FA-R00.3 не блокируют.
   профиль **`cashflow_sections`** — только FA-R06.1-P1, в группу не входит.
 - **As-is API:** `GET .../cashflow`; match — `POST /api/v1/revenue-cash-matches` + `Idempotency-Key`.
 - **FA-R06.1-P1b (2026-10-22):** правила **`completeness`** для `/cashflow` — §3.6 документа;
-  retail ORACLE §6.1 (ClientBank → unmapped); открытый **Q6** (классификация ClientBank).
+  retail ORACLE §6.1 (ClientBank → unmapped).
+- **FA-R06.2-A (2026-10-22):** **Q6 закрыт** — ClientBank классифицируется через
+  `ClassificationRule` при импорте и `POST /rules/{id}/preview` с **`apply: true`**
+  для уже проведённых операций без категории; подтверждение **`coverage_through`**
+  для **cash**-источников — явное действие владельца через существующий POST coverage.
 
 ### FA-R09.P3 · первый срочный high/critical (2026-10-21)
 
