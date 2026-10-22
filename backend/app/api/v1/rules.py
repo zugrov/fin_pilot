@@ -20,6 +20,7 @@ class RuleIn(BaseModel):
 
 class RulePreviewIn(BaseModel):
     company_id: UUID
+    apply: bool = False
 
 
 def _actor(request: Request, session: Session, company_id: UUID, mode: str, *, mutate: bool):
@@ -65,8 +66,22 @@ def post_preview(
     row, user = current_session(request, session)
     require_csrf(request, row)
     tenant_of(request, session, user)
-    membership, company = open_company(
-        session, user, payload.company_id, settings_of(request), "read"
+    if payload.apply:
+        user_w, membership, company = _actor(
+            request, session, payload.company_id, "write", mutate=True
+        )
+        return import_service.preview_rule(
+            session,
+            membership,
+            user_w,
+            settings_of(request),
+            company,
+            rule_id,
+            apply=True,
+            at=now(),
+        )
+    _user, membership, company = _actor(
+        request, session, payload.company_id, "read", mutate=False
     )
     return import_service.preview_rule(
         session, membership, user, settings_of(request), company, rule_id

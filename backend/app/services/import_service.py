@@ -3,7 +3,7 @@ import hashlib
 import time
 import uuid
 from collections import Counter
-from datetime import datetime
+from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 
@@ -663,14 +663,19 @@ def preview_rule(
     settings: Settings,
     company: Company,
     rule_id: uuid.UUID,
+    *,
+    apply: bool = False,
+    at: datetime | None = None,
 ) -> dict:
     _deny(membership)
-    open_company(session, user, company.id, settings, "read")
+    open_company(session, user, company.id, settings, "write" if apply else "read")
     rule = session.get(ClassificationRule, rule_id)
     if rule is None or rule.tenant_id != company.tenant_id:
         raise AppError(404, "not_found", "Правило не найдено")
     if rule.company_id is not None and rule.company_id != company.id:
         raise AppError(404, "not_found", "Правило не найдено")
+    if apply and not rule.enabled:
+        raise AppError(409, "conflict", "Правило отключено")
     view = _as_view(rule)
     rows = session.scalars(
         select(CashTransaction)
@@ -683,10 +688,12 @@ def preview_rule(
     ).all()
     matches = []
     skipped = 0
+    applied = 0
+    moment = at or datetime.now(UTC)
     for tx in rows:
         found = matching_category(
             (view,),
-            description=tx.description,
+            description=tx.description or "",
             counterparty_inn=tx.counterparty_inn or "",
             direction=tx.direction,
             amount=tx.amount,
@@ -696,6 +703,9 @@ def preview_rule(
         if tx.locked_classification:
             skipped += 1
             continue
+        if tx.category_id is not None:
+            skipped += 1
+            continue
         matches.append(
             {
                 "transaction_id": str(tx.id),
@@ -703,7 +713,22 @@ def preview_rule(
                 "category_code": found,
             }
         )
-    return {"matches": matches, "skipped_locked": skipped}
+        if apply:
+            category = _category_by_code(session, company, found)
+            if category is None:
+                continue
+            _remember_revision(session, tx, user, moment)
+            tx.category_id = category.id
+            tx.classification_origin = "rule"
+            tx.version += 1
+            tx.updated_at = moment
+            applied += 1
+    if apply:
+        session.flush()
+    payload = {"matches": matches, "skipped_locked": skipped}
+    if apply:
+        payload["applied"] = applied
+    return payload
 
 
 def _prepare(session, company, connection, line: ImportLine, rules: tuple[RuleView, ...]) -> dict:
