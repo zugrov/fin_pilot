@@ -110,14 +110,25 @@ net_external = external_in − external_out
 
 Все **active** wallets фирмы в периметре; операции агрегируются в одну ОДДС фирмы. Drill-down — по `wallet_id` (будущий API), v1 — totals.
 
-### 3.6. Полнота
+### 3.6. Полнота (`completeness`, FA-R06.1-P1b)
 
-| Условие | Статус отчёта |
-|---------|----------------|
-| Нет enabled cash-источника | **нет данных** |
-| `coverage_through` < `date_to` | **предварительно** + `partial_period` / `stale_cash_source` |
-| Есть unmapped | **предварительно** + `unclassified_operations` (Q2) |
-| Покрытие полное, классификация полная | **полно** |
+Поле **`completeness`:** `full` | `preliminary` | `unavailable`. Флаги в **`quality_flags`**
+(суммы и секции не зависят от статуса).
+
+| Исход | Условие | Флаги (дополнительно к уже существующим) |
+|-------|---------|------------------------------------------|
+| **unavailable** | Нет posted операций за период **и** нет enabled cash-источника | — |
+| **preliminary** | Операции есть, enabled cash-источника **нет** | `manual_entry_only` |
+| **preliminary** | У **любого** enabled cash-источника `coverage_through` не задан или **< `date_to`** | `partial_period` |
+| **preliminary** | Сумма секции **unmapped** > 0 | `unclassified_operations` |
+| **full** | Каждый enabled cash-источник: `coverage_through` ≥ `date_to`, unmapped = 0 | при отсутствии **reconciled** `DatasetCoverage` на период — **`coverage_unverified`** (информационный, статус не понижает) |
+
+Секция **`technical`** статус **не** понижает. Групповой `/cashflow`: **`completeness`**
+= статус **наименее полной** фирмы в scope; если **все** фирмы `unavailable` → группа
+`unavailable`; плюс **`companies[]`** с `company_id` и `completeness` каждой.
+
+Покрытие cash-источников — та же функция **`_coverage`**, что для revenue
+(`report_service`), по одному источнику на проверку «≥ `date_to`».
 
 ---
 
@@ -215,15 +226,17 @@ age_days = as_of − age_base_date
 
 Дополнительный профиль для насыщенной дебиторки (будущий **`receivable_demo`**, **не** в `ALL_PROFILES`): явные `RevenueCashMatch`, частичная оплата, return — **описан в пакете FA-R06.1-P2**, не меняет групповой ORACLE.
 
-### 6.1. ОДДС ORACLE (ручной, все операции `category_code=operating` → секция operating)
+### 6.1. ОДДС ORACLE (ручной, октябрь 2026)
 
-| Профиль | In | Out | Net external | Примечание |
-|---------|-----|-----|--------------|------------|
-| **services** | 20 000.00 | 3 000.00 | 17 000.00 | cash 12k+8k in, 3k out |
-| **retail** | 22 200.00 | 2 500.00 | 19 700.00 | cash 15k + clientbank 7.2k in |
-| **subscription** | 4 800.00 | 0.00 | 4 800.00 | 4×1.2k in |
+| Профиль | operating in | operating out | unmapped in | Net external | Примечание |
+|---------|--------------|---------------|-------------|--------------|------------|
+| **services** | 20 000.00 | 3 000.00 | 0.00 | 17 000.00 | CSV cash, `category_code=operating` |
+| **retail** | 15 000.00 | 2 500.00 | **7 200.00** | 19 700.00 | ClientBank **без** `category_code` → unmapped |
+| **subscription** | 4 800.00 | 0.00 | 0.00 | 4 800.00 | 4×1.2k in |
 
-**unmapped:** 0.00 при полном commit импорта с дефолтной категорией operating.
+**Полнота на полигоне (P1b):** без `coverage_through` на cash-источниках — `preliminary` +
+`partial_period`; retail additionally — `unclassified_operations`. После установки
+покрытия cash ≥ `date_to` services/subscription могут быть `full` (+ `coverage_unverified`).
 
 Сверка с [expectations.py](../../backend/tests/synthetic_polygon/expectations.py): `net_cash_flow` совпадает с **net external** за октябрь (все даты профиля ∈ октябре).
 
@@ -250,8 +263,8 @@ age_days = as_of − age_base_date
 
 | Операция | Права | Ответ |
 |----------|-------|--------|
-| `GET /api/v1/companies/{company_id}/cashflow?date_from&date_to` | finance read, entitlement | as-is: `sections[]`, `net_external`, `quality_flags`; целевое v1: `completeness: full\|preliminary\|unavailable` (P3) |
-| `GET /api/v1/workspaces/{tenant_id}/cashflow?date_from&date_to&company_ids=...` | scope группы | as-is: секции + `excluded_transfer_ids`; `completeness` — P3 |
+| `GET /api/v1/companies/{company_id}/cashflow?date_from&date_to` | finance read, entitlement | `sections[]`, `net_external`, `quality_flags`, **`completeness`** (P1b) |
+| `GET /api/v1/workspaces/{tenant_id}/cashflow?date_from&date_to&company_ids=...` | scope группы | секции, `excluded_transfer_ids`, **`completeness`**, **`companies[]`** (P1b) |
 
 **Ошибки:** 403 entitlement/email; 404 company; 422 неверный период.
 **UI:** таблица секций, drill-down в cash list по `transaction_ids`; баннер при `unclassified_operations`.
@@ -274,7 +287,8 @@ age_days = as_of − age_base_date
 |-------|------------|------------------|
 | **FA-R06.1-P1** | ORACLE ОДДС октябрь, 3 профиля + профиль **`cashflow_sections`** (не `ALL_PROFILES`); `cashflow_payload` | §6.1; секции нового профиля; internal transfer через **`POST /api/v1/transfers/link`** после импорта |
 | **FA-R06.1-P2** | Профиль `receivable_demo` (fixtures only, не ALL_PROFILES) + ORACLE AR | Match частичный, return, аванс не уменьшает чужой entry |
-| **FA-R06.1-P3** | API `receivable-aging` + completeness | 403/404; flags; без миграций |
+| **FA-R06.1-P1b** | `completeness` в `/cashflow` (фирма и группа) | §3.6; полигон P1 |
+| **FA-R06.1-P3** | API `receivable-aging` | 403/404; flags; без миграций |
 | **FA-R06.1-P4** | UI блоки ОДДС + AR | Состояния нет данных / предварительно / полно |
 | **FA-R07.1** (последующий) | Связка с полным комплектом отчётов | Не дублировать формулы v1 |
 
@@ -302,6 +316,12 @@ age_days = as_of − age_base_date
 4. **§7:** фактические маршруты **`/cashflow`** (компания и workspace); `completeness` — контракт **P3**, не as-is.
 5. **§7:** связь продажи с оплатой — **`POST /api/v1/revenue-cash-matches`** + **`Idempotency-Key`** (см. `app/api/v1/revenue.py`).
 6. **§8 / P1:** профиль **`cashflow_sections`** вне `ALL_PROFILES`; paired internal transfer — **`POST /api/v1/transfers/link`** (импорт CSV переводы не связывает).
+
+### Открытые вопросы (после P1b)
+
+| # | Вопрос | Контекст (диагностика P1b) |
+|---|--------|----------------------------|
+| **Q6** | Как по умолчанию классифицировать **ClientBank** без `category_code`? | При импорте cash (в т.ч. ClientBank) **`ClassificationRule`** применяется в `_prepare`, если в строке нет категории. В формате ClientBank поля категории **нет**; без правил операция остаётся **unmapped** (как retail 7 200 в §6.1). Отдельного API «категория для ClientBank» нет — только правила, ручная **`classify`** или CSV cash с `category_code`. Нужно ли tenant-правило / seed для ClientBank — **не решено**. |
 
 ---
 
