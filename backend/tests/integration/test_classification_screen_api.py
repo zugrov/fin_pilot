@@ -122,6 +122,21 @@ def _patch_rule(client, company_id: str, rule_id: str, **fields) -> dict:
     return response.json()
 
 
+def test_create_rule_rejects_empty_conditions(client, admin, app, fake, tmp_path) -> None:
+    company_id = _company(client, admin, app, fake, tmp_path, "empty-cond@example.com")
+    response = client.post(
+        f"/api/v1/companies/{company_id}/classification-rules",
+        json={
+            "name": "Пустое",
+            "priority": 10,
+            "conditions": {},
+            "category_code": "operating",
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["message"] == "Нужно хотя бы одно условие"
+
+
 def test_patch_rule_guards_and_audit(client, admin, app, fake, tmp_path) -> None:
     company_id = _company(client, admin, app, fake, tmp_path, "patch-guards@example.com")
     rule_id = create_rule(client, company_id, RETAIL_CLIENTBANK_IN_RULE)

@@ -627,6 +627,8 @@ def create_rule(
     open_company(session, user, company.id, settings, "write")
     if not set(conditions).issubset(CONDITION_KEYS):
         raise AppError(422, "validation_error", "Неизвестное условие правила")
+    if not _has_rule_condition(conditions):
+        raise AppError(422, "validation_error", "Нужно хотя бы одно условие")
     category = _category_by_code(session, company, category_code)
     if category is None:
         raise AppError(422, "validation_error", "Неизвестная категория")
@@ -1414,6 +1416,19 @@ def _rule_views(session, company) -> tuple[RuleView, ...]:
         )
     ).all()
     return tuple(_as_view(item) for item in rows)
+
+
+def _has_rule_condition(conditions: dict) -> bool:
+    for key, raw in conditions.items():
+        if key not in CONDITION_KEYS:
+            continue
+        if key in {"amount_min", "amount_max"}:
+            if raw is not None and str(raw).strip() != "":
+                return True
+            continue
+        if raw is not None and str(raw).strip() != "":
+            return True
+    return False
 
 
 def _as_view(rule: ClassificationRule) -> RuleView:
