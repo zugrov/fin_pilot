@@ -56,6 +56,67 @@ def _company(request: Request, session: Session, company_id: UUID, mode: str, *,
     return user, membership, company
 
 
+@router.get("/companies/{company_id}/cash-categories")
+def list_cash_categories(company_id: UUID, request: Request, session: DbSession):
+    _user, _membership, company = _company(request, session, company_id, "read", mutate=False)
+    return {"categories": cash_service.list_cash_categories(session, company)}
+
+
+@router.get("/companies/{company_id}/transactions/unclassified/summary")
+def unclassified_summary(
+    company_id: UUID,
+    request: Request,
+    session: DbSession,
+    date_from: date,
+    date_to: date,
+):
+    _user, membership, company = _company(request, session, company_id, "read", mutate=False)
+    if date_from > date_to:
+        raise AppError(422, "validation_error", "Некорректный период")
+    return cash_service.unclassified_summary(
+        session,
+        membership,
+        company,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+@router.get("/companies/{company_id}/transactions/unclassified")
+def list_unclassified_transactions(
+    company_id: UUID,
+    request: Request,
+    session: DbSession,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: int = 50,
+    after_business_date: date | None = None,
+    after_transaction_id: UUID | None = None,
+):
+    _user, membership, company = _company(request, session, company_id, "read", mutate=False)
+    if limit < 1 or limit > cash_service.UNCLASSIFIED_MAX_LIMIT:
+        raise AppError(422, "validation_error", "Некорректный лимит")
+    if (after_business_date is None) ^ (after_transaction_id is None):
+        raise AppError(422, "validation_error", "Курсор требует дату и идентификатор операции")
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise AppError(422, "validation_error", "Некорректный период")
+    rows, has_more, cursor = cash_service.list_unclassified_transactions(
+        session,
+        membership,
+        company,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        after_business_date=after_business_date,
+        after_transaction_id=after_transaction_id,
+    )
+    return {
+        "transactions": [cash_service.transaction_payload(session, item) for item in rows],
+        "has_more": has_more,
+        "cursor": cursor,
+    }
+
+
 @router.get("/companies/{company_id}/transactions")
 def list_transactions(
     company_id: UUID,

@@ -23,6 +23,19 @@ class RulePreviewIn(BaseModel):
     company_id: UUID
 
 
+class RulePatchIn(BaseModel):
+    company_id: UUID
+    enabled: bool | None = None
+    priority: int | None = Field(default=None, ge=1, le=1000)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> "RulePatchIn":
+        if self.enabled is None and self.priority is None and self.name is None:
+            raise ValueError("need at least one field to update")
+        return self
+
+
 class RuleApplyIn(BaseModel):
     company_id: UUID
     after_business_date: date | None = None
@@ -64,6 +77,30 @@ def post_rule(
         priority=payload.priority,
         conditions=payload.conditions,
         category_code=payload.category_code,
+        at=now(),
+    )
+
+
+@router.patch("/rules/{rule_id}")
+def patch_rule(
+    rule_id: UUID,
+    payload: RulePatchIn,
+    request: Request,
+    session: DbSession,
+):
+    user, membership, company = _actor(
+        request, session, payload.company_id, "write", mutate=True
+    )
+    return import_service.update_classification_rule(
+        session,
+        membership,
+        company,
+        user,
+        settings_of(request),
+        rule_id,
+        enabled=payload.enabled,
+        priority=payload.priority,
+        name=payload.name,
         at=now(),
     )
 

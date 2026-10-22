@@ -22,7 +22,7 @@ from app.models.revenue import RevenueCashMatch
 from app.security.access import OPERATOR
 from app.security.tokens import canonical_hash
 from app.services.wallet_service import visible_wallet
-from sqlalchemy import func, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
 SCOPE = "cash-create"
@@ -53,6 +53,126 @@ def company_summary(session: Session, company: Company, at: datetime) -> CashSum
             ("missing_anchor", "missing_revenue_source"),
         )
     return summarize(inputs, at, reserve)
+
+
+UNCLASSIFIED_MAX_LIMIT = 200
+
+
+def list_cash_categories(session: Session, company: Company) -> list[dict]:
+    rows = session.scalars(
+        select(CashCategory)
+        .where(CashCategory.tenant_id == company.tenant_id)
+        .order_by(CashCategory.code)
+    ).all()
+    return [
+        {
+            "id": str(item.id),
+            "code": item.code,
+            "name": item.name,
+            "cash_flow_section": item.cash_flow_section,
+            "direction": item.direction,
+        }
+        for item in rows
+    ]
+
+
+def unclassified_summary(
+    session: Session,
+    membership: Membership,
+    company: Company,
+    *,
+    date_from: date,
+    date_to: date,
+) -> dict:
+    query = (
+        select(
+            CashTransaction.direction,
+            func.count(),
+            func.coalesce(func.sum(CashTransaction.amount), 0),
+        )
+        .where(
+            CashTransaction.tenant_id == company.tenant_id,
+            CashTransaction.company_id == company.id,
+            CashTransaction.status == "posted",
+            CashTransaction.category_id.is_(None),
+            CashTransaction.business_date >= date_from,
+            CashTransaction.business_date <= date_to,
+        )
+        .group_by(CashTransaction.direction)
+    )
+    if membership.role == OPERATOR:
+        allowed = _operator_wallets(session, membership)
+        if not allowed:
+            return _empty_unclassified_summary(date_from, date_to)
+        query = query.where(CashTransaction.wallet_id.in_(allowed))
+    totals = {"in": {"count": 0, "amount": "0.00"}, "out": {"count": 0, "amount": "0.00"}}
+    for direction, count, amount in session.execute(query):
+        key = str(direction)
+        if key in totals:
+            totals[key] = {"count": int(count), "amount": money_str(amount)}
+    return {
+        "period": {"date_from": date_from.isoformat(), "date_to": date_to.isoformat()},
+        **totals,
+    }
+
+
+def list_unclassified_transactions(
+    session: Session,
+    membership: Membership,
+    company: Company,
+    *,
+    date_from: date | None,
+    date_to: date | None,
+    limit: int,
+    after_business_date: date | None,
+    after_transaction_id: uuid.UUID | None,
+) -> tuple[list[CashTransaction], bool, dict | None]:
+    query = select(CashTransaction).where(
+        CashTransaction.tenant_id == company.tenant_id,
+        CashTransaction.company_id == company.id,
+        CashTransaction.status == "posted",
+        CashTransaction.category_id.is_(None),
+    )
+    if date_from is not None:
+        query = query.where(CashTransaction.business_date >= date_from)
+    if date_to is not None:
+        query = query.where(CashTransaction.business_date <= date_to)
+    if membership.role == OPERATOR:
+        allowed = _operator_wallets(session, membership)
+        if not allowed:
+            return [], False, None
+        query = query.where(CashTransaction.wallet_id.in_(allowed))
+    if after_transaction_id is not None:
+        query = query.where(
+            or_(
+                CashTransaction.business_date > after_business_date,
+                and_(
+                    CashTransaction.business_date == after_business_date,
+                    CashTransaction.id > after_transaction_id,
+                ),
+            )
+        )
+    query = query.order_by(CashTransaction.business_date, CashTransaction.id).limit(limit + 1)
+    rows = list(session.scalars(query).all())
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    cursor = None
+    if has_more and page:
+        last = page[-1]
+        cursor = {
+            "business_date": last.business_date.isoformat(),
+            "transaction_id": str(last.id),
+        }
+    return page, has_more, cursor
+
+
+def _empty_unclassified_summary(date_from: date, date_to: date) -> dict:
+    empty = {"count": 0, "amount": "0.00"}
+    return {
+        "period": {"date_from": date_from.isoformat(), "date_to": date_to.isoformat()},
+        "in": dict(empty),
+        "out": dict(empty),
+    }
 
 
 def list_transactions(

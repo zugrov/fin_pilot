@@ -646,6 +646,41 @@ def create_rule(
     return _rule_payload(rule)
 
 
+def update_classification_rule(
+    session: Session,
+    membership: Membership,
+    company: Company,
+    user: User,
+    settings: Settings,
+    rule_id: uuid.UUID,
+    *,
+    enabled: bool | None,
+    priority: int | None,
+    name: str | None,
+    at: datetime,
+) -> dict:
+    _deny(membership)
+    open_company(session, user, company.id, settings, "write")
+    rule = _load_company_rule(session, company, rule_id)
+    changed = False
+    if enabled is not None and rule.enabled != enabled:
+        rule.enabled = enabled
+        changed = True
+    if priority is not None and rule.priority != priority:
+        rule.priority = priority
+        changed = True
+    if name is not None:
+        trimmed = name.strip()
+        if rule.name != trimmed:
+            rule.name = trimmed
+            changed = True
+    if changed:
+        rule.version += 1
+        session.flush()
+        _rule_updated_audit(session, user, company.tenant_id, rule.id, rule, at)
+    return _rule_payload(rule)
+
+
 def list_rules(session: Session, company: Company) -> list[dict]:
     rows = session.scalars(
         select(ClassificationRule)
@@ -1509,6 +1544,34 @@ def _posted_transactions_remain(
         .limit(1)
     )
     return found is not None
+
+
+def _rule_updated_audit(
+    session: Session,
+    user: User,
+    tenant_id: uuid.UUID,
+    rule_id: uuid.UUID,
+    rule: ClassificationRule,
+    at: datetime,
+) -> None:
+    session.add(
+        AuditLog(
+            tenant_id=tenant_id,
+            user_id=user.id,
+            action="rule_updated",
+            entity_type="classification_rule",
+            entity_id=rule_id,
+            before_redacted=None,
+            after_redacted={
+                "enabled": rule.enabled,
+                "priority": rule.priority,
+                "name": rule.name,
+                "version": rule.version,
+            },
+            request_id=None,
+            created_at=at,
+        )
+    )
 
 
 def _rule_apply_audit(
