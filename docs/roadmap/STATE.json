@@ -21,7 +21,7 @@
   "current_stage": "FA-R06",
   "current_task": "FA-R06-REL0",
   "status": "local_verified",
-  "allowed_next_action": "FA-R06-REL0 — артефакты 9819768 собраны (GHA 39922595922); локальная репетиция be9e47a@0016 зафиксирована. Следующее по gate владельца: показать/утвердить команды REL0-BACKUP-VERIFY (ответ «команды ок»), затем probe-restore на VPS. IMAGE-DELIVERY и окно deploy — не назначены; earliest window пн 26.10.2026 10:00–13:30 MSK. B4 после accept REL0.",
+  "allowed_next_action": "FA-R06-REL0 — BACKUP-VERIFY v1+v2 на freeze OK (2026-10-23). Блокер окна: ops_scripts_repository_policy. Далее: решение политики ops/verify → REL0-BACKUP-CREATE+verify 0014 в окне → IMAGE-DELIVERY → DDL/deploy по §G. B4 после accept REL0.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",

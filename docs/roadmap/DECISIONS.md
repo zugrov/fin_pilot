@@ -297,13 +297,16 @@ FA-R00.3 не блокируют.
   выполнять **только** после того, как владелец увидит точный список команд и ответит **«команды ок»**.
   До этого ответа **ничего на VPS не запускать**.
 - **Окно выпуска:** **не назначено**. Ближайшее допустимое: **2026-10-26 (пн), 10:00–13:30 MSK**.
+- **Probe BACKUP-VERIFY 2026-10-23 (v1, SHA `013981f3…`):** список A — **`REL0_BACKUP_VERIFY_OK`** на freeze `20261020T063211Z`, `EXPECTED_ALEMBIC=20261017_0010`; post-check чистый.
+- **Probe BACKUP-VERIFY v2 2026-10-23 (SHA `e150e336…`):** список B — тот же `.enc`, **`REL0_BACKUP_VERIFY_OK`**; шаг 0 пропущен (probe-БД отсутствовала); скрипт v2 с VPS удалён.
+- **Факты freeze:** manifest **`schema_before=20261017_0010`**; encrypted backup на **0014** на VPS **нет**; в окне REL0 — **новый** backup + verify **`20261019_0014`** (§G).
 
-### FA-R06-REL0 · политика `ops/` скриптов (2026-10-23, open)
+### FA-R06-REL0 · политика `ops_scripts_repository_policy` (**блокирует окно**)
 
-- **Вопрос:** коммитить ли `ops/check-restore-checkpoint.sh` и производные (parameterized REL0 verify) в git?
-- **Факт:** каталог `ops/` **untracked**; runbook ссылается на SHA скриптов 2026-10-17; REL0 verify вынесен в `/Users/maximzugrov/rel0-artifacts/rel0-backup-verify.sh` (вне repo).
-- **Блокирует ли выпуск REL0:** **нет** для staging deploy при условии, что оператор использует зафиксированный текст скрипта (docs §E + off-repo copy) и владелец даёт «команды ok». **Да** для воспроизводимости/CI restore-drill без отдельного решения.
-- **Предложение:** parameterized `ops/rel0-backup-verify.sh` в git **после** явного OK владельца на политику; до этого — только docs + offsite script hash в журнале окна.
+- **Статус:** **open**, **блокирует назначение maintenance window REL0**, пока владелец не решит: где живут **`rel0-backup-verify*.sh`**, **`ops/check-restore-checkpoint.sh`**, **`ops/finish-restore-checkpoint.sh`** и будущий **backup-create**; кто согласует текст; фиксируется ли SHA в git или только в журнале окна.
+- **Факт:** `ops/` **untracked**; verify v1/v2 — **`/Users/maximzugrov/rel0-artifacts/`** (вне repo); runbook 2026-10-16 ссылается на SHA одноразовых скриптов.
+- **До решения:** окно **не открывать**; backup-create в окне — по runbook §G + §E (ручная процедура или согласованный скрипт); verify — только согласованный off-repo hash + «команды ok».
+- **Варианты (на выбор владельца):** (A) коммит parameterized `ops/` + rel0-verify в git; (B) только docs + offsite artifacts + SHA в DECISIONS/readiness на каждый drill.
 
 ### FA-R06.2-B0 · массовая отмена применения правила (2026-10-22)
 

@@ -20,7 +20,7 @@
 | **api, worker, beat** | `be9e47af63310f3d5745eadf67dddb0e8c6c9442` | **`20261019_0014`** | `finpilot-api:release-be9e47a…`; override `/var/tmp/finpilot-release-be9e47a/compose.override.yml`; manifest `sha256:31b6986…` |
 | **frontend** | **`15555751…`** (не be9e47a) | — | `finpilot-frontend:release-1555575…`; override `/var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml` |
 | **Доступ** | loopback `127.0.0.1:8090`, Compose `finpilot-staging` | | |
-| **Backup reference (post FA-R02 A)** | | schema в архиве на момент freeze **0010→0014** | `finpilot-staging-FA-R02-20261020T063211Z.tar.enc`, SHA-256 `7661414a…`, offsite Mac — match |
+| **Backup freeze FA-R02 (pre-migration)** | | **`schema_before=20261017_0010`** в manifest; layout **`database.dump`** + `attachments/` (не checkpoint `db.dump`) | `finpilot-staging-FA-R02-20261020T063211Z.tar.enc`, SHA-256 `7661414a…`; **не** снимок schema **0014**; откат после **0016** — **новый** backup в окне, не только этот файл |
 
 **Safe flags (override api/worker/beat, `readiness-live.md` / FA-R02 phase A):**
 
@@ -202,7 +202,7 @@
 | 3 | **CI green на точном product SHA** | Зафиксировано @ **9819768**: CI `39908727390`, E2E `39908727418` (6 tests). HEAD **f1dcd86**: только docs/chore — перепроверить CI после push |
 | 4 | **E2E scope** | Default e2e **не** покрывает classification/polygon (§6) |
 | 5 | **План миграции 0015+0016** | Maintenance window, backup, fail-closed recreate, financial re-read SQL (как FA-R02 A) |
-| 6 | **План отката** | Restore `7661414a…` или **новый** backup post-0016; образ `release-be9e47a`; frontend `release-7ee85e5` или согласованный tag; **без** alembic downgrade при данных |
+| 6 | **План отката** | Restore из **свежего** encrypted backup (**0014+** на момент окна), не полагаться только на `20261020T063211Z` (0010); образ `release-be9e47a`; frontend `release-7ee85e5`; **без** alembic downgrade при данных |
 | 7 | **Проверка диска VPS** | Нет записи в readiness под новые образы + backup; включить в REL0 execute-phase |
 | 8 | **Frontend align** | Решить: deploy frontend @ SHA compatible с **9819768** (не только 1555575) |
 | 9 | **Staging smoke** | Read-only + ограниченный write-smoke для регрессии ООО «Топ» после backend deploy |
@@ -408,19 +408,25 @@ Manifest (фрагмент):
 
 #### Формат encrypted backup
 
-После `openssl enc -d …` внутри `bundle.tar`: `db.dump` (custom `pg_dump -Fc`), `files.tar`, `files.sha256`, `manifest.txt` — как в `ops/check-restore-checkpoint.sh`.
+Два layout после `openssl enc -d …` → `bundle.tar`:
 
-Reference: `finpilot-staging-FA-R02-20261020T063211Z.tar.enc`, SHA-256 `7661414aaaa7b21fadc58508b26393e91346b1183ca924c3fc2aa95b3d2c8a90`.
+| Layout | Члены | Пример |
+| --- | --- | --- |
+| **FA-R02 freeze** | `database.dump`, `manifest.txt` (`schema_before=…`), `attachments/…` | `finpilot-staging-FA-R02-20261020T063211Z.tar.enc` — **до** миграции окна (**0010** в manifest) |
+| **checkpoint 20261016** | `db.dump`, `files.tar`, `files.sha256`, `manifest.txt` | `ops/check-restore-checkpoint.sh` |
+
+На VPS **нет** encrypted backup с **`schema_before=20261019_0014`**. Свежий backup + verify с `EXPECTED_ALEMBIC=20261019_0014` — **обязательны в начале окна REL0**.
+
+Probe **2026-10-23:** v1 (SHA `013981f3…`) и v2 (SHA `e150e336…`) на freeze `20261020T063211Z` — **`REL0_BACKUP_VERIFY_OK`**, `EXPECTED_ALEMBIC=20261017_0010`; post-check без probe-БД и temp-файлов.
 
 #### `ops/check-restore-checkpoint.sh` (не в git)
 
 Одноразовый drill 2026-10-17: restore в **`finpilot_checkpoint_20261016`**, backup **`20261016`**, ожидание **`migration=20261014_0009`**. Для REL0 нужны параметры `BACKUP`, `EXPECTED_SHA`, `TMP` под **`/var/tmp`**, `CHECK_DB=finpilot_rel0_probe`, baseline **0014 / «Топ»**. Passphrase **не удалять**. Коммит `ops/` — после решения **`ops_scripts_repository_policy`** (см. `DECISIONS.md`).
 
-Полный REL0 verify (вне git): `/Users/maximzugrov/rel0-artifacts/rel0-backup-verify.sh` — `umask 077`, decrypt в `/var/tmp/finpilot-rel0-probe-decrypt.*`, отказ если БД ≠ `finpilot_rel0_probe`, baseline: **5 posted**, **80499.50**, **revenue oct 20002.00**, затем `DROP DATABASE finpilot_rel0_probe` и удаление расшифрованного каталога.
+REL0 verify (вне git): **`rel0-backup-verify-v2.sh`** (SHA `e150e336…`) — аргументы: **`PASSFILE`**, **`EXPECTED_ALEMBIC`**, **`BACKUP`**, **`EXPECTED_SHA`**; v1 (`013981f3…`) — устарел для новых drill. Успех: `REL0_BACKUP_VERIFY_OK`.
 
-Локальная проверка скрипта: `bash -n …/rel0-backup-verify.sh`; `shellcheck -e SC2016 …` (2026-10-23: `bash -n` OK).
-
-Запуск на VPS (после «команды ok»): `bash /var/tmp/finpilot-rel0-artifacts/rel0-backup-verify.sh /tmp/finpilot-backup-secret-XXXX/passphrase` — успех: `REL0_BACKUP_VERIFY_OK`; стоп: `LOW_DISK` (&lt; 5 GiB), `*_MISMATCH`.
+Запуск v2 (после «команды ok»):  
+`umask 077; bash …/rel0-backup-verify-v2.sh <PASSFILE> <EXPECTED_ALEMBIC> <BACKUP> <EXPECTED_SHA>`.
 
 #### REL0-IMAGE-DELIVERY (**запрещено до отдельного OK**)
 
@@ -457,7 +463,7 @@ Recreate контейнеров **не** выполнять в этом шаге
 
 ## G. Окно: точный runbook
 
-**Предусловия:** окно назначено; образы candidate на диске; `COMPOSE`:
+**Предусловия:** решение **`ops_scripts_repository_policy`** (DECISIONS); окно назначено; образы candidate на диске; passphrase **`/tmp/finpilot-backup-secret.*/passphrase`** (600/700); `COMPOSE`:
 
 ```bash
 cd /fin_pilot && docker compose \
@@ -467,16 +473,87 @@ cd /fin_pilot && docker compose \
   -p finpilot-staging
 ```
 
+**Оценки времени (staging «Топ», ориентир 2026-10-23):** backup-create **~3–8 мин**; verify v2 **~5–15 с**; DDL 0015+0016 **~2–10 мин**; deploy api/worker/beat/frontend **~2–5 мин**; smoke **~5–15 мин**. Резерв окна **≥ 90 мин**.
+
+**Критерии остановки (fail-closed):** любой шаг ≠ ожидание → **СТОП**, не продолжать DDL/deploy; после backup-create fail — resume api/worker/beat если остановлены; после DDL fail — **шаг 9** (restore); verify fail — **без DDL**; Celery worker/beat не `ready` после DDL — **стоп**, restore.
+
 | # | Шаг | Действие | Ожидание | Стоп → кто |
 | --- | --- | --- | --- | --- |
-| 1 | Свежий backup | `docs/runbook-staging.md` §копия: pause api/worker/beat → dump `finpilot` + enc + sha256 → resume | health 200 | backup fail → **Владелец** |
-| 2 | Backup verify | `rel0-backup-verify.sh` + PASSFILE | `REL0_BACKUP_VERIFY_OK` | mismatch/disk → **отмена DDL**, **Владелец** |
-| 3 | DDL 0015→0016 | `docker run --rm --network finpilot-staging_default -e MIGRATION_DATABASE_URL=<миграционная роль из .env>` `finpilot-api:release-candidate-9819768179…` `/app/.venv/bin/alembic -c /app/alembic.ini upgrade head` | `alembic_version` = **`20261022_0016`** | Alembic error → restore, **Владелец** |
-| 4 | Ready | `curl -sf http://127.0.0.1:8090/health/ready` | ok JSON | не 200 → стоп |
-| 5 | Smoke be9e47a (opt.) | read-only «Топ» | 200 | регрессия → ускорить deploy или restore |
-| 6 | Deploy api/worker/beat | override image candidate; `$COMPOSE up -d --no-deps --no-build --pull never api worker beat` | Up | fail → шаг 9 |
-| 7 | Deploy frontend | override `finpilot-frontend:release-candidate-9819768…`; `$COMPOSE -f …/compose.frontend.override.yml up -d --no-deps --no-build --pull never frontend` | Up | fail → tag `release-1555575` |
-| 8 | Smoke 9819768 | ready + baseline 5 / 80499.50 / 20002 + чеклист §5 | критерии REL0 | **Владелец** accept |
-| 9 | Откат | restore `finpilot` из backup шага 1; api `release-be9e47a`; frontend `release-1555575` | schema **0014**, baseline | **Владелец** |
+| 0 | Диск | `df -P /`, свободно **≥ 5 GiB** (5242880 KiB) | `avail_kb` OK | LOW_DISK → **Владелец**, окно перенести |
+| 1 | **Backup create** | REL0-BACKUP-CREATE (§G.1): checkpoint layout **`db.dump`** + `files.tar` + `files.sha256` + `manifest.txt` (`schema_before=20261019_0014`) → `bundle.tar` → `openssl enc` → `.tar.enc` + sidecar `.sha256`; pause/resume api/worker/beat по runbook §«Копия» | `health/live` + `health/ready` **200**; файл **600** под `/var/backups/finpilot/` | encrypt/dump fail → resume сервисы, **Владелец** |
+| 2 | **Backup verify** | REL0-BACKUP-VERIFY v2 (SHA `e150e336…`): probe `finpilot_rel0_probe`, `EXPECTED_ALEMBIC=20261019_0014`, `BACKUP` + `EXPECTED_SHA` нового файла | `REL0_BACKUP_VERIFY_OK` | mismatch/disk/RLS → **отмена DDL**, **Владелец** |
+| 3 | DDL 0015→0016 | `docker run --rm --network finpilot-staging_default -e MIGRATION_DATABASE_URL=<миграционная роль из .env>` `finpilot-api:release-candidate-9819768179…` `/app/.venv/bin/alembic -c /app/alembic.ini upgrade head` | `alembic_version` = **`20261022_0016`** | Alembic error → **шаг 9**, **Владелец** |
+| 3b | Celery | `$COMPOSE logs --tail=50 worker beat`; worker **`ready`**, beat **Up** (как FA-R02 A) | оба сервиса живы | нет ready → **стоп**, restore |
+| 4 | Ready | `curl -sf http://127.0.0.1:8090/health/ready` | ok JSON | не 200 → **шаг 9** |
+| 5 | Smoke be9e47a (opt.) | read-only «Топ» | 200 | регрессия → deploy или restore |
+| 6 | Deploy api/worker/beat | override image candidate; `$COMPOSE up -d --no-deps --no-build --pull never api worker beat` | Up | fail → **шаг 9** |
+| 7 | Deploy frontend | override candidate frontend; `$COMPOSE -f …/compose.frontend.override.yml up -d --no-deps --no-build --pull never frontend` | Up | fail → tag **`release-1555575`** или restore |
+| 8 | Smoke 9819768 | ready + baseline 5 / cash / revenue oct + §5 | критерии REL0 | **Владелец** accept |
+| 9 | **Откат** | Restore **`finpilot`** из **backup шага 1** (не freeze 0010); api **`release-be9e47a`**; frontend **`release-1555575`**; **без** `alembic downgrade` | schema **0014**, baseline «Топ» | **Владелец** |
 
 Сеть: `docker network ls | grep finpilot-staging`. Флаги ingest/quarantine/SEND_* **не менять** без решения.
+
+### G.1 REL0-BACKUP-CREATE (черновик команд, **не автоматизировано в git**)
+
+Источник процедуры: **`docs/runbook-staging.md` § «Копия наполненного staging»** (2026-10-16). Отдельного `ops/*backup-create*` в репозитории **нет**. `backend/scripts/backup.py` **не** копирует базу **`finpilot`** (только test DB).
+
+**Формат bundle для verify v2:** layout **checkpoint** — члены `db.dump`, `files.tar`, `files.sha256`, `manifest.txt` (v2 `BACKUP_FORMAT=checkpoint`). Альтернатива FA-R02 freeze (`database.dump`) для окна **не** нужна.
+
+**Имя (пример):** `/var/backups/finpilot/finpilot-staging-REL0-<UTC>.tar.enc` + `/var/backups/finpilot/finpilot-staging-REL0-<UTC>.tar.enc.sha256`.
+
+**Что меняется на сервере:** кратковременный stop api/worker/beat; новый файл `.enc` + sidecar; временные каталоги под `/var/tmp` (удалить после успеха). **Откат до DDL:** удалить новый `.enc` если verify не прошёл; сервисы уже подняты — **`finpilot`** не трогали.
+
+**EXPECTED_SHA для v2:** на VPS `sha256sum /var/backups/finpilot/<file>.tar.enc | awk '{print $1}'`; offsite `scp` → Mac `shasum -a 256` — **должен совпасть**; sidecar `sha256sum -c` из каталога backup.
+
+```bash
+# Выполнять только после «команды ok» на список CREATE в окне.
+set -euo pipefail
+umask 077
+COMPOSE='cd /fin_pilot && docker compose --env-file /fin_pilot/.env -f infra/docker-compose.staging.yml -f /var/tmp/finpilot-release-be9e47a/compose.override.yml -p finpilot-staging'
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+BASE=/var/backups/finpilot
+WORK=$(mktemp -d /var/tmp/finpilot-rel0-backup-create.XXXXXX)
+chmod 700 "$WORK"
+ENC="$BASE/finpilot-staging-REL0-${STAMP}.tar.enc"
+PASSFILE=/tmp/finpilot-backup-secret.S1urrI/passphrase   # путь по факту окна
+PG=finpilot-staging-postgres-1
+
+avail=$(df -P / | awk 'NR==2 {print $4}')
+echo avail_kb="$avail"
+test "$avail" -ge 5242880
+
+eval "$COMPOSE stop api worker beat"
+
+docker exec "$PG" bash -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U finpilot -Fc -d finpilot -f /tmp/rel0-db.dump'
+docker cp "$PG:/tmp/rel0-db.dump" "$WORK/db.dump"
+docker exec "$PG" rm -f /tmp/rel0-db.dump
+
+docker run --rm -v finpilot-staging_imports:/imports:ro -v "$WORK:/out" alpine \
+  sh -c 'tar -cf /out/files.tar -C /imports .'
+( cd "$WORK" && sha256sum files.tar > files.sha256 )
+
+SCHEMA=$(docker exec "$PG" bash -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U finpilot -d finpilot -Atc "SELECT version_num FROM alembic_version;"')
+printf 'schema_before=%s\n' "$SCHEMA" > "$WORK/manifest.txt"
+# Опционально: секция [controls] как в checkpoint 20261016 — для v2 достаточно schema_before=20261019_0014
+
+tar -cf "$WORK/bundle.tar" -C "$WORK" db.dump files.tar files.sha256 manifest.txt
+openssl enc -aes-256-cbc -pbkdf2 -salt -pass "file:$PASSFILE" \
+  -in "$WORK/bundle.tar" -out "$ENC.partial"
+mv "$ENC.partial" "$ENC"
+chmod 600 "$ENC"
+( cd "$BASE" && sha256sum "$(basename "$ENC")" > "$(basename "$ENC").sha256" )
+
+rm -rf "$WORK"
+eval "$COMPOSE start api worker beat"
+curl -sf http://127.0.0.1:8090/health/live && curl -sf http://127.0.0.1:8090/health/ready
+sha256sum "$ENC"
+```
+
+**Verify v2 в окне (шаг 2):**
+
+```bash
+umask 077
+bash /var/tmp/finpilot-rel0-artifacts/rel0-backup-verify-v2.sh \
+  "$PASSFILE" 20261019_0014 \
+  "$ENC" <EXPECTED_SHA_FROM_STEP_ABOVE>
+```

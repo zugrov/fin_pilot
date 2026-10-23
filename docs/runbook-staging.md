@@ -74,7 +74,7 @@ cd /fin_pilot && docker compose \
 
 **Override** задаёт safe flags: `SESSION_INGEST_ENABLED=false`, все `SEND_*` и `POLL_IMAP`/`REFUNDS` — false, `BALANCES_IMPORT_ENABLED=true`, `BILLING_MODE=test`, `EMAIL_PROVIDER_MODE=smtp`. Команды: `/app/.venv/bin/uvicorn`, `/app/.venv/bin/celery`.
 
-**Backup reference (не применять без решения):** `/var/backups/finpilot/finpilot-staging-FA-R02-20261020T063211Z.tar.enc`, SHA-256 `7661414aaaa7b21fadc58508b26393e91346b1183ca924c3fc2aa95b3d2c8a90`; offsite Mac — тот же hash. Откат схемы после 0014 — **restore из backup**, не `alembic downgrade`.
+**Backup freeze FA-R02 (2026-10-20, до миграции окна):** `/var/backups/finpilot/finpilot-staging-FA-R02-20261020T063211Z.tar.enc`, SHA-256 `7661414aaaa7b21fadc58508b26393e91346b1183ca924c3fc2aa95b3d2c8a90`; внутри — **`database.dump`**, manifest **`schema_before=20261017_0010`** (не schema **0014**). Offsite Mac — тот же hash. **Не** единственный reference для отката после **0016**: в начале окна REL0 — **REL0-BACKUP-CREATE** (§ «Копия наполненного staging», layout **checkpoint** `db.dump`) + **verify v2** (`EXPECTED_ALEMBIC=20261019_0014`); пошагово — `docs/roadmap/FA-R06-release-readiness.md` §G. Probe verify v1/v2 на freeze — OK 2026-10-23. Откат — **restore из backup**, не `alembic downgrade`.
 
 **Rollback images (на диске):** api `sha256:d5520080a1cd6c731bcdee102ca00dfa0098622c076b58e6ea2946b1cacd55ae`; worker/beat `sha256:c7ff510499579c8e95ade8e11036a86f4ac91c55bdaac0714e2a30d1e23d490c`.
 
