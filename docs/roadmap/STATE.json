@@ -6,7 +6,7 @@
   "created_at": "2026-10-17",
   "is_execution_authorization": false,
   "baseline": {
-    "application_sha_last_reported": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+    "application_sha_last_reported": "db58f0f3ce37dd55901a51534b887d22b6af7ffe",
     "checkpoint_docs_sha": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
     "migration_last_reported": "20261019_0014",
     "synthetic_company_only": true,
@@ -16,10 +16,10 @@
     "live_repository_and_server_must_be_rechecked": false,
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
-  "current_stage": "FA-R03",
-  "current_task": "FA-R03.1",
-  "status": "ready",
-  "allowed_next_action": "FA-R02 accepted; staging phase A deployed и принята владельцем (product be9e47a, schema 0014). FA-R03 / FA-R03.1 — planned. Разрешена только read-only подготовка первого профиля выгрузок 1С и контрольных образцов по отдельному разрешению. Не начинать FA-R03 implementation, deploy, SSH-операции, миграции, реальные данные/интеграции без явного scope.",
+  "current_stage": "FA-R06",
+  "current_task": "FA-R06.2-B2",
+  "status": "local_verified",
+  "allowed_next_action": "FA-R06.2-B2 local_verified (commit/push — только после подтверждения состава файлов владельцем). Q6 закрыт правилами классификации (FA-R06.2-A/B). FA-R03 и deploy/staging/миграции/реальные данные — без отдельного scope не начинать.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -520,19 +520,30 @@
       "depends_on": [
         "FA-R05"
       ],
-      "status": "planned",
+      "status": "in_progress",
       "tasks": [
         {
           "id": "FA-R06.1",
           "title": "Правила учёта",
-          "status": "planned",
-          "evidence": []
+          "status": "local_verified",
+          "evidence": [
+            "docs/roadmap/FA-R06.1-management-rules-v1.md",
+            "docs/roadmap/DECISIONS.md FA-R06.1"
+          ]
         },
         {
           "id": "FA-R06.2",
           "title": "Состав данных",
-          "status": "planned",
-          "evidence": []
+          "status": "local_verified",
+          "local_verified_product_sha": "db58f0f3ce37dd55901a51534b887d22b6af7ffe",
+          "local_verified_note": "B2 патч локально поверх db58f0f; SHA в STATE обновить после commit B2",
+          "evidence": [
+            "docs/roadmap/DECISIONS.md FA-R06.2-A/B1/B2",
+            "Q6 закрыт: ClassificationRule + apply для ClientBank",
+            "экран /classification; create idempotency; preview seq guard",
+            "backend tests/integration/test_classification_screen_api.py",
+            "frontend e2e classification-polygon.spec.ts"
+          ]
         },
         {
           "id": "FA-R06.3",
@@ -1552,8 +1563,8 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R02 accepted (repo be9e47a). Staging phase A deployed 2026-10-20: api/worker/beat RC manifest 31b698…, schema 20261019_0014, frontend release-7ee85e5 без recreate; session ingest off. Next: FA-R03.1 planned (read-only 1C profile prep — отдельное разрешение).",
-  "updated_at": "2026-10-20",
+  "note": "FA-R06.2-B2 local_verified 2026-10-22: Q6 закрыт правилами классификации; product baseline db58f0f (+ uncommitted B2 до commit). Staging be9e47a без изменений. FA-R03 — planned, не стартовать без scope.",
+  "updated_at": "2026-10-22",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
     "documentation": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",

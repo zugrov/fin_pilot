@@ -1,8 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { applyRuleUntilDone, mergeApplyCounters } from "./classificationApply";
+import {
+  applyRuleUntilDone,
+  mergeApplyCounters,
+  shouldAcceptPreviewResponse,
+} from "./classificationApply";
 
 describe("classificationApply", () => {
+  it("ignores stale preview responses", () => {
+    expect(shouldAcceptPreviewResponse(2, 2)).toBe(true);
+    expect(shouldAcceptPreviewResponse(2, 1)).toBe(false);
+  });
+
   it("merges counters across pages", () => {
     const merged = mergeApplyCounters(
       { applied: 1, skipped_locked: 0, skipped_categorized: 0, skipped_higher_priority: 0, total_matches: 1 },

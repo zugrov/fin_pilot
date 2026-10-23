@@ -100,6 +100,53 @@ test.describe("Classification screen · polygon retail", () => {
     expect(groupBody.metrics.revenue).toBe(oracle.group.revenue);
   });
 
+  test("preview: устаревший ответ не перезаписывает более новый", async ({ page }) => {
+    const meta = loadPolygonMeta();
+    const oracle = loadPolygonOracle();
+    await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), meta.companies.retail.id);
+    await selectCompany(page, meta.companies.retail.name);
+    await page.getByRole("link", { name: "Классификация" }).click();
+
+    const periodInputs = page.getByTestId("unclassified-block").locator('input[type="date"]');
+    await periodInputs.nth(0).fill(oracle.period_from);
+    await periodInputs.nth(1).fill(oracle.period_to);
+
+    const createForm = page.locator("form").filter({ hasText: "Новое правило" });
+    await createForm.getByLabel("Название").fill("Slow preview rule");
+    await createForm.getByLabel("Текст в назначении").fill("Оплата");
+    await createForm.getByLabel("ИНН контрагента").fill("7700000202");
+    await createForm.getByLabel("Направление").selectOption("in");
+    await createForm.getByLabel("Категория").selectOption("operating");
+    await page.getByRole("button", { name: "Создать правило" }).click();
+    await createForm.getByLabel("Название").fill("Fast preview rule");
+    await createForm.getByLabel("Текст в назначении").fill("Несуществующий текст XYZ");
+    await createForm.getByLabel("ИНН контрагента").fill("");
+    await createForm.getByLabel("Направление").selectOption("in");
+    await createForm.getByLabel("Категория").selectOption("operating");
+    await page.getByRole("button", { name: "Создать правило" }).click();
+    await expect(page.getByText("Fast preview rule")).toBeVisible();
+
+    const slowCard = page.locator("li").filter({ hasText: "Slow preview rule" });
+    const fastCard = page.locator("li").filter({ hasText: "Fast preview rule" });
+
+    let previewCalls = 0;
+    await page.route("**/api/v1/rules/*/preview", async (route) => {
+      previewCalls += 1;
+      if (previewCalls === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+      await route.continue();
+    });
+
+    await slowCard.getByRole("button", { name: "Проверить" }).click();
+    await fastCard.getByRole("button", { name: "Проверить" }).click();
+    await expect(fastCard.getByText(/Совпадений: 0/)).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(2500);
+    await expect(fastCard.getByText(/Совпадений: 0/)).toBeVisible();
+    await expect(slowCard.getByText(/Совпадений: 1/)).not.toBeVisible();
+    expect(previewCalls).toBe(2);
+  });
+
   test("скриншоты: загрузка, пусто, данные", async ({ page }) => {
     const meta = loadPolygonMeta();
     const oracle = loadPolygonOracle();

@@ -166,6 +166,73 @@ def test_create_rule_idempotent(client, admin, app, fake, tmp_path) -> None:
     assert len(listed.json()["rules"]) == 1
 
 
+def test_create_rule_requires_idempotency_key(client, admin, app, fake, tmp_path) -> None:
+    company_id = _company(client, admin, app, fake, tmp_path, "no-key@example.com")
+    response = client.post(
+        f"/api/v1/companies/{company_id}/classification-rules",
+        json={
+            "name": "Без ключа",
+            "priority": 10,
+            "conditions": {"direction": "in"},
+            "category_code": "operating",
+        },
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["message"] == "Нужен Idempotency-Key"
+
+
+def test_create_rule_idempotency_conflict(client, admin, app, fake, tmp_path) -> None:
+    company_id = _company(client, admin, app, fake, tmp_path, "idem-conflict@example.com")
+    key = str(uuid4())
+    first_body = {
+        "name": "Первое",
+        "priority": 10,
+        "conditions": {"direction": "in"},
+        "category_code": "operating",
+    }
+    second_body = {**first_body, "name": "Другое имя"}
+    ok = client.post(
+        f"/api/v1/companies/{company_id}/classification-rules",
+        json=first_body,
+        headers={"Idempotency-Key": key},
+    )
+    assert ok.status_code == 200, ok.text
+    clash = client.post(
+        f"/api/v1/companies/{company_id}/classification-rules",
+        json=second_body,
+        headers={"Idempotency-Key": key},
+    )
+    assert clash.status_code == 409, clash.text
+    assert clash.json()["code"] == "idempotency_conflict"
+
+
+def test_create_rule_two_keys_same_body_creates_two_rules(
+    client, admin, app, fake, tmp_path
+) -> None:
+    company_id = _company(client, admin, app, fake, tmp_path, "two-keys@example.com")
+    body = {
+        "name": "Дубликат тела",
+        "priority": 10,
+        "conditions": {"direction": "out"},
+        "category_code": "operating",
+    }
+    first = client.post(
+        f"/api/v1/companies/{company_id}/classification-rules",
+        json=body,
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    second = client.post(
+        f"/api/v1/companies/{company_id}/classification-rules",
+        json=body,
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["id"] != second.json()["id"]
+    listed = client.get(f"/api/v1/companies/{company_id}/classification-rules")
+    assert len(listed.json()["rules"]) == 2
+
+
 def test_patch_rule_guards_and_audit(client, admin, app, fake, tmp_path) -> None:
     company_id = _company(client, admin, app, fake, tmp_path, "patch-guards@example.com")
     rule_id = create_rule(client, company_id, RETAIL_CLIENTBANK_IN_RULE)

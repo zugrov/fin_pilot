@@ -253,6 +253,22 @@ FA-R00.3 не блокируют.
   для уже проведённых операций без категории; подтверждение **`coverage_through`**
   для **cash**-источников — явное действие владельца через существующий POST coverage.
 
+### FA-R06.2-B1 · idempotency создания правила (2026-10-22)
+
+- **Product SHA:** `db58f0f3ce37dd55901a51534b887d22b6af7ffe` (CI/E2E green).
+- POST `/classification-rules` через `walletRequest` + обязательный `Idempotency-Key`;
+  scope `classification-rule-create` на сервере (`IdempotencyRecord`, без миграций).
+- 422 снимает блокировку формы; unknown/network — тот же ключ и «Повторить отправку».
+- «Проверить» disabled только на время запроса.
+
+### FA-R06.2-B2 · guardrails классификации (2026-10-22)
+
+- **Статус:** `local_verified` (commit — после подтверждения состава владельцем).
+- Integration: 400 без ключа; 409 `idempotency_conflict`; два ключа + одно тело → два правила.
+- UI: при `phase === unknown` сообщение через `writeFailureMessage`; preview с seq per ruleId
+  (устаревший HTTP-ответ не перезаписывает блок).
+- **Q6** остаётся закрытым правилами классификации (см. FA-R06.2-A).
+
 ### FA-R06.2-B0 · массовая отмена применения правила (2026-10-22)
 
 - **Статус:** отложено; **не** в scope FA-R06.2-B0.

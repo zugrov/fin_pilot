@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   applyClassificationRulePage,
@@ -18,7 +18,7 @@ import {
 } from "../api";
 import { CompanyWritePicker } from "../components/CompanyWritePicker";
 import { Shell } from "../components/Shell";
-import type { ApplyCounters } from "../lib/classificationApply";
+import { shouldAcceptPreviewResponse, type ApplyCounters } from "../lib/classificationApply";
 import {
   cashFlowSectionLabel,
   EMPTY_RULE_DRAFT,
@@ -38,6 +38,7 @@ import {
   lockedCompanyFromAttempts,
   resolveSubmit,
   shouldBlockFieldEdit,
+  writeFailureMessage,
   type IdempotentAttempt,
 } from "../lib/salesPlanForm";
 
@@ -73,6 +74,8 @@ export function ClassificationPage() {
   const [previewRuleId, setPreviewRuleId] = useState<string | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
   const [previewResult, setPreviewResult] = useState<string>("");
+  const previewSeqRef = useRef<Record<string, number>>({});
+  const previewActiveRuleRef = useRef<string | null>(null);
   const [applyDialog, setApplyDialog] = useState<ClassificationRuleRow | null>(null);
   const [applyPreview, setApplyPreview] = useState<{
     total_matches: number;
@@ -208,13 +211,17 @@ export function ClassificationPage() {
     onError: (exc, attempt) => {
       const status = exc instanceof WalletRequestError ? exc.status : 0;
       const code = exc instanceof WalletRequestError ? exc.code : "";
+      const next = applyAfterFailure(attempt, status, code);
       setCreateAttempt((current) => {
         if (!current || current.key !== attempt.key) {
           return current;
         }
         return applyAfterFailure(current, status, code);
       });
-      setError(failureMessage(exc));
+      const base = failureMessage(exc);
+      setError(
+        next?.phase === "unknown" ? writeFailureMessage(base, status, code) : base,
+      );
     },
   });
 
@@ -330,11 +337,20 @@ export function ClassificationPage() {
     if (!companyId) {
       return;
     }
+    const requestSeq = (previewSeqRef.current[ruleId] ?? 0) + 1;
+    previewSeqRef.current[ruleId] = requestSeq;
+    previewActiveRuleRef.current = ruleId;
     setPreviewRuleId(ruleId);
     setPreviewLoadingId(ruleId);
     setPreviewResult("");
     try {
       const body = await previewClassificationRule(ruleId, companyId);
+      if (previewActiveRuleRef.current !== ruleId) {
+        return;
+      }
+      if (!shouldAcceptPreviewResponse(previewSeqRef.current[ruleId] ?? 0, requestSeq)) {
+        return;
+      }
       const lines = body.matches.map(
         (item) => `${item.description || "—"} → ${categoryLabel(item.category_code, categoryList ?? [])}`,
       );
@@ -343,9 +359,20 @@ export function ClassificationPage() {
           (lines.length ? `\n${lines.join("\n")}` : ""),
       );
     } catch (exc) {
+      if (previewActiveRuleRef.current !== ruleId) {
+        return;
+      }
+      if (!shouldAcceptPreviewResponse(previewSeqRef.current[ruleId] ?? 0, requestSeq)) {
+        return;
+      }
       setPreviewResult(failureMessage(exc));
     } finally {
-      setPreviewLoadingId(null);
+      if (
+        previewActiveRuleRef.current === ruleId &&
+        shouldAcceptPreviewResponse(previewSeqRef.current[ruleId] ?? 0, requestSeq)
+      ) {
+        setPreviewLoadingId(null);
+      }
     }
   }
 

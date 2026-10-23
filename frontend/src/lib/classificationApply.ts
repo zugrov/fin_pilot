@@ -26,6 +26,11 @@ export function emptyApplyCounters(): ApplyCounters {
   };
 }
 
+/** Ответ preview применяем только если это последний запрос для ruleId. */
+export function shouldAcceptPreviewResponse(latestSeq: number, requestSeq: number): boolean {
+  return latestSeq === requestSeq;
+}
+
 export function mergeApplyCounters(into: ApplyCounters, page: ApplyCounters): ApplyCounters {
   return {
     applied: into.applied + page.applied,

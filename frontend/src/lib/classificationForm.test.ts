@@ -7,7 +7,7 @@ import {
   EMPTY_RULE_DRAFT,
   type RuleCreatePayload,
 } from "./classificationForm";
-import { applyAfterFailure, resolveSubmit } from "./salesPlanForm";
+import { applyAfterFailure, resolveSubmit, writeFailureMessage } from "./salesPlanForm";
 
 describe("classificationForm", () => {
   it("formats conditions in Russian", () => {
@@ -88,6 +88,12 @@ describe("classificationForm", () => {
     if (resolved.kind === "submit") {
       expect(resolved.attempt.key).toBe("rule-key-1");
     }
+  });
+
+  it("appends unknown-outcome hint for write failures", () => {
+    const msg = writeFailureMessage("Сбой сети.", 0, "");
+    expect(msg).toContain("повторите отправку");
+    expect(msg).toContain("Сбой сети.");
   });
 
   it("clears create attempt on 422 validation", () => {
