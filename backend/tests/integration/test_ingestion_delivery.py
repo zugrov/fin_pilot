@@ -24,7 +24,7 @@ from tests.integration.conftest import BACKEND, login, open_workspace, pay, regi
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 RECEIVED = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
-REVISION = "20261021_0015"
+REVISION = "20261022_0016"
 REV_0011 = "20261018_0011"
 PREV = "20261017_0010"
 _PG_PORT = __import__("os").environ.get("TEST_PG_PORT", "5432")

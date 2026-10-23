@@ -166,6 +166,43 @@ def test_create_rule_idempotent(client, admin, app, fake, tmp_path) -> None:
     assert len(listed.json()["rules"]) == 1
 
 
+def test_create_rule_replay_returns_same_warning(client, admin, app, fake, tmp_path) -> None:
+    from uuid import uuid4
+
+    company_id = _company(client, admin, app, fake, tmp_path, "warn-replay@example.com")
+    client.post(
+        f"/api/v1/companies/{company_id}/classification-rules",
+        json={
+            "name": "First conflict",
+            "priority": 7,
+            "conditions": {"direction": "in"},
+            "category_code": "operating",
+        },
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    body = {
+        "name": "Second conflict",
+        "priority": 7,
+        "conditions": {"direction": "out"},
+        "category_code": "investing",
+    }
+    key = str(uuid4())
+    first = client.post(
+        f"/api/v1/companies/{company_id}/classification-rules",
+        json=body,
+        headers={"Idempotency-Key": key},
+    )
+    second = client.post(
+        f"/api/v1/companies/{company_id}/classification-rules",
+        json=body,
+        headers={"Idempotency-Key": key},
+    )
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json().get("warnings") == second.json().get("warnings")
+    assert first.json().get("warnings")
+
+
 def test_create_rule_requires_idempotency_key(client, admin, app, fake, tmp_path) -> None:
     company_id = _company(client, admin, app, fake, tmp_path, "no-key@example.com")
     response = client.post(

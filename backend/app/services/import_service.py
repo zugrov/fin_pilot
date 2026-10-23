@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
+from typing import Any
 
 from app.config import Settings
 from app.domain.imports.balances_reader import duplicate_wallet_codes, read_balances_csv
@@ -21,7 +22,14 @@ from app.domain.imports.plan_reader import read_plan_csv
 from app.domain.imports.prepare_common import classify_import_row
 from app.domain.imports.revenue_reader import read_revenue_csv
 from app.domain.imports.revision import commit_decision
-from app.domain.imports.rules import RuleView, matching_category
+from app.domain.imports.rules import (
+    RuleView,
+    aggregate_rule_conflicts,
+    create_rule_conflict_warning,
+    matching_category,
+    matching_rule,
+    rule_conflict_at_tx,
+)
 from app.domain.imports.source_identity_slot import (
     apply_identity_watermark,
     entity_type_conflict,
@@ -599,12 +607,14 @@ def commit_import(
         flags.append("partial_import")
     if has_review:
         flags.append("rows_in_review")
+    if _batch_has_rule_conflict(session, batch):
+        flags.append("classification_rule_conflict")
     if pending or has_review:
         batch.status = "completed_with_errors"
         batch.quality_flags = flags
     else:
         batch.status = "completed"
-        batch.quality_flags = []
+        batch.quality_flags = flags
     session.flush()
     _batch_audit(session, company_user, company.tenant_id, "import_committed", batch.id, at)
     invalidate_reconciled_for_connection(session, connection, at, reason="import_commit")
@@ -653,6 +663,7 @@ def create_rule(
     category = _category_by_code(session, company, category_code)
     if category is None:
         raise AppError(422, "validation_error", "Неизвестная категория")
+    existing_rules = _rule_views(session, company)
     rule = ClassificationRule(
         tenant_id=company.tenant_id,
         company_id=company.id,
@@ -666,7 +677,15 @@ def create_rule(
     )
     session.add(rule)
     session.flush()
+    warning = create_rule_conflict_warning(
+        priority=rule.priority,
+        new_rule_id=rule.id,
+        new_category_code=category.code,
+        siblings=existing_rules,
+    )
     payload = _rule_payload(rule)
+    if warning is not None:
+        payload = {**payload, "warnings": [warning]}
     _remember(
         session,
         user,
@@ -723,7 +742,7 @@ def list_rules(session: Session, company: Company) -> list[dict]:
             (ClassificationRule.company_id == company.id)
             | (ClassificationRule.company_id.is_(None)),
         )
-        .order_by(ClassificationRule.priority)
+        .order_by(ClassificationRule.priority, ClassificationRule.id)
     ).all()
     return [_rule_payload(item) for item in rows]
 
@@ -746,8 +765,24 @@ def preview_rule(
     skipped_locked = 0
     skipped_categorized = 0
     skipped_higher_priority = 0
+    conflict_txs: list[dict] = []
     for batch in _posted_transaction_batches(session, company):
         for tx in batch:
+            if rule_conflict_at_tx(
+                all_rules,
+                description=tx.description or "",
+                counterparty_inn=tx.counterparty_inn or "",
+                direction=tx.direction,
+                amount=tx.amount,
+            ):
+                conflict_txs.append(
+                    {
+                        "description": tx.description or "",
+                        "counterparty_inn": tx.counterparty_inn or "",
+                        "direction": tx.direction,
+                        "amount": tx.amount,
+                    }
+                )
             outcome = _rule_transaction_outcome(view, all_rules, tx)
             if outcome == "no_match":
                 continue
@@ -763,7 +798,7 @@ def preview_rule(
             total_matches += 1
             if len(matches) < RULE_PREVIEW_MATCH_LIMIT:
                 matches.append(_rule_match_payload(tx, view.category_code))
-    return {
+    payload = {
         "matches": matches,
         "total_matches": total_matches,
         "truncated": total_matches > RULE_PREVIEW_MATCH_LIMIT,
@@ -771,6 +806,10 @@ def preview_rule(
         "skipped_categorized": skipped_categorized,
         "skipped_higher_priority": skipped_higher_priority,
     }
+    warnings = aggregate_rule_conflicts(all_rules, tuple(conflict_txs))
+    if warnings:
+        payload["warnings"] = warnings
+    return payload
 
 
 def apply_classification_rule(
@@ -851,6 +890,8 @@ def apply_classification_rule(
             _remember_revision(session, row, user, at)
             row.category_id = category.id
             row.classification_origin = "rule"
+            row.classification_rule_id = rule.id
+            row.classification_rule_version = rule.version
             row.version += 1
             row.updated_at = at
             session.flush()
@@ -868,7 +909,7 @@ def apply_classification_rule(
             "business_date": last_date.isoformat(),
             "transaction_id": str(last_id),
         }
-    payload = {
+    payload: dict[str, Any] = {
         "applied": applied,
         "skipped_locked": skipped_locked,
         "skipped_categorized": skipped_categorized,
@@ -877,6 +918,27 @@ def apply_classification_rule(
         "has_more": has_more,
         "cursor": cursor,
     }
+    conflict_txs: list[dict] = []
+    for batch in _posted_transaction_batches(session, company):
+        for tx in batch:
+            if rule_conflict_at_tx(
+                all_rules,
+                description=tx.description or "",
+                counterparty_inn=tx.counterparty_inn or "",
+                direction=tx.direction,
+                amount=tx.amount,
+            ):
+                conflict_txs.append(
+                    {
+                        "description": tx.description or "",
+                        "counterparty_inn": tx.counterparty_inn or "",
+                        "direction": tx.direction,
+                        "amount": tx.amount,
+                    }
+                )
+    warnings = aggregate_rule_conflicts(all_rules, tuple(conflict_txs))
+    if warnings:
+        payload["warnings"] = warnings
     _rule_apply_audit(session, user, company.tenant_id, rule.id, payload, at)
     return payload
 
@@ -902,18 +964,32 @@ def _prepare(session, company, connection, line: ImportLine, rules: tuple[RuleVi
         else:
             category_id = str(category.id)
     rule_category = None
+    rule_match: dict | None = None
+    classification_rule_conflict = False
     if not errors and category_id is None and line.amount is not None:
-        code = matching_category(
+        matched = matching_rule(
             rules,
             description=line.description,
             counterparty_inn=line.counterparty_inn,
             direction=line.direction,
             amount=line.amount,
         )
-        if code:
-            category = _category_by_code(session, company, code)
+        if matched and matched.category_code:
+            category = _category_by_code(session, company, matched.category_code)
             if category is not None:
                 rule_category = str(category.id)
+                rule_match = {
+                    "rule_id": str(matched.rule_id),
+                    "rule_version": matched.rule_version,
+                }
+        if rule_conflict_at_tx(
+            rules,
+            description=line.description,
+            counterparty_inn=line.counterparty_inn,
+            direction=line.direction,
+            amount=line.amount,
+        ):
+            classification_rule_conflict = True
     meta = parse_row_meta(line.raw, external_id=line.external_id)
     digest = "" if errors or line.amount is None else payload_digest(line)
     identity = None
@@ -947,6 +1023,8 @@ def _prepare(session, company, connection, line: ImportLine, rules: tuple[RuleVi
             "wallet_id": None if wallet is None else str(wallet.id),
             "category_id": category_id,
             "rule_category_id": rule_category,
+            "rule_match": rule_match,
+            "classification_rule_conflict": classification_rule_conflict,
             "match_id": match_id,
             "review_reason": classified["review_reason"],
         },
@@ -971,6 +1049,22 @@ def _other_ids(session, company, namespace: str, line: ImportLine, wallet_id) ->
         )
     ).all()
     return tuple(str(item) for item in rows if item is not None)
+
+
+def _apply_row_rule_evidence(tx: CashTransaction, data: dict) -> None:
+    if not data.get("rule_category_id") or data.get("category_id"):
+        tx.classification_rule_id = None
+        tx.classification_rule_version = None
+        return
+    match = data.get("rule_match") or {}
+    rule_id = match.get("rule_id")
+    rule_version = match.get("rule_version")
+    if rule_id and rule_version is not None:
+        tx.classification_rule_id = uuid.UUID(str(rule_id))
+        tx.classification_rule_version = int(rule_version)
+    else:
+        tx.classification_rule_id = None
+        tx.classification_rule_version = None
 
 
 def _create_row(session, company, connection, user, row: RawImportRow, at: datetime) -> None:
@@ -1000,6 +1094,8 @@ def _create_row(session, company, connection, user, row: RawImportRow, at: datet
         created_at=at,
         updated_at=at,
     )
+    if data.get("rule_category_id") and not data.get("category_id"):
+        _apply_row_rule_evidence(tx, data)
     session.add(tx)
     session.flush()
     _identity(session, company, connection, row, tx.id, at)
@@ -1025,6 +1121,11 @@ def _revise_row(session, company, connection, user, row: RawImportRow, at: datet
             tx.category_id = uuid.UUID(category_id)
             if data.get("rule_category_id") and not data.get("category_id"):
                 tx.classification_origin = "rule"
+                _apply_row_rule_evidence(tx, data)
+            elif data.get("category_id"):
+                tx.classification_origin = "manual"
+                tx.classification_rule_id = None
+                tx.classification_rule_version = None
     tx.version += 1
     tx.updated_at = at
     identity = load_identity_slot(session, company, connection.namespace, row.external_id or "")
@@ -1052,6 +1153,7 @@ def _link_row(session, company, connection, user, row: RawImportRow, at: datetim
     _remember_revision(session, tx, user, at)
     tx.category_id = uuid.UUID(category_id)
     tx.classification_origin = "rule"
+    _apply_row_rule_evidence(tx, data)
     tx.version += 1
     tx.updated_at = at
     session.flush()
@@ -1438,16 +1540,22 @@ def _category_by_code(session, company, code: str) -> CashCategory | None:
     )
 
 
-def _rule_views(session, company) -> tuple[RuleView, ...]:
+def load_rule_views(session, company) -> tuple[RuleView, ...]:
+    """Правила одной фirmы: company scope, ORDER BY priority ASC, id ASC."""
     rows = session.scalars(
-        select(ClassificationRule).where(
+        select(ClassificationRule)
+        .where(
             ClassificationRule.tenant_id == company.tenant_id,
             ClassificationRule.enabled.is_(True),
-            (ClassificationRule.company_id == company.id)
-            | (ClassificationRule.company_id.is_(None)),
+            ClassificationRule.company_id == company.id,
         )
+        .order_by(ClassificationRule.priority, ClassificationRule.id)
     ).all()
     return tuple(_as_view(item) for item in rows)
+
+
+def _rule_views(session, company) -> tuple[RuleView, ...]:
+    return load_rule_views(session, company)
 
 
 def _has_rule_condition(conditions: dict) -> bool:
@@ -1465,11 +1573,21 @@ def _has_rule_condition(conditions: dict) -> bool:
 
 def _as_view(rule: ClassificationRule) -> RuleView:
     return RuleView(
-        rule.priority,
-        rule.enabled,
-        dict(rule.conditions_json),
-        str(rule.actions_json.get("category_code") or ""),
+        rule_id=rule.id,
+        rule_version=rule.version,
+        priority=rule.priority,
+        enabled=rule.enabled,
+        conditions=dict(rule.conditions_json),
+        category_code=str(rule.actions_json.get("category_code") or ""),
     )
+
+
+def _batch_has_rule_conflict(session, batch: ImportBatch) -> bool:
+    for row in _rows(session, batch):
+        normalized = row.normalized_payload or {}
+        if normalized.get("classification_rule_conflict"):
+            return True
+    return False
 
 
 def _load_company_rule(

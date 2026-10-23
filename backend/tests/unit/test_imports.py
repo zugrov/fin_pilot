@@ -111,7 +111,14 @@ def test_dedup_outcomes() -> None:
 
 
 def test_rule_skips_when_conditions_miss() -> None:
-    rule = RuleView(1, True, {"description_contains": "аренда", "direction": "out"}, "operating")
+    rule = RuleView(
+        rule_id=__import__("uuid").uuid4(),
+        rule_version=1,
+        priority=1,
+        enabled=True,
+        conditions={"description_contains": "аренда", "direction": "out"},
+        category_code="operating",
+    )
     assert (
         matching_category(
             (rule,),

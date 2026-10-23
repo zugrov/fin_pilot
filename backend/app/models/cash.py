@@ -97,6 +97,8 @@ class CashTransaction(Base):
     source: Mapped[str] = mapped_column(String(16))
     status: Mapped[str] = mapped_column(String(16))
     classification_origin: Mapped[str] = mapped_column(String(16), default="none")
+    classification_rule_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    classification_rule_version: Mapped[int | None] = mapped_column(Integer)
     locked_classification: Mapped[bool] = mapped_column(Boolean, default=False)
     transfer_group_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     created_by: Mapped[uuid.UUID] = mapped_column(Uuid)

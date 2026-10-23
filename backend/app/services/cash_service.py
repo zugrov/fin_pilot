@@ -341,6 +341,8 @@ def classify_transaction(
     _remember_revision(session, row, user, at)
     row.category_id = category_id
     row.classification_origin = "manual"
+    row.classification_rule_id = None
+    row.classification_rule_version = None
     row.locked_classification = True
     row.version += 1
     row.updated_at = at
@@ -503,6 +505,22 @@ def plan_allocated_on_cash(session: Session, cash_transaction_id: uuid.UUID) -> 
     return value
 
 
+def classification_evidence_payload(row: CashTransaction) -> dict | None:
+    if row.classification_origin == "none":
+        return None
+    if row.classification_origin == "manual":
+        return {"status": "manual"}
+    if row.classification_origin == "rule":
+        if row.classification_rule_id is not None and row.classification_rule_version is not None:
+            return {
+                "status": "recorded",
+                "rule_id": str(row.classification_rule_id),
+                "rule_version": row.classification_rule_version,
+            }
+        return {"status": "legacy_unknown"}
+    return None
+
+
 def transaction_payload(session: Session, row: CashTransaction) -> dict:
     revenue_matched = revenue_allocated_on_cash(session, row.id)
     plan_matched = plan_allocated_on_cash(session, row.id)
@@ -524,6 +542,8 @@ def transaction_payload(session: Session, row: CashTransaction) -> dict:
         "version": row.version,
         "transfer_group_id": None if row.transfer_group_id is None else str(row.transfer_group_id),
         "locked_classification": row.locked_classification,
+        "classification_origin": row.classification_origin,
+        "classification_evidence": classification_evidence_payload(row),
         "revenue_matched": money_str(revenue_matched),
         "plan_matched": money_str(plan_matched),
         "revenue_unallocated": money_str(amount - revenue_matched),

@@ -19,6 +19,7 @@ import {
 import { CompanyWritePicker } from "../components/CompanyWritePicker";
 import { Shell } from "../components/Shell";
 import { shouldAcceptPreviewResponse, type ApplyCounters } from "../lib/classificationApply";
+import type { ClassificationRuleWarning } from "../api";
 import {
   cashFlowSectionLabel,
   EMPTY_RULE_DRAFT,
@@ -44,6 +45,11 @@ import {
 
 function newKey() {
   return crypto.randomUUID();
+}
+
+function ruleWarningLine(warnings: ClassificationRuleWarning[] | undefined): string {
+  const first = warnings?.[0];
+  return first?.message ?? "";
 }
 
 function failureMessage(exc: unknown): string {
@@ -74,6 +80,7 @@ export function ClassificationPage() {
   const [previewRuleId, setPreviewRuleId] = useState<string | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
   const [previewResult, setPreviewResult] = useState<string>("");
+  const [createRuleWarning, setCreateRuleWarning] = useState("");
   const previewSeqRef = useRef<Record<string, number>>({});
   const previewActiveRuleRef = useRef<string | null>(null);
   const [applyDialog, setApplyDialog] = useState<ClassificationRuleRow | null>(null);
@@ -82,6 +89,7 @@ export function ClassificationPage() {
     skipped_locked: number;
     skipped_categorized: number;
     skipped_higher_priority: number;
+    warning?: string;
   } | null>(null);
   const [applyProgress, setApplyProgress] = useState<ApplyCounters | null>(null);
   const [applyRunning, setApplyRunning] = useState(false);
@@ -201,7 +209,8 @@ export function ClassificationPage() {
         attempt.key,
       );
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      setCreateRuleWarning(ruleWarningLine(result.warnings));
       setCreateAttempt(null);
       setRuleDraft(EMPTY_RULE_DRAFT);
       if (companyId) {
@@ -329,6 +338,7 @@ export function ClassificationPage() {
       skipped_locked: preview.skipped_locked,
       skipped_categorized: preview.skipped_categorized,
       skipped_higher_priority: preview.skipped_higher_priority,
+      warning: ruleWarningLine(preview.warnings),
     });
     setApplyDialog(rule);
   }
@@ -354,8 +364,10 @@ export function ClassificationPage() {
       const lines = body.matches.map(
         (item) => `${item.description || "—"} → ${categoryLabel(item.category_code, categoryList ?? [])}`,
       );
+      const warning = ruleWarningLine(body.warnings);
       setPreviewResult(
         `Совпадений: ${body.total_matches}${body.truncated ? " (показаны первые)" : ""}.` +
+          (warning ? `\n${warning}` : "") +
           (lines.length ? `\n${lines.join("\n")}` : ""),
       );
     } catch (exc) {
@@ -661,6 +673,11 @@ export function ClassificationPage() {
           ))}
         </ul>
 
+        {createRuleWarning ? (
+          <p className="mb-3 text-sm text-amber-800" data-testid="create-rule-warning">
+            {createRuleWarning}
+          </p>
+        ) : null}
         <form className="max-w-lg space-y-3" onSubmit={submitCreateRule}>
           <h3 className="font-medium">Новое правило</h3>
           <label className="block text-sm">
@@ -791,11 +808,16 @@ export function ClassificationPage() {
           <div className="max-w-md rounded-xl bg-white p-4 text-sm shadow-lg">
             <h3 className="mb-2 text-lg font-semibold">Применить правило «{applyDialog.name}»</h3>
             {applyPreview ? (
-              <p className="mb-2">
-                Совпадений: {applyPreview.total_matches}. Пропуски: заблокировано{" "}
-                {applyPreview.skipped_locked}, уже с категорией {applyPreview.skipped_categorized},
-                другой приоритет {applyPreview.skipped_higher_priority}.
-              </p>
+              <>
+                <p className="mb-2">
+                  Совпадений: {applyPreview.total_matches}. Пропуски: заблокировано{" "}
+                  {applyPreview.skipped_locked}, уже с категорией {applyPreview.skipped_categorized},
+                  другой приоритет {applyPreview.skipped_higher_priority}.
+                </p>
+                {applyPreview.warning ? (
+                  <p className="mb-2 text-amber-800">{applyPreview.warning}</p>
+                ) : null}
+              </>
             ) : null}
             <p className="mb-2 text-amber-900">Массово отменить нельзя.</p>
             {applyProgress ? (

@@ -542,3 +542,201 @@ def test_apply_does_not_overwrite_manual_classification_race(
     assert row.locked_classification is True
     assert row.classification_origin == "manual"
     assert row.category_id == str(category)
+
+
+def test_apply_records_classification_evidence(client, admin, app, fake, tmp_path) -> None:
+    company_id = _company(client, admin, app, fake, tmp_path, "evidence@example.com")
+    wallet_id = _wallet_id(client, company_id)
+    source_id = _source(client, company_id, wallet_id)
+    _import_lines(
+        client,
+        company_id,
+        source_id,
+        "ev-1,main,2026-02-01,in,7200.00,RUB,7700000202,,Оплата retail,,,\n",
+        "evidence-one",
+    )
+    rule_id = create_rule(client, company_id, RETAIL_CLIENTBANK_IN_RULE)
+    apply_rule_to_posted(client, company_id, rule_id)
+    with admin.connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT classification_rule_id::text, classification_rule_version,
+                       classification_origin
+                FROM cash_transactions
+                WHERE company_id = CAST(:cid AS uuid)
+                LIMIT 1
+                """
+            ),
+            {"cid": company_id},
+        ).one()
+    assert row.classification_origin == "rule"
+    assert row.classification_rule_id == rule_id
+    assert row.classification_rule_version == 1
+
+
+def test_import_and_apply_same_winner_on_tie_priority(client, admin, app, fake, tmp_path) -> None:
+    company_id = _company(client, admin, app, fake, tmp_path, "tie@example.com")
+    wallet_id = _wallet_id(client, company_id)
+    source_id = _source(client, company_id, wallet_id)
+    first_id = create_rule(
+        client,
+        company_id,
+        {
+            "name": "Tie A",
+            "priority": 10,
+            "conditions": {"direction": "in", "description_contains": "Оплата"},
+            "category_code": "operating",
+        },
+    )
+    second_id = create_rule(
+        client,
+        company_id,
+        {
+            "name": "Tie B",
+            "priority": 10,
+            "conditions": {"direction": "in", "description_contains": "Оплата"},
+            "category_code": "operating",
+        },
+    )
+    _import_lines(
+        client,
+        company_id,
+        source_id,
+        "tie-1,main,2026-02-01,in,7200.00,RUB,7700000202,,Оплата retail tie,,,\n",
+        "tie-one",
+    )
+    winner_id = min(first_id, second_id)
+    loser_id = max(first_id, second_id)
+    with admin.connect() as connection:
+        import_cat = connection.execute(
+            text(
+                """
+                SELECT cc.code, ct.classification_rule_id::text
+                FROM cash_transactions ct
+                JOIN cash_categories cc ON cc.id = ct.category_id
+                WHERE ct.company_id = CAST(:cid AS uuid)
+                """
+            ),
+            {"cid": company_id},
+        ).one()
+    assert import_cat.code == "operating"
+    assert import_cat.classification_rule_id == winner_id
+    applied = client.post(
+        f"/api/v1/rules/{loser_id}/apply",
+        json={"company_id": company_id},
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["applied"] == 0
+    with admin.connect() as connection:
+        after = connection.execute(
+            text(
+                """
+                SELECT classification_rule_id::text FROM cash_transactions
+                WHERE company_id = CAST(:cid AS uuid)
+                """
+            ),
+            {"cid": company_id},
+        ).scalar_one()
+    assert after == winner_id
+
+
+def test_manual_classify_clears_rule_evidence(client, admin, app, fake, tmp_path) -> None:
+    company_id = _company(client, admin, app, fake, tmp_path, "manual-ev@example.com")
+    wallet_id = _wallet_id(client, company_id)
+    source_id = _source(client, company_id, wallet_id)
+    _import_lines(
+        client,
+        company_id,
+        source_id,
+        "man-1,main,2026-02-01,in,100.00,RUB,,,Оплата manual,,,\n",
+        "manual-ev",
+    )
+    rule_id = create_rule(
+        client,
+        company_id,
+        {
+            "name": "Manual clear",
+            "priority": 1,
+            "conditions": {"direction": "in", "description_contains": "Оплата"},
+            "category_code": "operating",
+        },
+    )
+    apply_rule_to_posted(client, company_id, rule_id)
+    with admin.connect() as connection:
+        tx = connection.execute(
+            text(
+                """
+                SELECT id::text, version FROM cash_transactions
+                WHERE company_id = CAST(:cid AS uuid) LIMIT 1
+                """
+            ),
+            {"cid": company_id},
+        ).one()
+        category = connection.execute(
+            text(
+                "SELECT id FROM cash_categories WHERE tenant_id = "
+                "(SELECT tenant_id FROM companies WHERE id = CAST(:cid AS uuid)) "
+                "AND code = 'investing'"
+            ),
+            {"cid": company_id},
+        ).scalar_one()
+    classified = client.post(
+        f"/api/v1/transactions/{tx.id}/classify",
+        json={"version": tx.version, "category_id": str(category)},
+    )
+    assert classified.status_code == 200, classified.text
+    body = classified.json()
+    assert body["classification_evidence"] == {"status": "manual"}
+    with admin.connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT classification_rule_id, classification_rule_version,
+                       classification_origin
+                FROM cash_transactions WHERE id = CAST(:id AS uuid)
+                """
+            ),
+            {"id": tx.id},
+        ).one()
+    assert row.classification_origin == "manual"
+    assert row.classification_rule_id is None
+    assert row.classification_rule_version is None
+
+
+def test_loader_excludes_tenant_wide_rule(client, admin, app, fake, tmp_path) -> None:
+    from tests.synthetic_polygon.classification_harness import insert_tenant_wide_rule
+
+    company_id = _company(client, admin, app, fake, tmp_path, "tenant-wide@example.com")
+    tenant = client.headers["X-Tenant-Id"]
+    wallet_id = _wallet_id(client, company_id)
+    source_id = _source(client, company_id, wallet_id)
+    insert_tenant_wide_rule(
+        admin,
+        tenant,
+        {
+            "name": "Tenant wide",
+            "priority": 1,
+            "conditions": {"direction": "in", "description_contains": "TenantOnly"},
+            "category_code": "investing",
+        },
+    )
+    _import_lines(
+        client,
+        company_id,
+        source_id,
+        "tw-1,main,2026-02-01,in,50.00,RUB,,,TenantOnly payment,,,\n",
+        "tenant-wide",
+    )
+    with admin.connect() as connection:
+        origin = connection.execute(
+            text(
+                """
+                SELECT classification_origin, category_id
+                FROM cash_transactions WHERE company_id = CAST(:cid AS uuid)
+                """
+            ),
+            {"cid": company_id},
+        ).one()
+    assert origin.classification_origin == "none"
+    assert origin.category_id is None

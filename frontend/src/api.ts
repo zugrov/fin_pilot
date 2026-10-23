@@ -220,6 +220,11 @@ export type RevenueEntry = {
   match_links?: MatchLink[];
 };
 
+export type ClassificationEvidencePayload =
+  | { status: "recorded"; rule_id: string; rule_version: number }
+  | { status: "legacy_unknown" }
+  | { status: "manual" };
+
 export type CashTransactionRow = {
   id: string;
   company_id: string;
@@ -234,6 +239,8 @@ export type CashTransactionRow = {
   status: string;
   version: number;
   locked_classification?: boolean;
+  classification_origin?: string;
+  classification_evidence?: ClassificationEvidencePayload | null;
   revenue_matched?: string;
   plan_matched?: string;
   revenue_unallocated?: string;
@@ -258,6 +265,18 @@ export type ClassificationRuleRow = {
   version: number;
 };
 
+export type ClassificationRuleWarning = {
+  code: string;
+  message: string;
+  priority?: number;
+  rule_ids?: string[];
+  affected_transactions?: number;
+};
+
+export type ClassificationRuleCreateResult = ClassificationRuleRow & {
+  warnings?: ClassificationRuleWarning[];
+};
+
 export type RulePreviewResult = {
   matches: { transaction_id: string; description: string; category_code: string }[];
   total_matches: number;
@@ -265,6 +284,7 @@ export type RulePreviewResult = {
   skipped_locked: number;
   skipped_categorized: number;
   skipped_higher_priority: number;
+  warnings?: ClassificationRuleWarning[];
 };
 
 export type RuleApplyResult = {
@@ -275,6 +295,7 @@ export type RuleApplyResult = {
   total_matches: number;
   has_more: boolean;
   cursor: { business_date: string; transaction_id: string } | null;
+  warnings?: ClassificationRuleWarning[];
 };
 
 export type UnclassifiedSummary = {
@@ -847,7 +868,7 @@ export function createClassificationRule(
   },
   idempotencyKey: string,
 ) {
-  return walletRequest<ClassificationRuleRow>(
+  return walletRequest<ClassificationRuleCreateResult>(
     `/api/v1/companies/${companyId}/classification-rules`,
     {
       method: "POST",
