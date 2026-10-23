@@ -349,4 +349,76 @@ Project **chromium** `testIgnore`:
 
 ### B. Workflow артефактов
 
-`.github/workflows/release-candidate-rel0-artifacts.yml` — только **`workflow_dispatch`**, SHA **9819768179…**, api+frontend, offline smoke, **`retention-days: 21`**, actions pinned (checkout **v4.2.2**, upload-artifact **v4.6.0**). Manifest: **`api_image_id` / `frontend_image_id` = docker local Image ID**, не registry digest. **`release-image-smoke.yml` (be9e47a) не изменять.** Запуск workflow — отдельное разрешение.
+`.github/workflows/release-candidate-rel0-artifacts.yml` — только **`workflow_dispatch`**, SHA **9819768179…**, api+frontend, offline smoke, **`retention-days: 21`**, actions pinned (checkout **v4.2.2**, upload-artifact **v4.6.0**). Manifest: **`api_image_id` / `frontend_image_id` = docker local Image ID**, не registry digest. **`release-image-smoke.yml` (be9e47a) не изменять.**
+
+**Прогон 2026-10-23:** workflow run **`39922595922`**, conclusion **success** (~1m31s). Offline smoke: `runtime_imports_ok`, `safe_defaults_ok`, `alembic_head_ok=20261022_0016`. Checkout product head подтверждён: `9819768179bba0c09243f5706dd59df10645dbce`.
+
+**Артефакты локально (вне git):** `/Users/maximzugrov/rel0-artifacts/run-39922595922/` — api tarball **~90.8 MB**, frontend **~19.9 MB**; `shasum -a 256` совпадает с sidecar `*.sha256` (sidecar из GHA содержит runner path — проверять hash файла в каталоге).
+
+Manifest (фрагмент):
+
+| Поле | Значение |
+| --- | --- |
+| `workflow_run_id` | `39922595922` |
+| `product_source_sha` | `9819768179bba0c09243f5706dd59df10645dbce` |
+| `api_image_id` | `sha256:f790289e9e155e9349a9be6b9025b55e4caa48ec6b4be3a5009aa47f0fc11758` |
+| `frontend_image_id` | `sha256:a9d23bc69e5a3c7f86de499705259e926c366a47edc02aaa6b36a49a6da693d2` |
+| `image_id_kind` | `docker_local_image_id` |
+
+### D. Локальная репетиция: be9e47a на schema 0016
+
+**Метод (до прогона согласован):** БД **`finpilot_rel0_compat`** (не `finpilot_test`, не staging); alembic **be9e47a → 0014**, затем **9819768 → 0016**; API **`create_app` be9e47a** + `TestClient`; роли БД — локальный superuser (RLS/`finpilot_app` для seed не использовались). **pytest/conftest be9e47a на 0016 не запускался** (import conftest только после `apply_compat_env`, иначе env сбрасывается на `finpilot_test`).
+
+**Результат 2026-10-23:**
+
+| Проверка | Итог |
+| --- | --- |
+| `/health/ready` | **OK** |
+| register / verify / login | **OK** |
+| GET classification-rules | **OK** |
+| GET cashflow | **OK** |
+| GET dashboard | **OK** |
+| POST wallet | **HTTP 400** (payload smoke; не блокер DDL-transition) |
+| POST plan / GET revenue-entries | **HTTP 404** (неверные path в smoke: в be9e47a plan — `/planned-cash`, не `/planned-cash-events`) |
+| POST cash / manual classify / CSV import | cash/classify не дошли из‑за wallet 400; CSV **SKIP** |
+| ORM 0016 columns on read/write | **не ломают** ready, auth, rules list, cashflow, dashboard |
+
+**Вывод:** краткое окно **DDL 0015→0016 со старым api** на staging теоретически переживается для read-heavy путей; для записи cash/wallet/plan нужен smoke с корректными path и payload **или** быстрый переход на образ **9819768**. Полноценная classification evidence и quarantine API на be9e47a **отсутствуют**.
+
+Скрипт (вне repo): `/Users/maximzugrov/rel0-artifacts/be9e47a_on_0016_smoke.py`.
+
+### E. Подготовленные команды (не выполнялись на VPS)
+
+#### REL0-BACKUP-VERIFY (черновик)
+
+```bash
+# Переменные — подставить при выполнении; PASSFILE — путь к файлу passphrase на VPS (не печатать содержимое).
+BACKUP=/var/backups/finpilot/finpilot-staging-FA-R02-20261020T063211Z.tar.enc
+PROBE_DB=finpilot_rel0_probe
+COMPOSE='docker compose --env-file /fin_pilot/.env -f infra/docker-compose.staging.yml -f /var/tmp/finpilot-release-be9e47a/compose.override.yml -p finpilot-staging'
+
+# 1) Место: нужно ~2× размер backup (327712 B) + запас; порог стенда — не ниже 5 GiB free на /
+# 2) Расшифровка/restore — по ops/check-restore-checkpoint.sh (отдельное решение); упростённо:
+#    decrypt → pg_restore -d $PROBE_DB (создать пустую БД заранее, не трогать finpilot)
+# 3) Проверки в probe DB:
+#    SELECT version_num FROM alembic_version;  -- ожидание 20261019_0014
+#    SELECT count(*) FROM cash_transactions WHERE company_id = '2f346a28-da63-4ab1-a9e8-611fe7e2dd7d' AND status = 'posted';  -- 5
+#    -- cash total / revenue oct 20002 — read-only SQL как в FA-R01.3
+# 4) DROP DATABASE finpilot_rel0_probe; (после OK, отдельная сессия, не finpilot)
+```
+
+#### REL0-IMAGE-DELIVERY (черновик; **только после разрешения**)
+
+```bash
+# Локально (Mac): каталог /Users/maximzugrov/rel0-artifacts/run-39922595922/...
+# scp -o BatchMode=yes my-vps:/var/tmp/...  # целевой каталог на VPS, например /var/tmp/finpilot-rel0-9819768/
+# ssh my-vps 'sha256sum -c .../*.sha256 && docker load -i ...api....tar.gz && docker load -i ...frontend....tar.gz'
+# docker tag → finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce (и frontend)
+# docker images | grep release-candidate-9819768
+# df -h /  # free >= 5G; api+frontend tar ~111MB + распакованные образы ~650MB
+# finpilot-staging контейнеры не recreate без следующего scope
+```
+
+#### Порядок в maintenance window (напоминание)
+
+backup → **backup verify (probe DB)** → DDL **0015→0016** → `/health/ready` → короткий smoke **be9e47a** (optional) → recreate **api/worker/beat** → recreate **frontend** → полный smoke **9819768**.
