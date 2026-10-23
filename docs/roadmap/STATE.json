@@ -6,9 +6,11 @@
   "created_at": "2026-10-17",
   "is_execution_authorization": false,
   "baseline": {
-    "application_sha_last_reported": "db58f0f3ce37dd55901a51534b887d22b6af7ffe",
+    "application_sha_last_reported": "9819768179bba0c09243f5706dd59df10645dbce",
     "checkpoint_docs_sha": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
+    "migration_repo_head": "20261022_0016",
     "migration_last_reported": "20261019_0014",
+    "migration_staging_note": "staging schema 20261019_0014; 20261021_0015 и 20261022_0016 на staging не применялись",
     "synthetic_company_only": true,
     "restore_current_cluster_verified_by_report": true,
     "offsite_copy_verified_by_report": true,
@@ -17,9 +19,9 @@
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
   "current_stage": "FA-R06",
-  "current_task": "FA-R06.2-B2",
+  "current_task": "FA-R06-REL0",
   "status": "local_verified",
-  "allowed_next_action": "FA-R06.2-B2 local_verified (commit/push — только после подтверждения состава файлов владельцем). Q6 закрыт правилами классификации (FA-R06.2-A/B). FA-R03 и deploy/staging/миграции/реальные данные — без отдельного scope не начинать.",
+  "allowed_next_action": "FA-R06-REL0 — релизная готовность (план применения 0015+0016 на staging, расширение CI E2E). Классификация заморожена на B3b (9819768). FA-R06.2-B4 (equals, wallet, source, tenant POST) приостановлен до принятия REL0. FA-R03/deploy/реальные данные — без отдельного scope.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -535,14 +537,17 @@
           "id": "FA-R06.2",
           "title": "Состав данных",
           "status": "local_verified",
-          "local_verified_product_sha": "db58f0f3ce37dd55901a51534b887d22b6af7ffe",
-          "local_verified_note": "B2 патч локально поверх db58f0f; SHA в STATE обновить после commit B2",
+          "local_verified_product_sha": "9819768179bba0c09243f5706dd59df10645dbce",
+          "classification_frozen_at": "FA-R06.2-B3b",
+          "b4_paused_until": "FA-R06-REL0 accepted",
           "evidence": [
-            "docs/roadmap/DECISIONS.md FA-R06.2-A/B1/B2",
-            "Q6 закрыт: ClassificationRule + apply для ClientBank",
-            "экран /classification; create idempotency; preview seq guard",
-            "backend tests/integration/test_classification_screen_api.py",
-            "frontend e2e classification-polygon.spec.ts"
+            "docs/roadmap/DECISIONS.md FA-R06.2-A/B1/B2/B3b",
+            "docs/roadmap/FA-R06.2-spec-compliance.md P5/E1",
+            "Q6 закрыт: ClassificationRule + apply + evidence (0016 repo only)",
+            "B2 product SHA 447e728656212ff283a6063267b03a99d0b984bf",
+            "B3b product SHA 9819768179bba0c09243f5706dd59df10645dbce",
+            "CI 39908727390; E2E 39908727418 @ 9819768",
+            "classification E2E (4) и polygon E2E (7) — только локально (testIgnore в default CI e2e)"
           ]
         },
         {
@@ -1563,8 +1568,8 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R06.2-B2 local_verified 2026-10-22: Q6 закрыт правилами классификации; product baseline db58f0f (+ uncommitted B2 до commit). Staging be9e47a без изменений. FA-R03 — planned, не стартовать без scope.",
-  "updated_at": "2026-10-22",
+  "note": "FA-R06.2-B2/B3b local_verified 2026-10-23: push main 447e728+9819768; CI green @ 9819768; repo migration head 20261022_0016; staging 20261019_0014 (0015/0016 не на staging). Классификация заморожена на B3b; B4 отложен до REL0. FA-R03 — planned.",
+  "updated_at": "2026-10-23",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
     "documentation": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
@@ -1666,5 +1671,59 @@
     ],
     "calendar_no_financial_defect_on_screenshot": true,
     "docs": "docs/roadmap/FA-R02-release-phase-A.md"
+  },
+  "fa_r06_2_classification_evidence": {
+    "b2": {
+      "status": "local_verified",
+      "product_sha": "447e728656212ff283a6063267b03a99d0b984bf",
+      "scope": "create guardrails, stale preview, idempotency integration tests"
+    },
+    "b3b": {
+      "status": "local_verified",
+      "product_sha": "9819768179bba0c09243f5706dd59df10645dbce",
+      "migration_repo": "20261022_0016",
+      "migration_staging": "20261019_0014",
+      "migrations_not_on_staging": [
+        "20261021_0015",
+        "20261022_0016"
+      ],
+      "deploy_plan": "0015+0016 отдельный scope REL0; B3b staging не трогал"
+    },
+    "ci_9819768": {
+      "run_id": 39908727390,
+      "url": "https://github.com/zugrov/fin_pilot/actions/runs/39908727390",
+      "conclusion": "success",
+      "backend_pytest": 619,
+      "backend_failed": 0,
+      "backend_skipped": 0,
+      "frontend_unit": 106,
+      "frontend_build": "ok",
+      "ruff": "ok",
+      "mypy": "ok"
+    },
+    "e2e_9819768": {
+      "run_id": 39908727418,
+      "url": "https://github.com/zugrov/fin_pilot/actions/runs/39908727418",
+      "conclusion": "success",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "ci_scope_note": "default playwright.config.ts: classification-polygon.spec.ts и group-e-synthetic-polygon в testIgnore — 4+7 E2E только локально"
+    },
+    "local_e2e_not_in_ci": {
+      "classification_playwright_config": "playwright.classification.config.ts",
+      "classification_tests": 4,
+      "polygon_playwright_config": "playwright.polygon.config.ts",
+      "polygon_tests": 7,
+      "confirmed_locally": true,
+      "confirmed_in_github_actions_default_e2e": false
+    },
+    "next_package": "FA-R06-REL0",
+    "b4_paused": [
+      "equals",
+      "wallet",
+      "source",
+      "tenant POST rules"
+    ]
   }
 }

@@ -263,11 +263,28 @@ FA-R00.3 не блокируют.
 
 ### FA-R06.2-B2 · guardrails классификации (2026-10-22)
 
-- **Статус:** `local_verified` (commit — после подтверждения состава владельцем).
+- **Статус:** `local_verified`.
+- **Product SHA:** `447e728656212ff283a6063267b03a99d0b984bf` (main, после B1 `db58f0f`).
 - Integration: 400 без ключа; 409 `idempotency_conflict`; два ключа + одно тело → два правила.
 - UI: при `phase === unknown` сообщение через `writeFailureMessage`; preview с seq per ruleId
   (устаревший HTTP-ответ не перезаписывает блок).
 - **Q6** остаётся закрытым правилами классификации (см. FA-R06.2-A).
+
+### FA-R06.2-B3b · evidence правила и детерминированный порядок (2026-10-23)
+
+- **Статус:** `local_verified`; **классификация заморожена на B3b** до отдельного scope.
+- **Product SHA:** `9819768179bba0c09243f5706dd59df10645dbce` (включает B2).
+- **Миграции:** head в repo — `20261022_0016`; staging — `20261019_0014`; `0015` и `0016` на staging
+  **не применялись** (deploy 0015+0016 — scope **FA-R06-REL0**).
+- **CI @ 9819768:** run [39908727390](https://github.com/zugrov/fin_pilot/actions/runs/39908727390) success —
+  backend 619 passed; frontend 106 passed; Ruff/Mypy green.
+- **E2E @ 9819768:** run [39908727418](https://github.com/zugrov/fin_pilot/actions/runs/39908727418) success —
+  **6 passed** (default `npm run test:e2e`, `frontend/playwright.config.ts`).
+- **E2E вне CI:** в default e2e job `testIgnore` исключает `classification-polygon.spec.ts` и polygon group —
+  **classification E2E (4)** (`playwright.classification.config.ts`) и **polygon E2E (7)**
+  (`playwright.polygon.config.ts`) в GitHub Actions **не запускаются**; подтверждены только локально.
+- **FA-R06.2-B4** (equals, wallet, source, tenant POST) **приостановлен** до принятия пакета **FA-R06-REL0**.
+- Дизайн/соответствие: `docs/roadmap/FA-R06.2-B3-design.md`, `docs/roadmap/FA-R06.2-spec-compliance.md`.
 
 ### FA-R06.2-B0 · массовая отмена применения правила (2026-10-22)
 
@@ -291,6 +308,13 @@ FA-R00.3 не блокируют.
   dispatch падает `StaleDataError` (UPDATE outbox 0 rows под RLS), очередь не
   переводится в `cancelled`. Воспроизведение: тест отзыва membership на `ed812cb`
   dispatch + `18421ac` fix.
+
+### Локальная тестовая БД `finpilot_test` (2026-10-23)
+
+- Перед checkout **более раннего** product commit (например только B2 без файлов миграции `0016`) **сбросить**
+  `finpilot_test` (`DROP DATABASE finpilot_test` / пересоздание), иначе Alembic падает: в БД остаётся ревизия,
+  которой нет в дереве checkout.
+- Тот же сброс — после прогона тестов на ветке с более новым head миграций, если дальше работаешь на старом SHA.
 
 ### Что эта подготовка не делает
 
