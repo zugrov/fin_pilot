@@ -1,0 +1,202 @@
+# FA-R06-REL0: сборка offline-артефактов api + frontend для product-кандидата.
+# Не deploy, не миграции, не изменение staging.
+# Существующий release-image-smoke.yml (be9e47a) не заменяет и не перезаписывает.
+
+name: release-candidate-rel0-artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-character product source commit SHA (REL0 candidate only)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  REL0_PRODUCT_CANDIDATE_SHA: "9819768179bba0c09243f5706dd59df10645dbce"
+  BUILD_PLATFORM: linux/amd64
+  ALEMBIC_HEAD: "20261022_0016"
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Validate source_sha input
+        run: |
+          sha="${{ inputs.source_sha }}"
+          if ! echo "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "source_sha must be a full 40-character lowercase hex SHA"
+            exit 1
+          fi
+          if [ "$sha" != "${{ env.REL0_PRODUCT_CANDIDATE_SHA }}" ]; then
+            echo "source_sha not allowed for REL0 candidate build: $sha"
+            echo "allowed: ${{ env.REL0_PRODUCT_CANDIDATE_SHA }}"
+            exit 1
+          fi
+          echo "SOURCE_SHA=$sha" >> "$GITHUB_ENV"
+          echo "API_IMAGE_TAG=finpilot-api:release-candidate-$sha" >> "$GITHUB_ENV"
+          echo "FE_IMAGE_TAG=finpilot-frontend:release-candidate-$sha" >> "$GITHUB_ENV"
+          echo "RUN_SUFFIX=run-${{ github.run_id }}" >> "$GITHUB_ENV"
+          echo "API_ARTIFACT_BASENAME=finpilot-api-release-candidate-$sha-run-${{ github.run_id }}-linux-amd64" >> "$GITHUB_ENV"
+          echo "FE_ARTIFACT_BASENAME=finpilot-frontend-release-candidate-$sha-run-${{ github.run_id }}-linux-amd64" >> "$GITHUB_ENV"
+
+      - name: Checkout product source SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Confirm checkout HEAD
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "${{ env.SOURCE_SHA }}" ]; then
+            echo "HEAD mismatch: expected ${{ env.SOURCE_SHA }}, got $actual"
+            exit 1
+          fi
+          echo "product_source_head=$actual"
+
+      - name: Prepare backend build context
+        run: |
+          ctx="${{ runner.temp }}/release-build-backend"
+          rm -rf "$ctx"
+          mkdir -p "$ctx"
+          git archive "${{ env.SOURCE_SHA }}" backend | tar -x -C "$ctx"
+          if [ ! -f "$ctx/backend/Dockerfile" ]; then
+            echo "backend Dockerfile missing"
+            exit 1
+          fi
+          if find "$ctx/backend" \( -name .env -o -name .venv \) | grep -q .; then
+            echo "forbidden .env or .venv in backend context"
+            exit 1
+          fi
+          echo "BACKEND_BUILD_DIR=$ctx/backend" >> "$GITHUB_ENV"
+
+      - name: Prepare frontend build context
+        run: |
+          ctx="${{ runner.temp }}/release-build-frontend"
+          rm -rf "$ctx"
+          mkdir -p "$ctx"
+          git archive "${{ env.SOURCE_SHA }}" frontend | tar -x -C "$ctx"
+          if [ ! -f "$ctx/frontend/Dockerfile" ]; then
+            echo "frontend Dockerfile missing"
+            exit 1
+          fi
+          echo "FRONTEND_BUILD_DIR=$ctx/frontend" >> "$GITHUB_ENV"
+
+      - name: Build api image
+        run: |
+          docker build \
+            --platform "${{ env.BUILD_PLATFORM }}" \
+            --label "org.opencontainers.image.revision=${{ env.SOURCE_SHA }}" \
+            --label "finpilot.release.package=FA-R06-REL0-candidate" \
+            -t "${{ env.API_IMAGE_TAG }}" \
+            "$BACKEND_BUILD_DIR"
+
+      - name: Build frontend image
+        run: |
+          docker build \
+            --platform "${{ env.BUILD_PLATFORM }}" \
+            --label "org.opencontainers.image.revision=${{ env.SOURCE_SHA }}" \
+            --label "finpilot.release.package=FA-R06-REL0-candidate" \
+            -t "${{ env.FE_IMAGE_TAG }}" \
+            "$FRONTEND_BUILD_DIR"
+
+      - name: Offline api smoke
+        run: |
+          run_py() {
+            docker run --rm -i --network none -w /app "$@" \
+              --entrypoint /app/.venv/bin/python \
+              "${{ env.API_IMAGE_TAG }}" -
+          }
+
+          run_py <<'PY'
+          import importlib
+          for name in (
+              "app.config",
+              "app.services.import_service",
+              "app.services.ingestion_http_service",
+          ):
+              importlib.import_module(name)
+          print("runtime_imports_ok")
+          PY
+
+          run_py <<'PY'
+          from app.config import Settings
+          s = Settings()
+          assert s.session_ingest_enabled is False
+          assert s.mail_quarantine_enabled is False
+          assert s.send_real_email is False
+          assert s.send_external_messages is False
+          assert s.send_live_payments is False
+          print("safe_defaults_ok")
+          PY
+
+          run_py <<PY
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+          script = ScriptDirectory.from_config(Config("alembic.ini"))
+          head = script.get_current_head()
+          expected = "${{ env.ALEMBIC_HEAD }}"
+          if head != expected:
+              raise AssertionError(f"alembic head {head!r} != {expected!r}")
+          print(f"alembic_head_ok={head}")
+          PY
+
+      - name: Capture image IDs (local docker)
+        run: |
+          api_id="$(docker image inspect "${{ env.API_IMAGE_TAG }}" --format '{{.Id}}')"
+          fe_id="$(docker image inspect "${{ env.FE_IMAGE_TAG }}" --format '{{.Id}}')"
+          {
+            echo "workflow_definition_sha=${{ github.sha }}"
+            echo "workflow_run_id=${{ github.run_id }}"
+            echo "product_source_sha=${{ env.SOURCE_SHA }}"
+            echo "api_tag=${{ env.API_IMAGE_TAG }}"
+            echo "api_image_id=$api_id"
+            echo "frontend_tag=${{ env.FE_IMAGE_TAG }}"
+            echo "frontend_image_id=$fe_id"
+            echo "image_id_kind=docker_local_image_id"
+            echo "image_id_not_registry_digest=true"
+            echo "platform=${{ env.BUILD_PLATFORM }}"
+            echo "alembic_head=${{ env.ALEMBIC_HEAD }}"
+            echo "smoke=passed"
+            echo "note=offline smoke only; not deploy/migrations/staging; api_image_id/frontend_image_id are docker Image IDs from inspect .Id, not OCI registry manifest digests"
+          } > "${{ runner.temp }}/rel0-release-manifest.txt"
+          cat "${{ runner.temp }}/rel0-release-manifest.txt"
+
+      - name: Export api image artifact
+        run: |
+          out="${{ runner.temp }}/${{ env.API_ARTIFACT_BASENAME }}.tar.gz"
+          docker save "${{ env.API_IMAGE_TAG }}" | gzip -9 > "$out"
+          sha256sum "$out" | tee "${{ runner.temp }}/api-image.sha256"
+          ls -lh "$out"
+
+      - name: Export frontend image artifact
+        run: |
+          out="${{ runner.temp }}/${{ env.FE_ARTIFACT_BASENAME }}.tar.gz"
+          docker save "${{ env.FE_IMAGE_TAG }}" | gzip -9 > "$out"
+          sha256sum "$out" | tee "${{ runner.temp }}/frontend-image.sha256"
+          ls -lh "$out"
+
+      - name: Upload api artifact
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: ${{ env.API_ARTIFACT_BASENAME }}
+          path: |
+            ${{ runner.temp }}/${{ env.API_ARTIFACT_BASENAME }}.tar.gz
+            ${{ runner.temp }}/api-image.sha256
+            ${{ runner.temp }}/rel0-release-manifest.txt
+          retention-days: 21
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: ${{ env.FE_ARTIFACT_BASENAME }}
+          path: |
+            ${{ runner.temp }}/${{ env.FE_ARTIFACT_BASENAME }}.tar.gz
+            ${{ runner.temp }}/frontend-image.sha256
+            ${{ runner.temp }}/rel0-release-manifest.txt
+          retention-days: 21

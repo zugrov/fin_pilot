@@ -277,12 +277,15 @@ Project **chromium** `testIgnore`:
 ### 8.2 Предлагаемая очередность
 
 1. **REL0-PLAN (accept doc)** — этот документ + явный target product SHA (`9819768`), freeze флагов, критерии smoke, backup/restore.
-2. **REL0-ARTIFACTS** — release-image (и при необходимости recovery) workflow для **9819768** + head **0016**; tarball smoke; **без** deploy.
-3. **REL0-DB** — maintenance window: backup → **0015** → **0016** → health; financial SQL baseline; **MAIL_QUARANTINE_ENABLED=false**, **SESSION_INGEST_ENABLED=false**.
-4. **REL0-BACKEND** — recreate api/worker/beat на `release-9819768…`; smoke read-only + регрессия FA-R01.3 metrics на ООО «Топ»; **без** write classification на prod data до сценария.
-5. **REL0-FRONTEND** — frontend image с SHA ≥ `d40c9c8` (лучше **9819768** tree) + совместимость API; сохранить rollback tag `release-7ee85e5` / `release-1555575`.
-6. **REL0-E2E-GATE (optional parallel)** — локальный polygon (7) + classification (4); решение о CI job — отдельный commit/workflow scope.
-7. **После accept REL0** — FA-R06.2-B4, включение quarantine/session ingest, FA-R02 phase B — **отдельные** решения.
+2. **REL0-ARTIFACTS** — `release-candidate-rel0-artifacts` (manual dispatch) для **9819768** + head **0016**; tarball smoke; **без** deploy.
+3. **REL0-BACKUP-VERIFY (обязательно до DDL)** — пробное восстановление свежего encrypted backup во **временную** БД на VPS (не `finpilot` staging): decrypt → `pg_restore --list` → restore в `finpilot_rel0_probe` (или аналог) → read-only проверка `alembic_version`, RLS, counts; **DROP** probe DB после OK. Отмена окна, если verify fail.
+4. **REL0-IMAGE-DELIVERY (отдельное разрешение)** — доставка образов кандидата на VPS: `scp` tarball(ов) GHA → `sha256sum -c` → `docker load` → локальные теги `release-candidate-9819768…`; **не** перезаписывать `release-be9e47a` / существующие rollback-теги.
+5. **REL0-DB** — maintenance window: новый encrypted backup → **0015** → **0016** → health; financial SQL baseline; **MAIL_QUARANTINE_ENABLED=false**, **SESSION_INGEST_ENABLED=false**.
+6. **REL0-BACKEND** — recreate api/worker/beat на загруженном образе **9819768**; smoke read-only + регрессия FA-R01.3 metrics на ООО «Топ».
+7. **REL0-FRONTEND** — frontend image с **9819768** tree; rollback tags `release-1555575` / `release-7ee85e5` сохранены на диске.
+8. **REL0-STAGING-SMOKE** — read-only + ограниченный write-smoke; classification/polygon **не** destructive seed на staging DB.
+9. **REL0-E2E-GATE** — локальные 4+7 на кандидате (выполнено в prep); CI job — отдельная задача.
+10. **После accept REL0** — B4, quarantine/session ingest, FA-R02 phase B — отдельные решения.
 
 ### 8.3 Частичный выпуск (если сжать scope)
 
@@ -298,3 +301,52 @@ Project **chromium** `testIgnore`:
 - CI @ 9819768: runs `39908727390`, `39908727418` — `docs/roadmap/STATE.json` → `fa_r06_2_classification_evidence`
 
 **Дата инвентаризации:** 2026-10-23.
+
+---
+
+## REL0 · подготовка (2026-10-23, без deploy)
+
+**Product-кандидат (не принятый staging-релиз):** `9819768179bba0c09243f5706dd59df10645dbce` (`9819768`). Docs/chore после него на runtime не влияют.
+
+### A. Фактическое состояние staging (SSH read-only, 2026-10-23)
+
+Доступ: alias **`my-vps`** (runbook); **`hostname` = `iufqpatmbm`** (имя VPS в runbook не фиксировалось; alias совпадает с процедурой FA-R02).
+
+| Проверка | Факт |
+| --- | --- |
+| **Диск `/`** | 38G total, **27G used, 11G avail (71%)** |
+| **Inodes `/`** | **13%** IUse |
+| **Alembic** | **`20261019_0014`** |
+| **Health** | `http://127.0.0.1:8090/health/live` → **200**; `/health/ready` → **200** |
+| **api / worker / beat** | `finpilot-api:release-be9e47af63310f3d5745eadf67dddb0e8c6c9442`; container image id **`sha256:31b6986b3102…`** (api) |
+| **frontend** | `finpilot-frontend:release-15555751aafffe1743e60107508ea3df6ca93724`; id **`sha256:3330c797afce…`** |
+| **Сервисы** | api, worker, beat, frontend, postgres, redis, proxy — **Up** (api/beat/worker ~3d, frontend ~2d) |
+
+**Флаги (api / worker / beat — одинаково):** `SESSION_INGEST_ENABLED=false`, `MAIL_QUARANTINE_ENABLED=<unset>`, `SEND_REAL_EMAIL=false`, `SEND_EXTERNAL_MESSAGES=false`, `SEND_LIVE_PAYMENTS=false`, `POLL_IMAP=false`, `REFUNDS_ENABLED=false`, `BALANCES_IMPORT_ENABLED=true`, `BILLING_MODE=test`, `EMAIL_PROVIDER_MODE=smtp`.
+
+**Бэкапы** (`/var/backups/finpilot`, newest first): `finpilot-staging-FA-R02-20261020T063211Z.tar.enc` (327712 B) + sidecar sha256; pre-balances 20261018; 20261016 archive.
+
+**Docker finpilot images (rollback-relevant):** deployed **release-be9e47a** / **release-1555575**; также **release-7ee85e5**, **recovery-7ee85e5**, **recovery-73319a7**, **release-73319a7**, rollback/pre/staging tags (см. `docker images` на VPS 2026-10-23). **Нет** образа **9819768**.
+
+**`/var/tmp/finpilot-release-be9e47a/`:** `compose.override.yml`, tarball api be9e47a (~90MB), manifest/checksums (FA-R02 A artifact) — **не удалять**.
+
+**Расхождения с docs:** совпадает с runbook/readiness (be9e47a + 1555575, schema 0014). HEAD **9819768** / **0015+0016** / candidate images — **не на стенде**.
+
+### Анализ совместимости (be9e47a ↔ 0015+0016)
+
+1. **Проверка Alembic при старте / ready:** у **be9e47a** `/health/live` и `/health/ready` — только **`SELECT 1`**, без сверки `alembic_version`. Старый backend **не узнает**, что schema ушла на 0016, пока health не упадёт на SQL/ORM-ошибке.
+2. **После DDL 0015+0016 без смены образа:** **0015** — новые таблицы карантина (additive); код be9e47a их **не использует**. **0016** — nullable колонки + FK/CHECK на `cash_transactions` (additive); ORM be9e47a **не содержит** этих полей — типичные SELECT/INSERT по старым колонкам **продолжают работать**; лишние таблицы/колонки PostgreSQL не ломают старые запросы. **Риск:** откат **только** образа на be9e47a при schema **0016** без restore — данные в новых колонках/карантине **несовместимы** с downgrade guards; новый код **9819768** **обязателен** для полноценной классification/evidence и quarantine API.
+3. **Образы отката на VPS:** ближайшие пары — **api** `release-be9e47a` (31b6986…), **frontend** `release-1555575` или `release-7ee85e5`; recovery **d552…** (api 7ee85e5). Полный список тегов — вывод `docker images` на VPS (2026-10-23).
+
+### C. Локальный E2E-gate (worktree `9819768`, `finpilot_test` пересоздана)
+
+| Набор | Результат |
+| --- | --- |
+| classification (4) | **4 passed** (~1.0m) |
+| polygon (7) | **7 passed** (~1.2m) |
+
+Не заменяет staging smoke.
+
+### B. Workflow артефактов
+
+`.github/workflows/release-candidate-rel0-artifacts.yml` — только **`workflow_dispatch`**, SHA **9819768179…**, api+frontend, offline smoke, **`retention-days: 21`**, actions pinned (checkout **v4.2.2**, upload-artifact **v4.6.0**). Manifest: **`api_image_id` / `frontend_image_id` = docker local Image ID**, не registry digest. **`release-image-smoke.yml` (be9e47a) не изменять.** Запуск workflow — отдельное разрешение.
