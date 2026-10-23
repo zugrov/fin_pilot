@@ -6,6 +6,8 @@
 
 Каталог `/fin_pilot` на VPS, Compose **`finpilot-staging`** запущен. Публичное имя `staging.maxima-consulting.ru` не заводилось. Доступ — SSH-туннель на **`127.0.0.1:8090`**.
 
+**SSH (справочно):** alias `my-vps`; hostname VPS при read-only проверке 2026-10-23 — `iufqpatmbm`. Подключаться по alias из runbook, не по hostname.
+
 ## UX-CALENDAR-01 · frontend on staging (2026-10-21)
 
 Frontend-only deploy. **Backend, schema, postgres, redis, proxy, api, worker, beat не пересоздавались** этим шагом.
