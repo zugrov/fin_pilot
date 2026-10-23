@@ -308,6 +308,17 @@ Project **chromium** `testIgnore`:
 
 **Product-кандидат (не принятый staging-релиз):** `9819768179bba0c09243f5706dd59df10645dbce` (`9819768`). Docs/chore после него на runtime не влияют.
 
+### F. Решения владельца (2026-10-23)
+
+| Действие | Статус |
+| --- | --- |
+| `workflow_dispatch` артефактов для `9819768` | **Разрешён** (только сборка; выполнен run `39922595922`) |
+| REL0-IMAGE-DELIVERY на VPS | **Запрещено** до окна и отдельного OK |
+| REL0-BACKUP-VERIFY на VPS | **В принципе разрешено**; старт **только** после ответа владельца **«команды ок»** на список из §E (+ при необходимости адаптация `ops/check-restore-checkpoint.sh` под backup `20261020T063211Z`) |
+| Maintenance window | **Не назначено**; earliest: **пн 26.10.2026, 10:00–13:30 MSK** |
+
+Подробнее: `docs/roadmap/DECISIONS.md` → FA-R06-REL0.
+
 ### A. Фактическое состояние staging (SSH read-only, 2026-10-23)
 
 Доступ: alias **`my-vps`** (runbook); **`hostname` = `iufqpatmbm`** (имя VPS в runbook не фиксировалось; alias совпадает с процедурой FA-R02).
@@ -367,58 +378,105 @@ Manifest (фрагмент):
 
 ### D. Локальная репетиция: be9e47a на schema 0016
 
-**Метод (до прогона согласован):** БД **`finpilot_rel0_compat`** (не `finpilot_test`, не staging); alembic **be9e47a → 0014**, затем **9819768 → 0016**; API **`create_app` be9e47a** + `TestClient`; роли БД — локальный superuser (RLS/`finpilot_app` для seed не использовались). **pytest/conftest be9e47a на 0016 не запускался** (import conftest только после `apply_compat_env`, иначе env сбрасывается на `finpilot_test`).
+**Метод:** БД **`finpilot_rel0_compat`**; alembic **be9e47a → 0014**, **9819768 → 0016**; `create_app` be9e47a + `TestClient`; payload/URL из `test_cash.py`, `test_import_api.py`, `test_revenue_api.py`, `test_sales_plan_matching.py`. **pytest be9e47a на 0016 не запускался.**
 
-**Результат 2026-10-23:**
+**Прогон 2026-10-23 (доработанный smoke):** регрессий на schema 0016 **не выявлено** (все шаги OK).
 
-| Проверка | Итог |
-| --- | --- |
-| `/health/ready` | **OK** |
-| register / verify / login | **OK** |
-| GET classification-rules | **OK** |
-| GET cashflow | **OK** |
-| GET dashboard | **OK** |
-| POST wallet | **HTTP 400** (payload smoke; не блокер DDL-transition) |
-| POST plan / GET revenue-entries | **HTTP 404** (неверные path в smoke: в be9e47a plan — `/planned-cash`, не `/planned-cash-events`) |
-| POST cash / manual classify / CSV import | cash/classify не дошли из‑за wallet 400; CSV **SKIP** |
-| ORM 0016 columns on read/write | **не ломают** ready, auth, rules list, cashflow, dashboard |
+| Операция | HTTP | Вывод |
+| --- | --- | --- |
+| register / verify-email / GET auth/me | 200 | OK |
+| POST company, activate slot | 200 | OK |
+| POST wallet (`type=bank`, `code=main`) | 200 | OK |
+| POST opening-balance | 200 | OK |
+| POST manual cash (`/transactions`) | 200 | OK |
+| POST manual classify (`version` + `category_id`) | 200 | OK |
+| POST classification-rules #1 и #2 | 200 | OK; UNIQUE `(tenant_id, company_id, id)` из **0016** на INSERT **не мешает** |
+| POST cash CSV + commit (строка под правило) | 200 | OK; категория на «аренда офиса» |
+| POST cash_ok.csv import | 200 | OK |
+| POST revenue sale | 200 | OK |
+| POST revenue-cash-match | 200 | OK |
+| POST planned-cash | 200 | OK |
+| GET classification-rules, cashflow, dashboard, /health/ready | 200 | OK |
 
-**Вывод:** краткое окно **DDL 0015→0016 со старым api** на staging теоретически переживается для read-heavy путей; для записи cash/wallet/plan нужен smoke с корректными path и payload **или** быстрый переход на образ **9819768**. Полноценная classification evidence и quarantine API на be9e47a **отсутствуют**.
+**Ограничения be9e47a (не баги DDL):** evidence-колонки `classification_rule_id` / `classification_rule_version` код **не заполняет** (scope **9819768**); quarantine API (**0015**) отсутствует.
 
-Скрипт (вне repo): `/Users/maximzugrov/rel0-artifacts/be9e47a_on_0016_smoke.py`.
+Скрипт: `/Users/maximzugrov/rel0-artifacts/be9e47a_on_0016_smoke.py` (`uv run python …` из worktree be9e47a).
 
 ### E. Подготовленные команды (не выполнялись на VPS)
 
-#### REL0-BACKUP-VERIFY (черновик)
+**Gate:** §F — BACKUP-VERIFY и команды §E/G на VPS **не запускать**, пока владелец не ответит **«команды ok»**.
+
+#### Формат encrypted backup
+
+После `openssl enc -d …` внутри `bundle.tar`: `db.dump` (custom `pg_dump -Fc`), `files.tar`, `files.sha256`, `manifest.txt` — как в `ops/check-restore-checkpoint.sh`.
+
+Reference: `finpilot-staging-FA-R02-20261020T063211Z.tar.enc`, SHA-256 `7661414aaaa7b21fadc58508b26393e91346b1183ca924c3fc2aa95b3d2c8a90`.
+
+#### `ops/check-restore-checkpoint.sh` (не в git)
+
+Одноразовый drill 2026-10-17: restore в **`finpilot_checkpoint_20261016`**, backup **`20261016`**, ожидание **`migration=20261014_0009`**. Для REL0 нужны параметры `BACKUP`, `EXPECTED_SHA`, `TMP` под **`/var/tmp`**, `CHECK_DB=finpilot_rel0_probe`, baseline **0014 / «Топ»**. Passphrase **не удалять**. Коммит `ops/` — после решения **`ops_scripts_repository_policy`** (см. `DECISIONS.md`).
+
+Полный REL0 verify (вне git): `/Users/maximzugrov/rel0-artifacts/rel0-backup-verify.sh` — `umask 077`, decrypt в `/var/tmp/finpilot-rel0-probe-decrypt.*`, отказ если БД ≠ `finpilot_rel0_probe`, baseline: **5 posted**, **80499.50**, **revenue oct 20002.00**, затем `DROP DATABASE finpilot_rel0_probe` и удаление расшифрованного каталога.
+
+Локальная проверка скрипта: `bash -n …/rel0-backup-verify.sh`; `shellcheck -e SC2016 …` (2026-10-23: `bash -n` OK).
+
+Запуск на VPS (после «команды ok»): `bash /var/tmp/finpilot-rel0-artifacts/rel0-backup-verify.sh /tmp/finpilot-backup-secret-XXXX/passphrase` — успех: `REL0_BACKUP_VERIFY_OK`; стоп: `LOW_DISK` (&lt; 5 GiB), `*_MISMATCH`.
+
+#### REL0-IMAGE-DELIVERY (**запрещено до отдельного OK**)
+
+Manifest run `39922595922`:
+
+- `api_image_id=sha256:f790289e9e155e9349a9be6b9025b55e4caa48ec6b4be3a5009aa47f0fc11758`
+- `frontend_image_id=sha256:a9d23bc69e5a3c7f86de499705259e926c366a47edc02aaa6b36a49a6da693d2`
 
 ```bash
-# Переменные — подставить при выполнении; PASSFILE — путь к файлу passphrase на VPS (не печатать содержимое).
-BACKUP=/var/backups/finpilot/finpilot-staging-FA-R02-20261020T063211Z.tar.enc
-PROBE_DB=finpilot_rel0_probe
-COMPOSE='docker compose --env-file /fin_pilot/.env -f infra/docker-compose.staging.yml -f /var/tmp/finpilot-release-be9e47a/compose.override.yml -p finpilot-staging'
+DEST=/var/tmp/finpilot-rel0-9819768-run-39922595922
+# scp с Mac: …/run-39922595922/*/tar.gz и *.sha256 → my-vps:$DEST/
 
-# 1) Место: нужно ~2× размер backup (327712 B) + запас; порог стенда — не ниже 5 GiB free на /
-# 2) Расшифровка/restore — по ops/check-restore-checkpoint.sh (отдельное решение); упростённо:
-#    decrypt → pg_restore -d $PROBE_DB (создать пустую БД заранее, не трогать finpilot)
-# 3) Проверки в probe DB:
-#    SELECT version_num FROM alembic_version;  -- ожидание 20261019_0014
-#    SELECT count(*) FROM cash_transactions WHERE company_id = '2f346a28-da63-4ab1-a9e8-611fe7e2dd7d' AND status = 'posted';  -- 5
-#    -- cash total / revenue oct 20002 — read-only SQL как в FA-R01.3
-# 4) DROP DATABASE finpilot_rel0_probe; (после OK, отдельная сессия, не finpilot)
+ssh -o BatchMode=yes my-vps "set -euo pipefail
+  umask 077
+  cd '$DEST'
+  avail=\$(df -P / | awk 'NR==2 {print \$4}')
+  echo avail_kb=\$avail
+  test \"\$avail\" -ge 5242880 || { echo LOW_DISK; exit 1; }
+  sha256sum -c api-image.sha256
+  sha256sum -c frontend-image.sha256
+  docker load -i finpilot-api-release-candidate-9819768179bba0c09243f5706dd59df10645dbce-run-39922595922-linux-amd64.tar.gz
+  docker load -i finpilot-frontend-release-candidate-9819768179bba0c09243f5706dd59df10645dbce-run-39922595922-linux-amd64.tar.gz
+  api_id=\$(docker image inspect finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce --format '{{.Id}}')
+  fe_id=\$(docker image inspect finpilot-frontend:release-candidate-9819768179bba0c09243f5706dd59df10645dbce --format '{{.Id}}')
+  test \"\$api_id\" = 'sha256:f790289e9e155e9349a9be6b9025b55e4caa48ec6b4be3a5009aa47f0fc11758' || { echo API_IMAGE_ID_MISMATCH; exit 1; }
+  test \"\$fe_id\" = 'sha256:a9d23bc69e5a3c7f86de499705259e926c366a47edc02aaa6b36a49a6da693d2' || { echo FRONTEND_IMAGE_ID_MISMATCH; exit 1; }
+  echo IMAGE_IDS_OK
+"
 ```
 
-#### REL0-IMAGE-DELIVERY (черновик; **только после разрешения**)
+Recreate контейнеров **не** выполнять в этом шаге.
+
+---
+
+## G. Окно: точный runbook
+
+**Предусловия:** окно назначено; образы candidate на диске; `COMPOSE`:
 
 ```bash
-# Локально (Mac): каталог /Users/maximzugrov/rel0-artifacts/run-39922595922/...
-# scp -o BatchMode=yes my-vps:/var/tmp/...  # целевой каталог на VPS, например /var/tmp/finpilot-rel0-9819768/
-# ssh my-vps 'sha256sum -c .../*.sha256 && docker load -i ...api....tar.gz && docker load -i ...frontend....tar.gz'
-# docker tag → finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce (и frontend)
-# docker images | grep release-candidate-9819768
-# df -h /  # free >= 5G; api+frontend tar ~111MB + распакованные образы ~650MB
-# finpilot-staging контейнеры не recreate без следующего scope
+cd /fin_pilot && docker compose \
+  --env-file /fin_pilot/.env \
+  -f infra/docker-compose.staging.yml \
+  -f /var/tmp/finpilot-release-be9e47a/compose.override.yml \
+  -p finpilot-staging
 ```
 
-#### Порядок в maintenance window (напоминание)
+| # | Шаг | Действие | Ожидание | Стоп → кто |
+| --- | --- | --- | --- | --- |
+| 1 | Свежий backup | `docs/runbook-staging.md` §копия: pause api/worker/beat → dump `finpilot` + enc + sha256 → resume | health 200 | backup fail → **Владелец** |
+| 2 | Backup verify | `rel0-backup-verify.sh` + PASSFILE | `REL0_BACKUP_VERIFY_OK` | mismatch/disk → **отмена DDL**, **Владелец** |
+| 3 | DDL 0015→0016 | `docker run --rm --network finpilot-staging_default -e MIGRATION_DATABASE_URL=<миграционная роль из .env>` `finpilot-api:release-candidate-9819768179…` `/app/.venv/bin/alembic -c /app/alembic.ini upgrade head` | `alembic_version` = **`20261022_0016`** | Alembic error → restore, **Владелец** |
+| 4 | Ready | `curl -sf http://127.0.0.1:8090/health/ready` | ok JSON | не 200 → стоп |
+| 5 | Smoke be9e47a (opt.) | read-only «Топ» | 200 | регрессия → ускорить deploy или restore |
+| 6 | Deploy api/worker/beat | override image candidate; `$COMPOSE up -d --no-deps --no-build --pull never api worker beat` | Up | fail → шаг 9 |
+| 7 | Deploy frontend | override `finpilot-frontend:release-candidate-9819768…`; `$COMPOSE -f …/compose.frontend.override.yml up -d --no-deps --no-build --pull never frontend` | Up | fail → tag `release-1555575` |
+| 8 | Smoke 9819768 | ready + baseline 5 / 80499.50 / 20002 + чеклист §5 | критерии REL0 | **Владелец** accept |
+| 9 | Откат | restore `finpilot` из backup шага 1; api `release-be9e47a`; frontend `release-1555575` | schema **0014**, baseline | **Владелец** |
 
-backup → **backup verify (probe DB)** → DDL **0015→0016** → `/health/ready` → короткий smoke **be9e47a** (optional) → recreate **api/worker/beat** → recreate **frontend** → полный smoke **9819768**.
+Сеть: `docker network ls | grep finpilot-staging`. Флаги ingest/quarantine/SEND_* **не менять** без решения.

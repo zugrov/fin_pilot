@@ -286,6 +286,25 @@ FA-R00.3 не блокируют.
 - **FA-R06.2-B4** (equals, wallet, source, tenant POST) **приостановлен** до принятия пакета **FA-R06-REL0**.
 - Дизайн/соответствие: `docs/roadmap/FA-R06.2-B3-design.md`, `docs/roadmap/FA-R06.2-spec-compliance.md`.
 
+### FA-R06-REL0 · решения владельца (2026-10-23)
+
+- **Артефакты (`release-candidate-rel0-artifacts`, SHA `9819768179bba0c09243f5706dd59df10645dbce`):**
+  **разрешён** только `workflow_dispatch` (сборка tarball + offline smoke); **без** deploy на staging.
+  Прогон **2026-10-23:** run [39922595922](https://github.com/zugrov/fin_pilot/actions/runs/39922595922) — success.
+- **REL0-IMAGE-DELIVERY** (scp, `sha256sum -c`, `docker load` на VPS): **не разрешено** до репетиции,
+  назначения окна и **отдельного** решения владельца.
+- **REL0-BACKUP-VERIFY** (пробный restore во **временную** БД на VPS): **разрешено в принципе**;
+  выполнять **только** после того, как владелец увидит точный список команд и ответит **«команды ок»**.
+  До этого ответа **ничего на VPS не запускать**.
+- **Окно выпуска:** **не назначено**. Ближайшее допустимое: **2026-10-26 (пн), 10:00–13:30 MSK**.
+
+### FA-R06-REL0 · политика `ops/` скриптов (2026-10-23, open)
+
+- **Вопрос:** коммитить ли `ops/check-restore-checkpoint.sh` и производные (parameterized REL0 verify) в git?
+- **Факт:** каталог `ops/` **untracked**; runbook ссылается на SHA скриптов 2026-10-17; REL0 verify вынесен в `/Users/maximzugrov/rel0-artifacts/rel0-backup-verify.sh` (вне repo).
+- **Блокирует ли выпуск REL0:** **нет** для staging deploy при условии, что оператор использует зафиксированный текст скрипта (docs §E + off-repo copy) и владелец даёт «команды ok». **Да** для воспроизводимости/CI restore-drill без отдельного решения.
+- **Предложение:** parameterized `ops/rel0-backup-verify.sh` в git **после** явного OK владельца на политику; до этого — только docs + offsite script hash в журнале окна.
+
 ### FA-R06.2-B0 · массовая отмена применения правила (2026-10-22)
 
 - **Статус:** отложено; **не** в scope FA-R06.2-B0.

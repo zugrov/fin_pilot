@@ -21,7 +21,7 @@
   "current_stage": "FA-R06",
   "current_task": "FA-R06-REL0",
   "status": "local_verified",
-  "allowed_next_action": "FA-R06-REL0 — релизная готовность (план применения 0015+0016 на staging, расширение CI E2E). Классификация заморожена на B3b (9819768). FA-R06.2-B4 (equals, wallet, source, tenant POST) приостановлен до принятия REL0. FA-R03/deploy/реальные данные — без отдельного scope.",
+  "allowed_next_action": "FA-R06-REL0 — артефакты 9819768 собраны (GHA 39922595922); локальная репетиция be9e47a@0016 зафиксирована. Следующее по gate владельца: показать/утвердить команды REL0-BACKUP-VERIFY (ответ «команды ок»), затем probe-restore на VPS. IMAGE-DELIVERY и окно deploy — не назначены; earliest window пн 26.10.2026 10:00–13:30 MSK. B4 после accept REL0.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
