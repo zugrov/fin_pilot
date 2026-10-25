@@ -424,7 +424,7 @@ Probe **2026-10-23:** v1 (SHA `013981f3…`) и v2 (SHA `e150e336…`) на free
 | Файл | SHA-256 (MANIFEST) |
 | --- | --- |
 | `ops/rel0/rel0-backup-verify.sh` | `e150e336c7c43eff216362907ce595feb858924a7da2a9ae6ab64baefe19efdf` |
-| `ops/rel0/rel0-backup-create.sh` | `192653fc943ad819087df48de424b27f0e08bf525ce959ca38daf517f6bd99ae` |
+| `ops/rel0/rel0-backup-create.sh` | `a81f5cfe857a56cfe138b067b9f9b6e9d7693fdd1523bc1b9cdc5b80e1c4f5ad` |
 
 Mirror: `/Users/maximzugrov/rel0-artifacts/` (копия канона после commit). Исторические `ops/check-restore-checkpoint.sh` / `finish-restore-checkpoint.sh` — **не** REL0-откат (runbook).
 
