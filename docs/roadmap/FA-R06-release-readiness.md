@@ -440,35 +440,39 @@ Manifest run `39922595922`:
 - `api_image_id=sha256:f790289e9e155e9349a9be6b9025b55e4caa48ec6b4be3a5009aa47f0fc11758`
 - `frontend_image_id=sha256:a9d23bc69e5a3c7f86de499705259e926c366a47edc02aaa6b36a49a6da693d2`
 
-```bash
-DEST=/var/tmp/finpilot-rel0-9819768-run-39922595922
-# scp с Mac: …/run-39922595922/*/tar.gz и *.sha256 → my-vps:$DEST/
+**Mac (источник артефактов run `39922595922`):**
 
-ssh -o BatchMode=yes my-vps "set -euo pipefail
-  umask 077
-  cd '$DEST'
-  avail=\$(df -P / | awk 'NR==2 {print \$4}')
-  echo avail_kb=\$avail
-  test \"\$avail\" -ge 5242880 || { echo LOW_DISK; exit 1; }
-  sha256sum -c api-image.sha256
-  sha256sum -c frontend-image.sha256
-  docker load -i finpilot-api-release-candidate-9819768179bba0c09243f5706dd59df10645dbce-run-39922595922-linux-amd64.tar.gz
-  docker load -i finpilot-frontend-release-candidate-9819768179bba0c09243f5706dd59df10645dbce-run-39922595922-linux-amd64.tar.gz
-  api_id=\$(docker image inspect finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce --format '{{.Id}}')
-  fe_id=\$(docker image inspect finpilot-frontend:release-candidate-9819768179bba0c09243f5706dd59df10645dbce --format '{{.Id}}')
-  test \"\$api_id\" = 'sha256:f790289e9e155e9349a9be6b9025b55e4caa48ec6b4be3a5009aa47f0fc11758' || { echo API_IMAGE_ID_MISMATCH; exit 1; }
-  test \"\$fe_id\" = 'sha256:a9d23bc69e5a3c7f86de499705259e926c366a47edc02aaa6b36a49a6da693d2' || { echo FRONTEND_IMAGE_ID_MISMATCH; exit 1; }
-  echo IMAGE_IDS_OK
-"
-```
+| Файл | Путь |
+| --- | --- |
+| api tarball | `/Users/maximzugrov/rel0-artifacts/run-39922595922/finpilot-api-release-candidate-9819768179bba0c09243f5706dd59df10645dbce-run-39922595922-linux-amd64/finpilot-api-release-candidate-9819768179bba0c09243f5706dd59df10645dbce-run-39922595922-linux-amd64.tar.gz` |
+| api sidecar | `…/api-image.sha256` (первая колонка **`aeefd38c…`**, путь раннера — **не** для `sha256sum -c` на VPS) |
+| frontend tarball | `/Users/maximzugrov/rel0-artifacts/run-39922595922/finpilot-frontend-release-candidate-9819768179bba0c09243f5706dd59df10645dbce-run-39922595922-linux-amd64/finpilot-frontend-release-candidate-9819768179bba0c09243f5706dd59df10645dbce-run-39922595922-linux-amd64.tar.gz` |
+| frontend sidecar | `…/frontend-image.sha256` (первая колонка **`f1fa03c7…`**) |
 
-Recreate контейнеров **не** выполнять в этом шаге.
+**VPS `DEST`:** `/var/tmp/finpilot-rel0-9819768-run-39922595922` (700).
+
+**Проверка tarball:** сравнить **первое поле** sidecar = `sha256sum` файла на VPS = `shasum -a 256` на Mac. **`sha256sum -c` по sidecar не использовать** (путь `/home/runner/work/_temp/…`).
+
+**Прогон list_id IMAGE-DELIVERY 2026-10-25:** шаги 0–3 OK (хеши совпали); **`docker load` выполнен**; шаг 4 **СТОП** — Image ID **не** совпали с manifest run `39922595922`:
+
+| | Ожидание (manifest) | Факт после `docker load` на VPS |
+| --- | --- | --- |
+| api | `sha256:f790289e9e155e9349a9be6b9025b55e4caa48ec6b4be3a5009aa47f0fc11758` | `sha256:7ff7ba916fcdb4120632f433477ef5e3dc034f47455afbae95b245fe2743ea1a` |
+| frontend | `sha256:a9d23bc69e5a3c7f86de499705259e926c366a47edc02aaa6b36a49a6da693d2` | `sha256:0867913db57b9f84a31ccbb07bf9f57c557e7845b15cf16df9094d1ec403e10a` |
+
+Label `org.opencontainers.image.revision=9819768179…` на api — OK. **Теги candidate не использовать для DDL/deploy**, пока владелец не разрешит расследование (перекачка артефакта, сверка `docker load`+inspect на Mac, повтор GHA). **`DEST` и tar.gz на VPS не удалять** без решения владельца. Override-файлы **не** создавались; compose **не** трогали.
+
+Recreate контейнеров **не** выполнять в IMAGE-DELIVERY.
 
 ---
 
 ## G. Окно: точный runbook
 
-**Предусловия:** политика ops **принята**; **commit** `ops/rel0/` + MANIFEST в git; окно **назначено** владельцем; согласованный **list_id** (CREATE+verify **0014** и далее §G); образы candidate на диске; passphrase **`/tmp/finpilot-backup-secret.*/passphrase`** (600/700); `COMPOSE`:
+**Окно (черновик):** понедельник **2026-10-26, 10:00–13:30 MSK** — **подтверждается владельцем отдельно** перед «команды ok» на **list_id D**.
+
+**Репетиция list C (2026-10-25):** backup `finpilot-staging-REL0-20261025T134330Z.tar.enc`, sha256 `075896125363b414063df442fdd9fecb6a512b68b1241b85dedc2a78930d9599`, verify **0014** OK — **не** заменяет backup **шага D-1** в окне.
+
+**Предусловия:** политика ops **принята**; **commit** `f94be16f690f5cb2681a7f45134b9b2aa0e3df46` (`ops/rel0/` + MANIFEST); docs §G @ **`2c110cd`**; **IMAGE-DELIVERY с `IMAGE_IDS_OK`** (на 2026-10-25 — **не выполнено**, см. §E); override candidate на диске; согласованный **list_id D**; passphrase **`/tmp/finpilot-backup-secret.*/passphrase`** (600/700); `COMPOSE`:
 
 ```bash
 cd /fin_pilot && docker compose \
@@ -478,56 +482,240 @@ cd /fin_pilot && docker compose \
   -p finpilot-staging
 ```
 
-**Критерии остановки (fail-closed):** любой шаг ≠ ожидание → **СТОП**, не продолжать DDL/deploy; после backup-create fail — resume api/worker/beat если остановлены; после DDL fail — **шаг 9** (restore); verify fail — **без DDL**; Celery worker/beat не `ready` после DDL — **стоп**, restore.
+**Критерии остановки (fail-closed):** любой шаг ≠ ожидание → **СТОП**, полный вывод, **без** ручных правок на VPS (кроме `RECOVERY_CMD` из create — только после ответа владельца); verify fail → **без DDL**; DDL fail → откат (**§G.9**, уровень по решению); deploy fail → откат образов (**§G.9.1**) или restore БД (**§G.9.2**).
 
-#### Время окна (оценка, мин)
+#### list_id D — время (оценка, мин)
 
-| Шаг | Операция | Мин (ориентир) | Примечание |
+| Шаг | Операция | Мин | Примечание |
 | --- | --- | ---: | --- |
-| 0 | Диск | 1 | read-only |
-| 1 | Backup create (`RESTART_AFTER=no`) | 5–8 | stop api/worker/beat; образ `postgres:16.6-bookworm`, том `finpilot-staging_imports` |
-| 2 | Backup verify (probe) | 1 | ~5–15 с на прогон + scp/sha |
-| 3 | DDL 0015→0016 | 3–10 | одна транзакция Alembic |
-| 3b | Celery worker/beat | 2 | logs + `ready` |
-| 4 | health/ready | 1 | curl |
-| 5 | Smoke read-only (opt.) | 5–10 | |
-| 6 | Deploy api/worker/beat (candidate) | 3–5 | `--no-deps`, без pull |
-| 7 | Deploy frontend (candidate) | 2–3 | |
-| 8 | Smoke 9819768 | 10–15 | baseline + чеклист |
-| 9 | **Откат** (restore + образы be9e47a/1555575) | 15–25 | только по решению владельца; см. §G.9 |
-| | **Резерв** | **≥ 30** | сумма типичная **~45–60 мин** без отката |
+| D-0 | Диск | 1 | read-only |
+| D-1 | Backup create `RESTART_AFTER=no` | 5–8 | api/worker/beat **остаются stopped** |
+| D-2 | Backup verify (probe) | 1–3 | verify **не** останавливает сервисы |
+| D-3 | DDL 0015→0016 | 3–10 | одноразовый контейнер candidate |
+| D-4 | Deploy api/worker/beat candidate | 3–5 | сразу после DDL, **без** поднятия be9e47a |
+| D-5 | Deploy frontend candidate | 2–3 | |
+| D-6 | Smoke (агент) | 5–8 | health, schema, образы, логи, SQL baseline |
+| D-7 | Smoke (браузер, владелец) | 10–15 | классификация, без apply |
+| D-8 | **Откат** (по решению) | 5–25 | §G.9.1 или §G.9.2 |
+| | **Резерв** | **≥ 25** | типично **~35–50 мин** без restore БД |
 
 **Compose `-f` (полные списки):**
 
 | Режим | api / worker / beat | frontend |
 | --- | --- | --- |
 | **База окна** (create, verify, DDL, откат backend) | `--env-file /fin_pilot/.env` `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-p finpilot-staging` | — |
-| **Выпуск candidate** (шаги 6–8) | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-candidate-9819768/compose.override.yml` `-p finpilot-staging` | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-f /var/tmp/finpilot-frontend-candidate-9819768/compose.frontend.override.yml` `-p finpilot-staging` |
-| **Откат образов** (шаг 9, без candidate override) | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-p finpilot-staging` | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-f /var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml` `-p finpilot-staging` |
+| **Выпуск candidate** (D-4–D-6) | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-candidate-9819768/compose.override.yml` `-p finpilot-staging` | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-f /var/tmp/finpilot-frontend-candidate-9819768/compose.frontend.override.yml` `-p finpilot-staging` |
+| **Откат образов** (§G.9.1) | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-p finpilot-staging` | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-f /var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml` `-p finpilot-staging` |
 
-Файлы override candidate создаются на **IMAGE-DELIVERY** (отдельное OK); до появления на диске шаги 6–7 **не** выполнять.
+Override candidate создаются **перед окном** (не в IMAGE-DELIVERY); пути — §G.2. До **`IMAGE_IDS_OK`** и override — D-3–D-5 **не** выполнять.
 
-| # | Шаг | Действие | Ожидание | Стоп → кто |
-| --- | --- | --- | --- | --- |
-| 0 | Диск | `df -P /`, свободно **≥ 5 GiB** (5242880 KiB) | `avail_kb` OK | LOW_DISK → **Владелец**, окно перенести |
-| 1 | **Backup create** | `rel0-backup-create.sh` `$PASSFILE` **`no`** (§G.1): checkpoint → `.enc` + sidecar; сервисы **остаются stopped** | `REL0_BACKUP_CREATE_OK`; `SERVICES_LEFT_STOPPED`; **600** | fail → trap поднимает api/worker/beat или **Владелец** |
-| 2 | **Backup verify** | `ops/rel0/rel0-backup-verify.sh` (MANIFEST SHA): probe, `EXPECTED_ALEMBIC=20261019_0014`, новый `BACKUP`/`EXPECTED_SHA` | `REL0_BACKUP_VERIFY_OK` | mismatch → **без DDL**, **Владелец** |
-| 3 | DDL 0015→0016 | `docker run --rm --network finpilot-staging_default -e MIGRATION_DATABASE_URL=<миграционная роль из .env>` `finpilot-api:release-candidate-9819768179…` `/app/.venv/bin/alembic -c /app/alembic.ini upgrade head` | `alembic_version` = **`20261022_0016`** | Alembic error → **шаг 9**, **Владелец** |
-| 3b | Celery | `$COMPOSE logs --tail=50 worker beat`; worker **`ready`**, beat **Up** (как FA-R02 A) | оба сервиса живы | нет ready → **стоп**, restore |
-| 4 | Ready | `curl -sf http://127.0.0.1:8090/health/ready` | ok JSON | не 200 → **шаг 9** |
-| 5 | Smoke be9e47a (opt.) | read-only «Топ» | 200 | регрессия → deploy или restore |
-| 6 | Deploy api/worker/beat | override image candidate; `$COMPOSE up -d --no-deps --no-build --pull never api worker beat` | Up | fail → **шаг 9** |
-| 7 | Deploy frontend | override candidate frontend; `$COMPOSE -f …/compose.frontend.override.yml up -d --no-deps --no-build --pull never frontend` | Up | fail → tag **`release-1555575`** или restore |
-| 8 | Smoke 9819768 | ready + baseline 5 / cash / revenue oct + §5 | критерии REL0 | **Владелец** accept |
-| 9 | **Откат** | §G.9 — restore **`finpilot`** из backup шага 1; образы be9e47a/1555575; **без** `alembic downgrade` | schema **0014**, baseline «Топ» | **Только прямое решение владельца** |
+**Read-only факты VPS (2026-10-25):** сеть Compose — **`finpilot-staging_default`**; в `/fin_pilot/.env` есть **`MIGRATION_DATABASE_URL`** (роль миграций, значение **не** логировать; см. `docs/runbook-staging.md` § «Переменные»).
+
+#### list_id D — шаги (не выполнять без «команды ok»)
+
+| Шаг | Действие | Ожидаемый вывод / критерий | Мин | Стоп |
+| --- | --- | --- | ---: | --- |
+| **D-0** | `df -P /` | `avail_kb` ≥ 5242880 | 1 | LOW_DISK |
+| **D-1** | §G.1 `rel0-backup-create.sh` `$PASSFILE` **`no`** | `REL0_BACKUP_CREATE_OK`, `SERVICES_LEFT_STOPPED`, `.enc`+sidecar **600**; зафиксировать `$ENC`, `$EXPECTED_SHA` | 5–8 | fail → trap / **Владелец** |
+| **D-2** | `rel0-backup-verify.sh` … `20261019_0014` `$ENC` `$EXPECTED_SHA` | `REL0_BACKUP_VERIFY_OK`, baseline «Топ»; **verify не вызывает compose stop** | 1–3 | **без DDL** |
+| **D-3** | DDL §G.3 | `MIGRATION_OK head=20261022_0016` | 3–10 | Alembic error → откат |
+| **D-4** | §G.2 deploy backend candidate | api/worker/beat **Up**, image candidate | 3–5 | fail → §G.9.1/9.2 |
+| **D-5** | §G.2 deploy frontend candidate | frontend **Up** | 2–3 | fail → §G.9.1 |
+| **D-6** | §G.4 smoke агент | health 200, `0016`, логи без traceback, SQL baseline | 5–8 | **СТОП** |
+| **D-7** | §G.4 smoke браузер (**Владелец**) | UI классификация, rule id в артефакт | 10–15 | accept / откат |
+| **D-8** | §G.9.1 или §G.9.2 | по уровню | 5–25 | только **решение владельца** |
 
 Сеть: `docker network ls | grep finpilot-staging`. Флаги ingest/quarantine/SEND_* **не менять** без решения.
 
-### G.9 Откат на боевую БД `finpilot` (шаг 9)
+### G.2 Override candidate (создать перед окном, не в IMAGE-DELIVERY)
 
-**Gate:** **`DROP DATABASE finpilot`** и полный restore выполняются **только** при **прямом решении владельца в момент отказа** (отдельная фраза в чате, не «команды ok» на весь runbook). До этого решения — только диагностика read-only.
+**Backend** — `/var/tmp/finpilot-release-candidate-9819768/compose.override.yml`:
 
-**Источник backup:** encrypted checkpoint **шага 1** (`schema_before=20261019_0014`), **не** freeze `20261020T063211Z`.
+```yaml
+services:
+  api:
+    image: finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce
+    environment:
+      SESSION_INGEST_ENABLED: "false"
+      SEND_REAL_EMAIL: "false"
+      SEND_EXTERNAL_MESSAGES: "false"
+      SEND_LIVE_PAYMENTS: "false"
+      POLL_IMAP: "false"
+      REFUNDS_ENABLED: "false"
+      BALANCES_IMPORT_ENABLED: "true"
+      BILLING_MODE: "test"
+      EMAIL_PROVIDER_MODE: "smtp"
+      MAIL_QUARANTINE_ENABLED: "false"
+    command:
+      - /app/.venv/bin/uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+
+  worker:
+    image: finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce
+    environment:
+      SESSION_INGEST_ENABLED: "false"
+      SEND_REAL_EMAIL: "false"
+      SEND_EXTERNAL_MESSAGES: "false"
+      SEND_LIVE_PAYMENTS: "false"
+      POLL_IMAP: "false"
+      REFUNDS_ENABLED: "false"
+      BALANCES_IMPORT_ENABLED: "true"
+      BILLING_MODE: "test"
+      EMAIL_PROVIDER_MODE: "smtp"
+      MAIL_QUARANTINE_ENABLED: "false"
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - app.jobs.celery_app:celery_app
+      - worker
+      - --loglevel=info
+
+  beat:
+    image: finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce
+    environment:
+      SESSION_INGEST_ENABLED: "false"
+      SEND_REAL_EMAIL: "false"
+      SEND_EXTERNAL_MESSAGES: "false"
+      SEND_LIVE_PAYMENTS: "false"
+      POLL_IMAP: "false"
+      REFUNDS_ENABLED: "false"
+      BALANCES_IMPORT_ENABLED: "true"
+      BILLING_MODE: "test"
+      EMAIL_PROVIDER_MODE: "smtp"
+      MAIL_QUARANTINE_ENABLED: "false"
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - app.jobs.celery_app:celery_app
+      - beat
+      - --loglevel=info
+```
+
+**Frontend** — `/var/tmp/finpilot-frontend-candidate-9819768/compose.frontend.override.yml`:
+
+```yaml
+services:
+  frontend:
+    image: finpilot-frontend:release-candidate-9819768179bba0c09243f5706dd59df10645dbce
+```
+
+**Diff к `/var/tmp/finpilot-release-be9e47a/compose.override.yml`:** только строки `image:` → тег **candidate**; добавлено **`MAIL_QUARANTINE_ENABLED: "false"`** на api/worker/beat (в be9e47a override ключа нет — default в коде).
+
+**Diff к `/var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml`:** только `image:` → тег **candidate** frontend.
+
+**Read-only на VPS (без секретов):** `cat /var/tmp/finpilot-release-be9e47a/compose.override.yml` и `cat /var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml`.
+
+**D-4 deploy backend:**
+
+```bash
+cd /fin_pilot && docker compose \
+  --env-file /fin_pilot/.env \
+  -f infra/docker-compose.staging.yml \
+  -f /var/tmp/finpilot-release-candidate-9819768/compose.override.yml \
+  -p finpilot-staging \
+  up -d --no-deps --no-build --pull never api worker beat
+```
+
+**D-5 deploy frontend:**
+
+```bash
+cd /fin_pilot && docker compose \
+  --env-file /fin_pilot/.env \
+  -f infra/docker-compose.staging.yml \
+  -f /var/tmp/finpilot-release-be9e47a/compose.override.yml \
+  -f /var/tmp/finpilot-frontend-candidate-9819768/compose.frontend.override.yml \
+  -p finpilot-staging \
+  up -d --no-deps --no-build --pull never frontend
+```
+
+### G.3 DDL 0015→0016 (прецедент FA-R02 phase A на этом VPS)
+
+Maintenance **2026-10-20** (`fa-r02-maintenance-20261020T063211Z.log`): миграция **0010→0014** через одноразовый контейнер **RC-образа**, сеть **`finpilot-staging_default`**, рабочий каталог **`/app`**, команда **`/app/.venv/bin/alembic upgrade head`** (без `-c`; offline smoke GHA `release-candidate-rel0-artifacts` проверяет head через `Config("alembic.ini")` в **`/app`** — тот же путь).
+
+**Для REL0 (list D-3):** образ **`finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce`** только после **`IMAGE_IDS_OK`**. **Не** монтировать и **не** `source` весь `/fin_pilot/.env` в shell — передать **только** `MIGRATION_DATABASE_URL` (роль миграций, host `postgres` внутри сети):
+
+```bash
+NETWORK=finpilot-staging_default
+RC_IMAGE=finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce
+MIGRATION_DATABASE_URL="$(grep '^MIGRATION_DATABASE_URL=' /fin_pilot/.env | cut -d= -f2-)"
+POLICY=(
+  -e SESSION_INGEST_ENABLED=false
+  -e SEND_REAL_EMAIL=false
+  -e SEND_EXTERNAL_MESSAGES=false
+  -e SEND_LIVE_PAYMENTS=false
+  -e POLL_IMAP=false
+  -e REFUNDS_ENABLED=false
+  -e BALANCES_IMPORT_ENABLED=true
+  -e BILLING_MODE=test
+  -e EMAIL_PROVIDER_MODE=smtp
+  -e MAIL_QUARANTINE_ENABLED=false
+)
+docker run --rm \
+  --network "$NETWORK" \
+  -e "MIGRATION_DATABASE_URL=$MIGRATION_DATABASE_URL" \
+  "${POLICY[@]}" \
+  -w /app \
+  "$RC_IMAGE" \
+  /app/.venv/bin/alembic upgrade head
+docker exec finpilot-staging-postgres-1 psql -U finpilot -d finpilot -At -c "SELECT version_num FROM alembic_version;"
+```
+
+**Ожидание:** строки Alembic `Running upgrade … -> 20261021_0015` и `… -> 20261022_0016`; psql → **`20261022_0016`**. **Стоп:** stderr Alembic / revision ≠ 0016 → откат (**§G.9**).
+
+### G.4 Smoke (D-6 агент / D-7 владелец)
+
+**D-6 — агент (после D-5):**
+
+- `curl -sf http://127.0.0.1:8090/health/live` и `/health/ready` → `{"status":"ok"}`, HTTP 200.
+- `alembic_version` = **`20261022_0016`** (psql, как в D-3).
+- `docker compose … ps` — api/worker/beat/frontend **Up**; `docker inspect` — теги **candidate**.
+- Логи: `docker compose … logs --tail=80 api worker beat` — **нет** traceback; worker содержит **`ready`**.
+- SQL baseline ООО «Топ» (read-only, те же числа, что verify **0014**): posted_cash **5**; cash_in **27000.00**; cash_out **46500.50**; opening_active_sum **100000.00**; revenue_oct_ex_vat **20002.00**.
+
+**D-7 — владелец (браузер, SSH-туннель 8090):**
+
+- Вход; фирма **ООО «Топ»**; экран **«Классификация»**.
+- Создать **тестовое** правило и повтор с тем же ключом; **preview** — OK; **apply не выполнять**.
+- Тестовое правило **отключить** (не удалять); **ID правила** записать в артефакт приёмки окна.
+
+**Стоп D-6:** health / schema / baseline / логи ≠ ожидание → **СТОП**, решение владельца (§G.9).
+
+### G.9 Откат (два уровня — выбор **в момент отказа**)
+
+#### G.9.1 Уровень 1 — только образы (БД **`finpilot` на 0016** не трогаем)
+
+Доказано репетицией **be9e47a @ schema 0016** (§D readiness): backend **0014-кода** на **0016** — read-only smoke OK; health может не ловить schema drift, но **откат приложения без restore БД** допустим, если владелец принимает риск UI/API на старом backend при **0016**.
+
+**Команды (полный `-f`, `--env-file /fin_pilot/.env`, `-p finpilot-staging`):**
+
+```bash
+cd /fin_pilot && docker compose \
+  --env-file /fin_pilot/.env \
+  -f infra/docker-compose.staging.yml \
+  -f /var/tmp/finpilot-release-be9e47a/compose.override.yml \
+  -p finpilot-staging \
+  up -d --no-deps --no-build --pull never api worker beat
+
+cd /fin_pilot && docker compose \
+  --env-file /fin_pilot/.env \
+  -f infra/docker-compose.staging.yml \
+  -f /var/tmp/finpilot-release-be9e47a/compose.override.yml \
+  -f /var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml \
+  -p finpilot-staging \
+  up -d --no-deps --no-build --pull never frontend
+```
+
+**Ожидание:** образы **`release-be9e47a`**, frontend **`release-1555575`**; health 200; baseline «Топ» на **0016** (SQL как D-6). **Без** `DROP DATABASE`.
+
+#### G.9.2 Уровень 2 — restore БД из backup **D-1** (schema **0014**)
+
+**Gate:** **`DROP DATABASE finpilot`** и полный restore выполняются **только** при **прямом решении владельца в момент отказа** (отдельная фраза в чате, не «команды ok» на list_id D). До этого решения — только диагностика read-only.
+
+**Источник backup:** encrypted checkpoint **D-1** (`schema_before=20261019_0014`), **не** freeze `20261020T063211Z`.
 
 **Параметры БД (снимок VPS 2026-10-25, read-only):** `ENCODING UTF8`, `LC_COLLATE en_US.utf8`, `LC_CTYPE en_US.utf8`, `datacl` пуст; `pg_db_role_setting` — **0 строк** → после restore **не** требуется `ALTER DATABASE finpilot SET …`, только проверка:
 
