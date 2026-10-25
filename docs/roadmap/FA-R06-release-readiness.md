@@ -468,7 +468,7 @@ Manifest run `39922595922`:
 | **(a)** | Тройное совпадение sha256 tarball (sidecar GHA, Mac, VPS) | **OK** |
 | **(b)** | Label `org.opencontainers.image.revision` == **`9819768179bba0c09243f5706dd59df10645dbce`** | **OK** (api) |
 | **(c)** | Config digest (`tar -xzOf … manifest.json` → `Config`) == `api_image_id` / `frontend_image_id` в `rel0-release-manifest.txt`; **`docker inspect .Id` на VPS** == digest **`index.json` → `manifests[0]`** (из tarball) | **OK** (см. таблицу §B) |
-| **(d)** | Offline smoke **внутри** образа на VPS (`--network none`, без секретов) | **ожидает** отдельного «ок» владельца на одну команду |
+| **(d)** | Offline smoke **внутри** образа на VPS (`--network none`, без секретов) | **OK** 2026-10-25 (+ повтор P-3e) |
 
 **Прогон list_id IMAGE-DELIVERY 2026-10-25:** шаги 0–3 OK; **`docker load` выполнен**; шаг 4 по **устаревшему** правилу «`.Id` == rel0 manifest» — ложный СТОП; по **(a–c)** артефакт **принят**. **`DEST` и tar.gz на VPS не удалять** без решения владельца. Override **не** создавались; compose **не** трогали.
 
@@ -482,7 +482,7 @@ Recreate контейнеров **не** выполнять в IMAGE-DELIVERY.
 
 **Репетиция list C (2026-10-25):** backup `finpilot-staging-REL0-20261025T134330Z.tar.enc`, sha256 `075896125363b414063df442fdd9fecb6a512b68b1241b85dedc2a78930d9599`, verify **0014** OK — **не** заменяет backup **шага D-1** в окне.
 
-**Предусловия:** политика ops **принята**; **commit** `f94be16f690f5cb2681a7f45134b9b2aa0e3df46` (`ops/rel0/` + MANIFEST); **IMAGE-DELIVERY (a–c) OK** (2026-10-25, §E); **(d)** offline smoke на VPS — отдельное «ок»; override candidate на диске; согласованный **list_id D**; passphrase **`/tmp/finpilot-backup-secret.*/passphrase`** (600/700); `COMPOSE`:
+**Предусловия:** политика ops **принята**; **commit** `f94be16f690f5cb2681a7f45134b9b2aa0e3df46` (`ops/rel0/` + MANIFEST); **IMAGE-DELIVERY (a–d) OK** (2026-10-25, §E); **list_id P** выполнен (override + скрипты + read-only §G.P); согласованный **list_id D**; passphrase **`/tmp/finpilot-backup-secret.*/passphrase`** (600/700); `COMPOSE`:
 
 ```bash
 cd /fin_pilot && docker compose \
@@ -517,9 +517,44 @@ cd /fin_pilot && docker compose \
 | **Выпуск candidate** (D-4–D-6) | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-candidate-9819768/compose.override.yml` `-p finpilot-staging` | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-f /var/tmp/finpilot-frontend-candidate-9819768/compose.frontend.override.yml` `-p finpilot-staging` |
 | **Откат образов** (§G.9.1) | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-p finpilot-staging` | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-f /var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml` `-p finpilot-staging` |
 
-Override candidate создаются **перед окном** (не в IMAGE-DELIVERY); пути — §G.2. До **(d)** offline smoke и override — D-3–D-5 **не** выполнять.
+Override candidate — §G.2 / **list_id P** (не в IMAGE-DELIVERY).
 
-**Read-only факты VPS (2026-10-25):** сеть Compose — **`finpilot-staging_default`**; в `/fin_pilot/.env` есть **`MIGRATION_DATABASE_URL`** (роль миграций, значение **не** логировать; см. `docs/runbook-staging.md` § «Переменные»).
+**Read-only факты VPS (2026-10-25):** сеть Compose — **`finpilot-staging_default`**; в `/fin_pilot/.env` есть **`MIGRATION_DATABASE_URL`** (строка без кавычек вокруг значения — `grep '^MIGRATION_DATABASE_URL=["'"'"']'` → exit **1**; значение **не** логировать).
+
+#### list_id P — подготовка к окну (не backup/DDL/deploy)
+
+| Шаг | Действие | Критерий |
+| --- | --- | --- |
+| **P-1** | Создать override candidate §G.2 (`umask 077`, каталоги **700**, файлы **600**) | diff к be9e47a/1555575 — только `image` + `MAIL_QUARANTINE_ENABLED` |
+| **P-2** | `/var/tmp/finpilot-rel0-artifacts/` + scp `ops/rel0/*` с **`f94be16…`**; `sha256sum -c MANIFEST.sha256` | оба скрипта OK |
+| **P-3** | read-only: diff override; `docker compose config --quiet` + `config --images` (выпуск backend/frontend, откат); проверка формы `MIGRATION_DATABASE_URL`; offline `import app.main` + `app.jobs.celery_app` | **без** start/stop/load/backup |
+
+**P-3e (предусловие окна, повторять по желанию перед D):**
+
+```bash
+docker run --rm -i --network none --pull never -w /app \
+  --entrypoint /app/.venv/bin/python \
+  finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce \
+  <<'PY'
+import app.main
+import app.jobs.celery_app
+print("ok")
+PY
+```
+
+Ожидание: `ok`. Если `app.main` тянет БД на import — **СТОП**, не обходить.
+
+**Прогон P 2026-10-25:** P-1…P-3 OK.
+
+#### Go/no-go за ~15 минут до **D-0**
+
+| # | Проверка |
+| --- | --- |
+| 1 | CI **green** на product **`9819768179…`**, ops **`f94be16…`**, docs **`ef0e4c7…`** (последние известные HEAD) |
+| 2 | Candidate образы на VPS: load + **(a–d)** §E; теги `release-candidate-9819768…` |
+| 3 | Override **P-1** на месте; **P-2** скрипты + MANIFEST OK |
+| 4 | Passphrase в менеджере; путь guard `/tmp/finpilot-backup-secret.*/passphrase` |
+| 5 | **P-3e** `ok`; владелец на связи; слот **16:00–18:30 MSK** подтверждён |
 
 #### list_id D — шаги (не выполнять без «команды ok»)
 
@@ -528,8 +563,8 @@ Override candidate создаются **перед окном** (не в IMAGE-D
 | **D-0** | `df -P /` | `avail_kb` ≥ 5242880 | 1 | LOW_DISK |
 | **D-1** | §G.1 `rel0-backup-create.sh` `$PASSFILE` **`no`** | `REL0_BACKUP_CREATE_OK`, `SERVICES_LEFT_STOPPED`, `.enc`+sidecar **600**; зафиксировать `$ENC`, `$EXPECTED_SHA` | 5–8 | fail → trap / **Владелец** |
 | **D-2** | `rel0-backup-verify.sh` … `20261019_0014` `$ENC` `$EXPECTED_SHA` | `REL0_BACKUP_VERIFY_OK`, baseline «Топ»; **verify не вызывает compose stop** | 1–3 | **без DDL** |
-| **D-3** | DDL §G.3 | `MIGRATION_OK head=20261022_0016` | 3–10 | Alembic error → откат |
-| **D-4** | §G.2 deploy backend candidate | api/worker/beat **Up**, image candidate | 3–5 | fail → §G.9.1/9.2 |
+| **D-3** | DDL §G.3 | `MIGRATION_OK head=20261022_0016` | 3–10 | Alembic error → §G.3.1 |
+| **D-4** | §G.2 deploy backend candidate + **health 30×2 s** (§G.4) | api/worker/beat **Up**, **`HEALTH_OK`** до frontend | 3–5 | fail → §G.9.1/9.2 |
 | **D-5** | §G.2 deploy frontend candidate | frontend **Up** | 2–3 | fail → §G.9.1 |
 | **D-6** | §G.4 smoke агент | health 200, `0016`, логи без traceback, SQL baseline | 5–8 | **СТОП** |
 | **D-7** | §G.4 smoke браузер (**Владелец**) | UI классификация, rule id в артефакт | 10–15 | accept / откат |
@@ -674,9 +709,40 @@ docker run --rm \
 docker exec finpilot-staging-postgres-1 psql -U finpilot -d finpilot -At -c "SELECT version_num FROM alembic_version;"
 ```
 
-**Ожидание:** строки Alembic `Running upgrade … -> 20261021_0015` и `… -> 20261022_0016`; psql → **`20261022_0016`**. **Стоп:** stderr Alembic / revision ≠ 0016 → откат (**§G.9**).
+**Ожидание:** строки Alembic `Running upgrade … -> 20261021_0015` и `… -> 20261022_0016`; psql → **`20261022_0016`**. **Стоп:** stderr Alembic / revision ≠ 0016 → **§G.3.1** (не сразу restore).
+
+#### G.3.1 Ошибка Alembic (D-3) — дерево решений
+
+1. **Read-only:** `SELECT version_num FROM alembic_version;` (без DDL/deploy).
+2. Если **`20261019_0014`** (миграция **не** применилась): поднять api/worker/beat **базовым** override be9e47a (`RECOVERY_CMD` / compose «База окна» **`start`** — **только после «ок» владельца**), **СТОП** окна; **restore БД не нужен**.
+3. Если revision **частичная / неожиданная** (не 0014 и не 0016): **СТОП**; **restore БД (§G.9.2)** — **только прямое решение владельца**.
+4. Если **`20261022_0016`** при stderr (редко): зафиксировать вывод; решение владельца → D-4 или откат.
+
+#### G.1.1 Отмена окна после D-1 (до DDL)
+
+Если **D-1 fail** или владелец **отменяет** до **D-3**: api/worker/beat могут остаться **stopped** (`RESTART_AFTER=no`). **Не** запускать compose вручную без **«ок»**. Скрипт create при fail печатает **`RECOVERY_CMD=`** (be9e47a override **`start`** api/worker/beat) — выполнять **только** после ответа владельца. Backup `.enc` не удалять.
 
 ### G.4 Smoke (D-6 агент / D-7 владелец)
+
+**После D-4 (до D-5):** health-цикл как в create (`RESTART_AFTER=yes`):
+
+```bash
+health_ok=0
+attempt=0
+while [ "$attempt" -lt 30 ]; do
+  attempt=$((attempt + 1))
+  if curl -sf http://127.0.0.1:8090/health/live >/dev/null \
+    && curl -sf http://127.0.0.1:8090/health/ready >/dev/null; then
+    health_ok=1
+    break
+  fi
+  sleep 2
+done
+test "$health_ok" = 1 || { echo HEALTH_NOT_READY; exit 1; }
+echo HEALTH_OK
+```
+
+**Стоп:** не **HEALTH_OK** → не делать **D-5**; §G.9.
 
 **D-6 — агент (после D-5):**
 
@@ -754,7 +820,25 @@ CREATE DATABASE finpilot
 3. **Postgres:** `pg_terminate_backend` для `finpilot` → **`DROP DATABASE finpilot`** → **`CREATE DATABASE`** (параметры выше).
 4. **pg_restore** в `finpilot` (list без DATABASE, `--single-transaction`, `--exit-on-error`, `--no-owner`).
 5. **Проверка:** `alembic_version` = **`20261019_0014`**; иначе **СТОП**.
-6. **Imports:** api/worker/beat **остановлены** — очистить **только** том `finpilot-staging_imports` (единственный match `finpilot-staging_*imports`): удалить содержимое mountpoint, затем распаковать `files.tar` из backup. **Почему безопасно:** в том только вложения импорта staging; `pgdata` и `finpilot` не затрагиваются; содержимое соответствует тому же backup, что и `db.dump`. **Не** делать `docker volume rm` (уничтожит том).
+6. **Imports** (api/worker/beat **остановлены**; **`IMPORTS_VOL`** — единственный `finpilot-staging_*imports`; **`WORK`** — каталог decrypt backup D-1 с `files.tar`):
+
+```bash
+mapfile -t IMPORTS_CANDIDATES < <(docker volume ls -q | grep -E '^finpilot-staging_.*imports$' || true)
+test "${#IMPORTS_CANDIDATES[@]}" -eq 1
+IMPORTS_VOL="${IMPORTS_CANDIDATES[0]}"
+TAR_IMAGE=postgres:16.6-bookworm
+docker run --rm --pull never \
+  -v "${IMPORTS_VOL}:/imports" \
+  "$TAR_IMAGE" \
+  sh -c 'find /imports -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
+docker run --rm --pull never \
+  -v "${IMPORTS_VOL}:/imports" \
+  -v "${WORK}:/backup:ro" \
+  "$TAR_IMAGE" \
+  tar -xf /backup/files.tar -C /imports
+```
+
+**Не** `docker volume rm`. **Почему безопасно:** только вложения импорта; `pgdata` / `finpilot` не затрагиваются; содержимое из того же backup, что `db.dump`.
 7. **Redis / Celery:** очереди после restore — **только по прямому решению владельца в момент отказа**: либо точечно удалить ключи broker Celery/kombu (префиксы по факту `redis-cli KEYS` на `finpilot-staging-redis-1`, **без** `FLUSHALL` по умолчанию), либо явно зафиксировать отказ от очистки и риск «stale tasks» (worker **не** считать чистым до ручной проверки). **Postgres не трогает.**
 8. **Образы:** `up -d --no-deps --no-build --pull never` api/worker/beat + frontend по таблице **«Откат образов»** (`release-be9e47a`, `release-1555575`).
 9. **Start** api, worker, beat → health 30×2 s → baseline «Топ» (как verify).
