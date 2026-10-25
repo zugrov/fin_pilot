@@ -21,7 +21,7 @@
   "current_stage": "FA-R06",
   "current_task": "FA-R06-REL0",
   "status": "local_verified",
-  "allowed_next_action": "FA-R06-REL0 — BACKUP-VERIFY v1+v2 на freeze OK (2026-10-23). Блокер окна: ops_scripts_repository_policy. Далее: решение политики ops/verify → REL0-BACKUP-CREATE+verify 0014 в окне → IMAGE-DELIVERY → DDL/deploy по §G. B4 после accept REL0.",
+  "allowed_next_action": "FA-R06-REL0 — политика ops принята; локально подготовлены ops/rel0 + MANIFEST (commit/push/VPS — не выполнены). Далее: отдельное одобрение commit → CI ops; согласованный список CREATE+verify 0014; IMAGE-DELIVERY; назначение окна; §G. Backup 0014 не проверен. B4 после accept REL0.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -37,8 +37,7 @@
     "source_precedence_for_target_pnl_and_balance",
     "period_close_authority",
     "incoming_mail_provider_and_identity_boundary",
-    "ocr_llm_data_processing_boundary",
-    "ops_scripts_repository_policy"
+    "ocr_llm_data_processing_boundary"
   ],
   "stages": [
     {

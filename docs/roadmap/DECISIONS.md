@@ -301,12 +301,23 @@ FA-R00.3 не блокируют.
 - **Probe BACKUP-VERIFY v2 2026-10-23 (SHA `e150e336…`):** список B — тот же `.enc`, **`REL0_BACKUP_VERIFY_OK`**; шаг 0 пропущен (probe-БД отсутствовала); скрипт v2 с VPS удалён.
 - **Факты freeze:** manifest **`schema_before=20261017_0010`**; encrypted backup на **0014** на VPS **нет**; в окне REL0 — **новый** backup + verify **`20261019_0014`** (§G).
 
-### FA-R06-REL0 · политика `ops_scripts_repository_policy` (**блокирует окно**)
+### FA-R06-REL0 · политика `ops_scripts_repository_policy` (**принята 2026-10-24**)
 
-- **Статус:** **open**, **блокирует назначение maintenance window REL0**, пока владелец не решит: где живут **`rel0-backup-verify*.sh`**, **`ops/check-restore-checkpoint.sh`**, **`ops/finish-restore-checkpoint.sh`** и будущий **backup-create**; кто согласует текст; фиксируется ли SHA в git или только в журнале окна.
-- **Факт:** `ops/` **untracked**; verify v1/v2 — **`/Users/maximzugrov/rel0-artifacts/`** (вне repo); runbook 2026-10-16 ссылается на SHA одноразовых скриптов.
-- **До решения:** окно **не открывать**; backup-create в окне — по runbook §G + §E (ручная процедура или согласованный скрипт); verify — только согласованный off-repo hash + «команды ok».
-- **Варианты (на выбор владельца):** (A) коммит parameterized `ops/` + rel0-verify в git; (B) только docs + offsite artifacts + SHA в DECISIONS/readiness на каждый drill.
+- **Статус выбора политики:** **closed** (вариант **A**: канон в git **`ops/rel0/`**; Mac **`rel0-artifacts/`** — только зеркало).
+- **Не разрешает:** «команды ok» на VPS, CREATE/DDL/deploy, **назначение окна**; регистрация SHA ≠ разрешение на запуск.
+- **Канон:** `ops/rel0/rel0-backup-verify.sh`, `ops/rel0/rel0-backup-create.sh`, `ops/rel0/MANIFEST.sha256` (одна строка SHA на файл).
+- **Исполнение:** только по **согласованному списку** (ID списка + git commit + **полные SHA** + параметры + scope); согласует **владелец проекта (Макс)**; агент готовит материалы, не выдаёт разрешение.
+- **Сверка VPS:** перед запуском `sha256sum` на VPS = SHA из списка / MANIFEST для этого commit.
+- **Исторические checkpoint-скрипты** (`ops/check-restore-checkpoint.sh`, `ops/finish-restore-checkpoint.sh`): **не** в этом пакете, **не** процедура отката REL0; описание — runbook.
+- **Drill freeze 0010** (SHA verify `e150e336…`) засчитан; при байт-идентичности канону **не** повторять только из‑за переноса в git. **Backup 0014 не проверен** — первый CREATE+verify 0014 отдельный список.
+- **Журнал согласований исполнения** (пример полей; строка добавляется **после** «команды ok», не заранее):
+
+| list_id | date | git_commit | script | SHA-256 | scope | owner_ok |
+| --- | --- | --- | --- | --- | --- | --- |
+| REL0-BACKUP-VERIFY-B | 2026-10-23 | — (off-repo) | rel0-backup-verify-v2 | `e150e336…` | verify freeze 0010 | да |
+
+- **Публикация:** только явно выбранные скрипты в существующий repo; без дампов, `.enc`, passphrase, `.env`, ключей.
+- **Предусловия окна (остаются):** commit канона + CI (когда включён); mirror Mac; согласованный список CREATE+verify **0014**; IMAGE-DELIVERY; назначение слота; §G.
 
 ### FA-R06.2-B0 · массовая отмена применения правила (2026-10-22)
 
