@@ -21,7 +21,7 @@
   "current_stage": "FA-R06",
   "current_task": "FA-R06-REL0",
   "status": "local_verified",
-  "allowed_next_action": "FA-R06-REL0 — list C OK (backup 20261025T134330Z, verify 0014); IMAGE-DELIVERY 2026-10-25 СТОП (Image ID ≠ manifest 39922595922 — candidate не для DDL/deploy). Далее: расследование ID/артефакт; повтор IMAGE_IDS_OK; override candidate; подтверждение окна 2026-10-26 10:00–13:30 MSK; «команды ok» list D. B4 после accept REL0.",
+  "allowed_next_action": "FA-R06-REL0 — list C OK; IMAGE-DELIVERY (a–c) OK 2026-10-25 (расхождение config vs VPS .Id разобрано — index digest совпал). Далее: «ок» на offline smoke (d) на VPS; override candidate; подтверждение окна 2026-10-26 с 16:00 MSK (до 18:30 — владелец); «команды ok» list D. B4 после accept REL0.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",

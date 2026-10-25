@@ -315,7 +315,7 @@ Project **chromium** `testIgnore`:
 | `workflow_dispatch` артефактов для `9819768` | **Разрешён** (только сборка; выполнен run `39922595922`) |
 | REL0-IMAGE-DELIVERY на VPS | **Запрещено** до окна и отдельного OK |
 | REL0-BACKUP-VERIFY на VPS | **В принципе разрешено**; старт **только** после ответа владельца **«команды ок»** на список из §E (+ при необходимости адаптация `ops/check-restore-checkpoint.sh` под backup `20261020T063211Z`) |
-| Maintenance window | **Не назначено**; earliest: **пн 26.10.2026, 10:00–13:30 MSK** |
+| Maintenance window | **Черновик:** **пн 26.10.2026, с 16:00 MSK** (конец **до 18:30**, решает владелец); подтверждение отдельно |
 
 Подробнее: `docs/roadmap/DECISIONS.md` → FA-R06-REL0.
 
@@ -360,7 +360,7 @@ Project **chromium** `testIgnore`:
 
 ### B. Workflow артефактов
 
-`.github/workflows/release-candidate-rel0-artifacts.yml` — только **`workflow_dispatch`**, SHA **9819768179…**, api+frontend, offline smoke, **`retention-days: 21`**, actions pinned (checkout **v4.2.2**, upload-artifact **v4.6.0**). Manifest: **`api_image_id` / `frontend_image_id` = docker local Image ID**, не registry digest. **`release-image-smoke.yml` (be9e47a) не изменять.**
+`.github/workflows/release-candidate-rel0-artifacts.yml` — только **`workflow_dispatch`**, SHA **9819768179…**, api+frontend, offline smoke, **`retention-days: 21`**, actions pinned (checkout **v4.2.2**, upload-artifact **v4.6.0**). Шаг **Capture image IDs:** `api_id="$(docker image inspect "$API_IMAGE_TAG" --format '{{.Id}}')"` (аналогично frontend) → `rel0-release-manifest.txt`. На раннере GHA это **config digest** (`manifest.json` → `Config` в `docker save` tarball), **не** digest записи **`index.json`**. После `docker load` на VPS `docker inspect .Id` часто = **`index.json` → `manifests[0].digest`** (OCI index). **Не** сравнивать VPS `.Id` с `api_image_id` из manifest напрямую — см. критерии IMAGE-DELIVERY §E. В логах run **`39922595922`** отдельного `docker info` (Storage Driver) **нет**. **`release-image-smoke.yml` (be9e47a) не изменять.**
 
 **Прогон 2026-10-23:** workflow run **`39922595922`**, conclusion **success** (~1m31s). Offline smoke: `runtime_imports_ok`, `safe_defaults_ok`, `alembic_head_ok=20261022_0016`. Checkout product head подтверждён: `9819768179bba0c09243f5706dd59df10645dbce`.
 
@@ -375,6 +375,14 @@ Manifest (фрагмент):
 | `api_image_id` | `sha256:f790289e9e155e9349a9be6b9025b55e4caa48ec6b4be3a5009aa47f0fc11758` |
 | `frontend_image_id` | `sha256:a9d23bc69e5a3c7f86de499705259e926c366a47edc02aaa6b36a49a6da693d2` |
 | `image_id_kind` | `docker_local_image_id` |
+| `note` | `api_image_id`/`frontend_image_id` = `inspect .Id` на **хосте сборки** (config); не registry digest |
+
+**Разбор расхождения 2026-10-25 (Mac, без изменений на VPS):** tarball целый; «ложный» СТОП IMAGE-DELIVERY из‑за сравнения `api_image_id` (config) с VPS `.Id` (manifest index).
+
+| Образ | `manifest.json` → Config | VPS `docker inspect .Id` | `index.json` manifests[0].digest |
+| --- | --- | --- | --- |
+| api | `f790289e…` | `7ff7ba916fc…` | **`7ff7ba916fc…` (совпадает с VPS)** |
+| frontend | `a9d23bc6…` | `0867913db57b…` | **`0867913db57b…` (совпадает с VPS)** |
 
 ### D. Локальная репетиция: be9e47a на schema 0016
 
@@ -453,14 +461,16 @@ Manifest run `39922595922`:
 
 **Проверка tarball:** сравнить **первое поле** sidecar = `sha256sum` файла на VPS = `shasum -a 256` на Mac. **`sha256sum -c` по sidecar не использовать** (путь `/home/runner/work/_temp/…`).
 
-**Прогон list_id IMAGE-DELIVERY 2026-10-25:** шаги 0–3 OK (хеши совпали); **`docker load` выполнен**; шаг 4 **СТОП** — Image ID **не** совпали с manifest run `39922595922`:
+**Критерии приёмки после `docker load` (вместо «VPS `.Id` == `api_image_id`»):**
 
-| | Ожидание (manifest) | Факт после `docker load` на VPS |
+| | Критерий | IMAGE-DELIVERY 2026-10-25 |
 | --- | --- | --- |
-| api | `sha256:f790289e9e155e9349a9be6b9025b55e4caa48ec6b4be3a5009aa47f0fc11758` | `sha256:7ff7ba916fcdb4120632f433477ef5e3dc034f47455afbae95b245fe2743ea1a` |
-| frontend | `sha256:a9d23bc69e5a3c7f86de499705259e926c366a47edc02aaa6b36a49a6da693d2` | `sha256:0867913db57b9f84a31ccbb07bf9f57c557e7845b15cf16df9094d1ec403e10a` |
+| **(a)** | Тройное совпадение sha256 tarball (sidecar GHA, Mac, VPS) | **OK** |
+| **(b)** | Label `org.opencontainers.image.revision` == **`9819768179bba0c09243f5706dd59df10645dbce`** | **OK** (api) |
+| **(c)** | Config digest (`tar -xzOf … manifest.json` → `Config`) == `api_image_id` / `frontend_image_id` в `rel0-release-manifest.txt`; **`docker inspect .Id` на VPS** == digest **`index.json` → `manifests[0]`** (из tarball) | **OK** (см. таблицу §B) |
+| **(d)** | Offline smoke **внутри** образа на VPS (`--network none`, без секретов) | **ожидает** отдельного «ок» владельца на одну команду |
 
-Label `org.opencontainers.image.revision=9819768179…` на api — OK. **Теги candidate не использовать для DDL/deploy**, пока владелец не разрешит расследование (перекачка артефакта, сверка `docker load`+inspect на Mac, повтор GHA). **`DEST` и tar.gz на VPS не удалять** без решения владельца. Override-файлы **не** создавались; compose **не** трогали.
+**Прогон list_id IMAGE-DELIVERY 2026-10-25:** шаги 0–3 OK; **`docker load` выполнен**; шаг 4 по **устаревшему** правилу «`.Id` == rel0 manifest» — ложный СТОП; по **(a–c)** артефакт **принят**. **`DEST` и tar.gz на VPS не удалять** без решения владельца. Override **не** создавались; compose **не** трогали.
 
 Recreate контейнеров **не** выполнять в IMAGE-DELIVERY.
 
@@ -468,11 +478,11 @@ Recreate контейнеров **не** выполнять в IMAGE-DELIVERY.
 
 ## G. Окно: точный runbook
 
-**Окно (черновик):** понедельник **2026-10-26, 10:00–13:30 MSK** — **подтверждается владельцем отдельно** перед «команды ok» на **list_id D**.
+**Окно (черновик):** понедельник **2026-10-26, с 16:00 MSK**; конец **до 18:30 MSK** — **решает владелец**; слот **подтверждается отдельно** перед «команды ok» на **list_id D**.
 
 **Репетиция list C (2026-10-25):** backup `finpilot-staging-REL0-20261025T134330Z.tar.enc`, sha256 `075896125363b414063df442fdd9fecb6a512b68b1241b85dedc2a78930d9599`, verify **0014** OK — **не** заменяет backup **шага D-1** в окне.
 
-**Предусловия:** политика ops **принята**; **commit** `f94be16f690f5cb2681a7f45134b9b2aa0e3df46` (`ops/rel0/` + MANIFEST); docs §G @ **`2c110cd`**; **IMAGE-DELIVERY с `IMAGE_IDS_OK`** (на 2026-10-25 — **не выполнено**, см. §E); override candidate на диске; согласованный **list_id D**; passphrase **`/tmp/finpilot-backup-secret.*/passphrase`** (600/700); `COMPOSE`:
+**Предусловия:** политика ops **принята**; **commit** `f94be16f690f5cb2681a7f45134b9b2aa0e3df46` (`ops/rel0/` + MANIFEST); **IMAGE-DELIVERY (a–c) OK** (2026-10-25, §E); **(d)** offline smoke на VPS — отдельное «ок»; override candidate на диске; согласованный **list_id D**; passphrase **`/tmp/finpilot-backup-secret.*/passphrase`** (600/700); `COMPOSE`:
 
 ```bash
 cd /fin_pilot && docker compose \
@@ -507,7 +517,7 @@ cd /fin_pilot && docker compose \
 | **Выпуск candidate** (D-4–D-6) | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-candidate-9819768/compose.override.yml` `-p finpilot-staging` | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-f /var/tmp/finpilot-frontend-candidate-9819768/compose.frontend.override.yml` `-p finpilot-staging` |
 | **Откат образов** (§G.9.1) | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-p finpilot-staging` | `-f infra/docker-compose.staging.yml` `-f /var/tmp/finpilot-release-be9e47a/compose.override.yml` `-f /var/tmp/finpilot-frontend-1555575/compose.frontend.override.yml` `-p finpilot-staging` |
 
-Override candidate создаются **перед окном** (не в IMAGE-DELIVERY); пути — §G.2. До **`IMAGE_IDS_OK`** и override — D-3–D-5 **не** выполнять.
+Override candidate создаются **перед окном** (не в IMAGE-DELIVERY); пути — §G.2. До **(d)** offline smoke и override — D-3–D-5 **не** выполнять.
 
 **Read-only факты VPS (2026-10-25):** сеть Compose — **`finpilot-staging_default`**; в `/fin_pilot/.env` есть **`MIGRATION_DATABASE_URL`** (роль миграций, значение **не** логировать; см. `docs/runbook-staging.md` § «Переменные»).
 
@@ -636,7 +646,7 @@ cd /fin_pilot && docker compose \
 
 Maintenance **2026-10-20** (`fa-r02-maintenance-20261020T063211Z.log`): миграция **0010→0014** через одноразовый контейнер **RC-образа**, сеть **`finpilot-staging_default`**, рабочий каталог **`/app`**, команда **`/app/.venv/bin/alembic upgrade head`** (без `-c`; offline smoke GHA `release-candidate-rel0-artifacts` проверяет head через `Config("alembic.ini")` в **`/app`** — тот же путь).
 
-**Для REL0 (list D-3):** образ **`finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce`** только после **`IMAGE_IDS_OK`**. **Не** монтировать и **не** `source` весь `/fin_pilot/.env` в shell — передать **только** `MIGRATION_DATABASE_URL` (роль миграций, host `postgres` внутри сети):
+**Для REL0 (list D-3):** образ **`finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce`** после IMAGE-DELIVERY **(a–d)**. **Не** монтировать и **не** `source` весь `/fin_pilot/.env` в shell — передать **только** `MIGRATION_DATABASE_URL` (роль миграций, host `postgres` внутри сети):
 
 ```bash
 NETWORK=finpilot-staging_default

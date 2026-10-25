@@ -296,7 +296,8 @@ FA-R00.3 не блокируют.
 - **REL0-BACKUP-VERIFY** (пробный restore во **временную** БД на VPS): **разрешено в принципе**;
   выполнять **только** после того, как владелец увидит точный список команд и ответит **«команды ок»**.
   До этого ответа **ничего на VPS не запускать**.
-- **Окно выпуска:** **не назначено**. Ближайшее допустимое: **2026-10-26 (пн), 10:00–13:30 MSK**.
+- **Окно выпуска (черновик):** **2026-10-26 (пн), с 16:00 MSK**; конец **до 18:30 MSK** — **решает владелец**; подтверждение слота отдельно.
+- **IMAGE-DELIVERY 2026-10-25 (list_id IMAGE-DELIVERY):** tarball sha256 **OK**; `docker load` на VPS; ложный СТОП при сравнении VPS `.Id` с `api_image_id` из run **`39922595922`**. Разбор (Mac): `api_image_id`/`frontend_image_id` = **config digest** (`manifest.json` → `Config`); VPS `docker inspect .Id` = **manifest digest** (`index.json` → `manifests[0].digest`) — **совпадает с загруженным архивом**. **Пересборка workflow не требуется.** Приёмка: критерии **(a–c)** §E `FA-R06-release-readiness`; **(d)** offline smoke на VPS — отдельное «ок» на одну команду.
 - **Probe BACKUP-VERIFY 2026-10-23 (v1, SHA `013981f3…`):** список A — **`REL0_BACKUP_VERIFY_OK`** на freeze `20261020T063211Z`, `EXPECTED_ALEMBIC=20261017_0010`; post-check чистый.
 - **Probe BACKUP-VERIFY v2 2026-10-23 (SHA `e150e336…`):** список B — тот же `.enc`, **`REL0_BACKUP_VERIFY_OK`**; шаг 0 пропущен (probe-БД отсутствовала); скрипт v2 с VPS удалён.
 - **Факты freeze:** manifest **`schema_before=20261017_0010`**; encrypted backup на **0014** на VPS **нет**; в окне REL0 — **новый** backup + verify **`20261019_0014`** (§G).
