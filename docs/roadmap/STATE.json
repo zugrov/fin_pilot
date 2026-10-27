@@ -464,7 +464,7 @@
           "local_storage": "var/fa-r03-client-samples/",
           "deidentification_required": false,
           "owner_consent": "confirmed_by_owner_2026-10-27",
-          "packages_on_disk": ["S1", "S2", "S3"],
+          "packages_on_disk": ["S1", "S2", "S3", "S12"],
           "blocking_inputs": [
             "S9: ОСВ 62 по контрагентам и договорам",
             "S10: карточка 62",
