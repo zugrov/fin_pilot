@@ -42,7 +42,8 @@ def test_clientbank_version_and_direction() -> None:
     )
     assert lines[0].direction == "in"
     assert lines[0].amount == Decimal("1500.00")
-    assert lines[0].external_id == "cb-1"
+    assert lines[0].external_id.startswith("cb-")
+    assert lines[0].document_number == "cb-1"
     try:
         read_clientbank(
             (FIXTURES / "clientbank_old.txt").read_bytes(),
