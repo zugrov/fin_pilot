@@ -1,0 +1,307 @@
+{
+  "rules": [
+    {
+      "key": "deposit_return",
+      "local_priority": 10,
+      "category_code": "investing",
+      "title": "Deposit return",
+      "conditions": {
+        "description_contains": "ВОЗВРАТ ДЕПОЗИТ"
+      }
+    },
+    {
+      "key": "term_deposit_placement",
+      "local_priority": 11,
+      "category_code": "investing",
+      "title": "Term deposit placement",
+      "conditions": {
+        "description_contains": "РАЗМЕЩЕНИЕ ВКЛАД"
+      }
+    },
+    {
+      "key": "deposit_placement",
+      "local_priority": 12,
+      "category_code": "investing",
+      "title": "Deposit placement",
+      "conditions": {
+        "description_contains": "РАЗМЕЩЕНИЕ ДЕПОЗ"
+      }
+    },
+    {
+      "key": "term_deposit_return",
+      "local_priority": 13,
+      "category_code": "investing",
+      "title": "Term deposit return",
+      "conditions": {
+        "description_contains": "ВОЗВРАТ ВКЛАД"
+      }
+    },
+    {
+      "key": "transfer_to_deposit",
+      "local_priority": 14,
+      "category_code": "investing",
+      "title": "Transfer to deposit",
+      "conditions": {
+        "description_contains": "ВО ВКЛАД"
+      }
+    },
+    {
+      "key": "transfer_to_deposit_alt",
+      "local_priority": 15,
+      "category_code": "investing",
+      "title": "Transfer to deposit alt",
+      "conditions": {
+        "description_contains": "НА ДЕПОЗ"
+      }
+    },
+    {
+      "key": "deposit_interest_payout",
+      "local_priority": 16,
+      "category_code": "investing",
+      "title": "Deposit interest payout",
+      "conditions": {
+        "description_contains": "ПРОЦЕНТОВ ПО ДЕПОЗ"
+      }
+    },
+    {
+      "key": "acquiring_terminal",
+      "local_priority": 20,
+      "category_code": "operating",
+      "title": "Acquiring terminal",
+      "conditions": {
+        "description_contains": "Терминал"
+      }
+    },
+    {
+      "key": "acquiring_bank_fee",
+      "local_priority": 21,
+      "category_code": "operating",
+      "title": "Acquiring bank fee line",
+      "conditions": {
+        "description_contains": "УСЛ.БАНКА"
+      }
+    },
+    {
+      "key": "acquiring_bank_fee_ascii",
+      "local_priority": 22,
+      "category_code": "operating",
+      "title": "Acquiring bank fee ascii",
+      "conditions": {
+        "description_contains": "USL.BANKA"
+      }
+    },
+    {
+      "key": "cash_withdrawal_misc",
+      "local_priority": 30,
+      "category_code": "technical",
+      "title": "Cash withdrawal misc",
+      "conditions": {
+        "direction": "out",
+        "description_contains": "ПРОЧИЕ ВЫДАЧ"
+      }
+    },
+    {
+      "key": "cash_withdrawal_label",
+      "local_priority": 31,
+      "category_code": "technical",
+      "title": "Cash withdrawal label",
+      "conditions": {
+        "direction": "out",
+        "description_contains": "-ПРОЧЕЕ"
+      }
+    },
+    {
+      "key": "payroll",
+      "local_priority": 32,
+      "category_code": "operating",
+      "title": "Payroll",
+      "conditions": {
+        "direction": "out",
+        "description_contains": "ЗАРПЛ"
+      }
+    },
+    {
+      "key": "payroll_advance",
+      "local_priority": 33,
+      "category_code": "operating",
+      "title": "Payroll advance",
+      "conditions": {
+        "direction": "out",
+        "description_contains": "АВАНС"
+      }
+    },
+    {
+      "key": "sick_pay",
+      "local_priority": 34,
+      "category_code": "operating",
+      "title": "Sick pay",
+      "conditions": {
+        "direction": "out",
+        "description_contains": "БОЛЬНИЧ"
+      }
+    },
+    {
+      "key": "vacation_pay",
+      "local_priority": 35,
+      "category_code": "operating",
+      "title": "Vacation pay",
+      "conditions": {
+        "direction": "out",
+        "description_contains": "ОТПУСК"
+      }
+    },
+    {
+      "key": "payroll_deduction",
+      "local_priority": 36,
+      "category_code": "operating",
+      "title": "Payroll deduction",
+      "conditions": {
+        "direction": "out",
+        "description_contains": "УДЕРЖ"
+      }
+    },
+    {
+      "key": "vat_payment",
+      "local_priority": 40,
+      "category_code": "operating",
+      "title": "VAT payment",
+      "conditions": {
+        "description_contains": "НДС"
+      }
+    },
+    {
+      "key": "tax_payment",
+      "local_priority": 41,
+      "category_code": "operating",
+      "title": "Tax payment",
+      "conditions": {
+        "description_contains": "НАЛОГ"
+      }
+    },
+    {
+      "key": "social_contribution",
+      "local_priority": 42,
+      "category_code": "operating",
+      "title": "Social contribution",
+      "conditions": {
+        "description_contains": "ВЗНОС"
+      }
+    },
+    {
+      "key": "fss",
+      "local_priority": 43,
+      "category_code": "operating",
+      "title": "FSS",
+      "conditions": {
+        "description_contains": "ФСС"
+      }
+    },
+    {
+      "key": "pfr",
+      "local_priority": 44,
+      "category_code": "operating",
+      "title": "PFR",
+      "conditions": {
+        "description_contains": "ПФР"
+      }
+    },
+    {
+      "key": "fts",
+      "local_priority": 45,
+      "category_code": "operating",
+      "title": "FTS",
+      "conditions": {
+        "description_contains": "ФНС"
+      }
+    },
+    {
+      "key": "unified_tax",
+      "local_priority": 46,
+      "category_code": "operating",
+      "title": "Unified tax payment",
+      "conditions": {
+        "description_contains": "ЕНП"
+      }
+    },
+    {
+      "key": "bank_commission",
+      "local_priority": 50,
+      "category_code": "operating",
+      "title": "Bank commission",
+      "conditions": {
+        "direction": "out",
+        "description_contains": "КОМИС"
+      }
+    },
+    {
+      "key": "customer_payment_in",
+      "local_priority": 60,
+      "category_code": "operating",
+      "title": "Customer payment in",
+      "conditions": {
+        "direction": "in",
+        "description_contains": "ОПЛАТ"
+      }
+    },
+    {
+      "key": "invoice_payment_in",
+      "local_priority": 61,
+      "category_code": "operating",
+      "title": "Invoice payment in",
+      "conditions": {
+        "direction": "in",
+        "description_contains": "ПО СЧ"
+      }
+    },
+    {
+      "key": "contract_payment_in",
+      "local_priority": 62,
+      "category_code": "operating",
+      "title": "Contract payment in",
+      "conditions": {
+        "direction": "in",
+        "description_contains": "ДОГОВ"
+      }
+    },
+    {
+      "key": "generic_payment_in",
+      "local_priority": 63,
+      "category_code": "operating",
+      "title": "Generic payment in",
+      "conditions": {
+        "direction": "in",
+        "description_contains": "ПЛАТЕЖ"
+      }
+    },
+    {
+      "key": "receipt_in",
+      "local_priority": 64,
+      "category_code": "operating",
+      "title": "Receipt in",
+      "conditions": {
+        "direction": "in",
+        "description_contains": "ПОСТУПЛ"
+      }
+    },
+    {
+      "key": "internet_channel_in",
+      "local_priority": 65,
+      "category_code": "operating",
+      "title": "Internet channel in",
+      "conditions": {
+        "direction": "in",
+        "description_contains": "ИНТЕРНЕТ"
+      }
+    },
+    {
+      "key": "personal_account_in",
+      "local_priority": 66,
+      "category_code": "operating",
+      "title": "Personal account in",
+      "conditions": {
+        "direction": "in",
+        "description_contains": "Л/С"
+      }
+    }
+  ]
+}

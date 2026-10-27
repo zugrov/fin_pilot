@@ -1,0 +1,6 @@
+{
+  "slug": "ru-bank-clientbank",
+  "version": "1.0.0",
+  "priority_base": 1000,
+  "display_name": "Russian bank ClientBank statement v1"
+}

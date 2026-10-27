@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     mail_quarantine_review_ttl_days: int = 180
     mail_quarantine_daily_entry_limit: int = 200
     receivable_aging_max_rows: int = 500
+    classification_packs_enabled: bool = False
 
     @field_validator("app_env")
     @classmethod

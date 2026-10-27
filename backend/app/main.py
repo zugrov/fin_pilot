@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.v1 import (
     auth,
     billing,
+    classification_packs,
     companies,
     imports,
     ingestions,
@@ -107,6 +108,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(signals.router, prefix="/api/v1")
     app.include_router(telegram.router, prefix="/api/v1")
     app.include_router(rules.router, prefix="/api/v1")
+    app.include_router(classification_packs.router, prefix="/api/v1")
     app.include_router(billing.router, prefix="/api/v1")
     app.include_router(webhooks.router, prefix="/api/v1")
     return app
