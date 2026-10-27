@@ -15,7 +15,6 @@ from tests.synthetic_polygon.receivable_harness import (
     load_receivable_demo_profile,
 )
 from tests.synthetic_polygon.receivable_oracle import (
-    AS_OF,
     RECEIVABLE_DEMO_ROWS,
     UNALLOCATED_CASH_RECEIPTS,
     aging_report_rows,
@@ -108,7 +107,9 @@ def test_oracle_each_row_balance_postrochno() -> None:
             assert row.balance == expected[row.doc_id], row.doc_id
 
 
-def test_receivable_demo_load_unallocated_matches_oracle(client, admin, app, fake, tmp_path) -> None:
+def test_receivable_demo_load_unallocated_matches_oracle(
+    client, admin, app, fake, tmp_path
+) -> None:
     company_id = _company(client, admin, app, fake, tmp_path, "rd-p2-load@example.com")
     load_receivable_demo_profile(client, company_id)
     apply_receivable_demo_matches(client, company_id)

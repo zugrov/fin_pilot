@@ -42,6 +42,27 @@ class ReceivableOracleRow:
         return ">90"
 
 
+def _r(
+    doc_id: str,
+    recognition_date: date,
+    counterparty_inn: str | None,
+    gross: str,
+    ret: str = "0",
+    matched: str = "0",
+    *,
+    include_in_aging_report: bool = True,
+) -> ReceivableOracleRow:
+    return ReceivableOracleRow(
+        doc_id,
+        recognition_date,
+        counterparty_inn,
+        Decimal(gross),
+        Decimal(ret),
+        Decimal(matched),
+        include_in_aging_report=include_in_aging_report,
+    )
+
+
 UNALLOCATED_CASH_RECEIPTS = (
     {
         "label": "неразнесённые поступления",
@@ -52,46 +73,31 @@ UNALLOCATED_CASH_RECEIPTS = (
 )
 
 RECEIVABLE_DEMO_ROWS: tuple[ReceivableOracleRow, ...] = (
-    ReceivableOracleRow("rd-r-a", date(2026, 10, 5), CP1_INN, Decimal("12000.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow("rd-r-b", date(2026, 10, 10), CP1_INN, Decimal("10000.00"), Decimal("0"), Decimal("4000.00")),
-    ReceivableOracleRow(
-        "rd-r-c-sale",
-        date(2026, 10, 12),
-        CP1_INN,
-        Decimal("8000.00"),
-        Decimal("0"),
-        Decimal("0"),
-    ),
-    ReceivableOracleRow(
-        "rd-r-c-ret",
-        date(2026, 10, 14),
-        CP1_INN,
-        Decimal("0"),
-        Decimal("2000.00"),
-        Decimal("0"),
-    ),
-    ReceivableOracleRow("rd-r-d", date(2026, 10, 20), CP2_INN, Decimal("6000.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow("rd-r-e", date(2026, 10, 25), None, Decimal("1500.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow("rd-r-f1", date(2026, 9, 20), CP2_INN, Decimal("5000.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow("rd-r-f2", date(2026, 8, 25), CP2_INN, Decimal("5000.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow("rd-r-f3", date(2026, 5, 15), CP2_INN, Decimal("5000.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow("rd-r-b30", date(2026, 10, 1), CP2_INN, Decimal("1.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow("rd-r-b31", date(2026, 9, 30), CP2_INN, Decimal("1.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow("rd-r-b60", date(2026, 9, 1), CP2_INN, Decimal("1.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow("rd-r-b61", date(2026, 8, 31), CP2_INN, Decimal("1.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow("rd-r-b90", date(2026, 8, 2), CP2_INN, Decimal("1.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow("rd-r-b91", date(2026, 8, 1), CP2_INN, Decimal("1.00"), Decimal("0"), Decimal("0")),
-    ReceivableOracleRow(
+    _r("rd-r-a", date(2026, 10, 5), CP1_INN, "12000.00"),
+    _r("rd-r-b", date(2026, 10, 10), CP1_INN, "10000.00", matched="4000.00"),
+    _r("rd-r-c-sale", date(2026, 10, 12), CP1_INN, "8000.00"),
+    _r("rd-r-c-ret", date(2026, 10, 14), CP1_INN, "0", ret="2000.00"),
+    _r("rd-r-d", date(2026, 10, 20), CP2_INN, "6000.00"),
+    _r("rd-r-e", date(2026, 10, 25), None, "1500.00"),
+    _r("rd-r-f1", date(2026, 9, 20), CP2_INN, "5000.00"),
+    _r("rd-r-f2", date(2026, 8, 25), CP2_INN, "5000.00"),
+    _r("rd-r-f3", date(2026, 5, 15), CP2_INN, "5000.00"),
+    _r("rd-r-b30", date(2026, 10, 1), CP2_INN, "1.00"),
+    _r("rd-r-b31", date(2026, 9, 30), CP2_INN, "1.00"),
+    _r("rd-r-b60", date(2026, 9, 1), CP2_INN, "1.00"),
+    _r("rd-r-b61", date(2026, 8, 31), CP2_INN, "1.00"),
+    _r("rd-r-b90", date(2026, 8, 2), CP2_INN, "1.00"),
+    _r("rd-r-b91", date(2026, 8, 1), CP2_INN, "1.00"),
+    _r(
         "rd-r-paid",
         date(2026, 10, 28),
         CP1_INN,
-        Decimal("10000.00"),
-        Decimal("0"),
-        Decimal("10000.00"),
+        "10000.00",
+        matched="10000.00",
         include_in_aging_report=False,
     ),
-    # Строка для негативного теста match>gross (rd-r-over); balance=1000 входит в итоги ORACLE §6.3.
-    ReceivableOracleRow("rd-r-over", date(2026, 10, 30), CP1_INN, Decimal("1000.00"), Decimal("0"), Decimal("0")),
+    # rd-r-over: негативный тест match>gross; balance 1000 входит в итоги ORACLE §6.3.
+    _r("rd-r-over", date(2026, 10, 30), CP1_INN, "1000.00"),
 )
 
 def matches_plus_return_exceed_gross(
@@ -115,7 +121,11 @@ MATCH_PLAN: tuple[tuple[str, str, str], ...] = (
 
 
 def aging_report_rows() -> tuple[ReceivableOracleRow, ...]:
-    return tuple(row for row in RECEIVABLE_DEMO_ROWS if row.include_in_aging_report and row.balance != 0)
+    return tuple(
+        row
+        for row in RECEIVABLE_DEMO_ROWS
+        if row.include_in_aging_report and row.balance != 0
+    )
 
 
 def total_balance() -> Decimal:
@@ -123,7 +133,12 @@ def total_balance() -> Decimal:
 
 
 def totals_by_bucket() -> dict[str, Decimal]:
-    totals = {"0-30": Decimal("0"), "31-60": Decimal("0"), "61-90": Decimal("0"), ">90": Decimal("0")}
+    totals = {
+        "0-30": Decimal("0"),
+        "31-60": Decimal("0"),
+        "61-90": Decimal("0"),
+        ">90": Decimal("0"),
+    }
     for row in aging_report_rows():
         totals[row.bucket] += row.balance
     return totals
