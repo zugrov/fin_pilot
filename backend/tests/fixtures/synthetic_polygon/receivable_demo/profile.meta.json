@@ -1,0 +1,20 @@
+{
+  "slug": "receivable_demo",
+  "display_name": "Synth Receivable Demo LLC",
+  "industry_label": "сценарий дебиторки P2",
+  "tax": {
+    "legal_form": "OOO",
+    "vat_payer": true,
+    "default_vat_rate": "0.20",
+    "usn_object": null,
+    "cash_method_for_usn": null,
+    "note": "FA-R06.1-P2; gross AR, явные matches через harness."
+  },
+  "files_sha256": {
+    "cash.csv": "59f8b60f27b958a79596c0d24a075c9eeb665e55ef10778f654b0b9353afc0e9",
+    "revenue.csv": "98459310b3deaeb241ae9481c579c1fd791afdb95a7fdac27834c74f5e8bed03",
+    "planned_cash.csv": "fb4fa320152e1a1400979f3d6f258828d030571c9f8b6cac41c5f47e4682ae0d",
+    "budget.csv": "c0e7ba78a5b0a7fe2cef472a085326fe3dd34a75faa9f9b4cb45c9be23b15a02",
+    "balances.csv": "efb5ae9f49a14c4f2846cc5745fe28d0fb9116878d58a25cb35036316d9551ca"
+  }
+}

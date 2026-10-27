@@ -1,0 +1,6 @@
+external_id,wallet_code,business_date,direction,amount,currency,counterparty_inn,counterparty_name,description,document_number,category_code,direction_code
+rd-c-adv,main,2026-10-08,in,15000.00,RUB,7700000902,Synth AR Two,Аванс без match,RD-ADV,operating,
+rd-c-b,main,2026-10-11,in,4000.00,RUB,7700000901,Synth AR One,Частичная оплата B,RD-B-PAY,operating,
+rd-c-paid,main,2026-10-29,in,10000.00,RUB,7700000901,Synth AR One,Полная оплата,RD-PAID-PAY,operating,
+rd-c-over,main,2026-10-30,in,600.00,RUB,7700000901,Synth AR One,Переполнение match,RD-OVER-PAY1,operating,
+rd-c-over2,main,2026-10-30,in,500.00,RUB,7700000901,Synth AR One,Переполнение match 2,RD-OVER-PAY2,operating,

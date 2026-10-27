@@ -5,7 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-ProfileKind = Literal["services", "retail", "subscription", "gap_digest", "cashflow_sections"]
+ProfileKind = Literal[
+    "services",
+    "retail",
+    "subscription",
+    "gap_digest",
+    "cashflow_sections",
+    "receivable_demo",
+]
 
 
 @dataclass(frozen=True)
@@ -295,6 +302,105 @@ CASHFLOW_SECTIONS = CompanyProfile(
             category_code="operating",
             description="С основного",
         ),
+    ),
+)
+
+# FA-R06.1-P2: насыщенная дебиторка; не в ALL_PROFILES / group ORACLE.
+RECEIVABLE_DEMO = CompanyProfile(
+    slug="receivable_demo",
+    display_name="Synth Receivable Demo LLC",
+    industry_label="сценарий дебиторки P2",
+    tax=TaxParams(
+        legal_form="OOO",
+        vat_payer=True,
+        default_vat_rate="0.20",
+        note="FA-R06.1-P2; gross AR, явные matches через harness.",
+    ),
+    balances=(BalanceRow("main", "2026-10-01", "20000.00"),),
+    cash=(
+        CashRow(
+            "rd-c-adv",
+            "main",
+            "2026-10-08",
+            "in",
+            "15000.00",
+            "7700000902",
+            "Synth AR Two",
+            "Аванс без match",
+            "RD-ADV",
+        ),
+        CashRow(
+            "rd-c-b",
+            "main",
+            "2026-10-11",
+            "in",
+            "4000.00",
+            "7700000901",
+            "Synth AR One",
+            "Частичная оплата B",
+            "RD-B-PAY",
+        ),
+        CashRow(
+            "rd-c-paid",
+            "main",
+            "2026-10-29",
+            "in",
+            "10000.00",
+            "7700000901",
+            "Synth AR One",
+            "Полная оплата",
+            "RD-PAID-PAY",
+        ),
+        CashRow(
+            "rd-c-over",
+            "main",
+            "2026-10-30",
+            "in",
+            "600.00",
+            "7700000901",
+            "Synth AR One",
+            "Переполнение match",
+            "RD-OVER-PAY1",
+        ),
+        CashRow(
+            "rd-c-over2",
+            "main",
+            "2026-10-30",
+            "in",
+            "500.00",
+            "7700000901",
+            "Synth AR One",
+            "Переполнение match 2",
+            "RD-OVER-PAY2",
+        ),
+    ),
+    revenue=(
+        RevenueRow("rd-r-a", "2026-10-05", "RD-A", "7700000901", "10000.00", "2000.00", "12000.00"),
+        RevenueRow("rd-r-b", "2026-10-10", "RD-B", "7700000901", "8333.33", "1666.67", "10000.00"),
+        RevenueRow("rd-r-c-sale", "2026-10-12", "RD-C", "7700000901", "6666.67", "1333.33", "8000.00"),
+        RevenueRow(
+            "rd-r-c-ret",
+            "2026-10-14",
+            "RD-C-RET",
+            "7700000901",
+            "1666.67",
+            "333.33",
+            "2000.00",
+            "return",
+        ),
+        RevenueRow("rd-r-d", "2026-10-20", "RD-D", "7700000902", "5000.00", "1000.00", "6000.00"),
+        RevenueRow("rd-r-e", "2026-10-25", "RD-E", "", "1250.00", "250.00", "1500.00"),
+        RevenueRow("rd-r-f1", "2026-09-20", "RD-F1", "7700000902", "4166.67", "833.33", "5000.00"),
+        RevenueRow("rd-r-f2", "2026-08-25", "RD-F2", "7700000902", "4166.67", "833.33", "5000.00"),
+        RevenueRow("rd-r-f3", "2026-05-15", "RD-F3", "7700000902", "4166.67", "833.33", "5000.00"),
+        RevenueRow("rd-r-b30", "2026-10-01", "RD-B30", "7700000902", "0.83", "0.17", "1.00"),
+        RevenueRow("rd-r-b31", "2026-09-30", "RD-B31", "7700000902", "0.83", "0.17", "1.00"),
+        RevenueRow("rd-r-b60", "2026-09-01", "RD-B60", "7700000902", "0.83", "0.17", "1.00"),
+        RevenueRow("rd-r-b61", "2026-08-31", "RD-B61", "7700000902", "0.83", "0.17", "1.00"),
+        RevenueRow("rd-r-b90", "2026-08-02", "RD-B90", "7700000902", "0.83", "0.17", "1.00"),
+        RevenueRow("rd-r-b91", "2026-08-01", "RD-B91", "7700000902", "0.83", "0.17", "1.00"),
+        RevenueRow("rd-r-paid", "2026-10-28", "RD-PAID", "7700000901", "8333.33", "1666.67", "10000.00"),
+        RevenueRow("rd-r-over", "2026-10-30", "RD-OVER", "7700000901", "833.33", "166.67", "1000.00"),
     ),
 )
 
