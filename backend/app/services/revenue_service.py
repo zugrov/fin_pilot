@@ -146,6 +146,7 @@ def create_revenue(
         _validate_linked_sale(
             session, company, linked_sale_entry_id, return_entry_id=None, sale=sale
         )
+        _guard_matches_plus_returns_on_sale(session, sale, extra_return_amount=inc)
     direction = _direction(session, company, direction_code)
     party = _counterparty(session, company, counterparty_inn, counterparty_name, at)
     row = RevenueEntry(
@@ -235,6 +236,12 @@ def set_return_linked_sale(
             return_entry_id=return_entry_id,
             sale=sale,
         )
+        _guard_matches_plus_returns_on_sale(
+            session,
+            sale,
+            extra_return_amount=row.amount_inc_vat,
+            exclude_return_id=return_entry_id,
+        )
     row.linked_sale_entry_id = linked_sale_entry_id
     row.version += 1
     row.updated_at = at
@@ -319,6 +326,8 @@ def create_match(
             raise AppError(422, "validation_error", "Продажу связывают с поступлением RUB")
     linked = _parse_positive(amount)
     _guard_match_amount(session, entry, cash, linked)
+    if entry.entry_type == "sale":
+        _guard_matches_plus_returns_on_sale(session, entry, extra_match=linked)
     row = RevenueCashMatch(
         tenant_id=company.tenant_id,
         company_id=company.id,
@@ -442,6 +451,42 @@ def _validate_linked_sale(
         raise AppError(422, "validation_error", "Ссылка только на продажу")
     if target.status != "posted":
         raise AppError(422, "validation_error", "Связанная продажа снята с учёта")
+
+
+def _sum_linked_returns(
+    session: Session,
+    sale_id: uuid.UUID,
+    *,
+    exclude_return_id: uuid.UUID | None = None,
+) -> Decimal:
+    query = select(func.coalesce(func.sum(RevenueEntry.amount_inc_vat), 0)).where(
+        RevenueEntry.linked_sale_entry_id == sale_id,
+        RevenueEntry.entry_type == "return",
+        RevenueEntry.status == "posted",
+    )
+    if exclude_return_id is not None:
+        query = query.where(RevenueEntry.id != exclude_return_id)
+    value = session.scalar(query)
+    if not isinstance(value, Decimal):
+        return Decimal("0")
+    return money(value)
+
+
+def _guard_matches_plus_returns_on_sale(
+    session: Session,
+    sale: RevenueEntry,
+    *,
+    extra_match: Decimal = Decimal("0"),
+    extra_return_amount: Decimal = Decimal("0"),
+    exclude_return_id: uuid.UUID | None = None,
+) -> None:
+    if sale.entry_type != "sale":
+        return
+    matched = _matched_sum(session, revenue_entry_id=sale.id, cash_transaction_id=None)
+    returns = _sum_linked_returns(session, sale.id, exclude_return_id=exclude_return_id)
+    total = money(matched + extra_match + returns + extra_return_amount)
+    if total > sale.amount_inc_vat:
+        raise AppError(422, "validation_error", "Связи и возвраты превышают продажу")
 
 
 def _revenue_match_links(session: Session, revenue_entry_id: uuid.UUID) -> list[dict]:
