@@ -19,9 +19,9 @@
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
   "current_stage": "FA-R03",
-  "current_task": "FA-R03.1",
-  "status": "blocked_on_owner_input",
-  "allowed_next_action": "FA-R03.1: снять блокеры (см. FA-R03.1.blocking_inputs). Параллельно: FA-R06.1-P3 (plan-first, затем реализация по approval), P4; приёмка FA-R06.1-P1/P1b — решение владельца. Staging не трогать.",
+  "current_task": "FA-R03.2",
+  "status": "in_progress",
+  "allowed_next_action": "FA-R03.2: plan-first (парсеры S1–S3, инварианты сверки, синтетические фикстуры). FA-R03.1: samples_received — S9–S11 и 8.3.x открыты. Параллельно FA-R06.1-P3/P4 по approval. Staging не трогать.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -100,11 +100,12 @@
   ],
   "client_data_handling": {
     "effective_at": "2026-10-27",
+    "owner_decision_2026_10_27": "обезличивание не требуется для текущего пакета; согласие подтверждено владельцем",
     "rules": [
       "работа с данными клиента только после явного согласия клиента",
-      "обезличивание до выхода файла из контура клиента",
       "образцы не в git, не на staging, не в чате",
-      "хранение: var/fa-r03-deidentified-samples/ (gitignored)"
+      "хранение текущего пакета: var/fa-r03-client-samples/ (gitignored, необезличено)",
+      "legacy path var/fa-r03-deidentified-samples/ — не используется для пакета 2026-10-27"
     ]
   },
   "parallel_work_while_fa_r03_blocked": {
@@ -457,21 +458,30 @@
         {
           "id": "FA-R03.1",
           "title": "Матрица образцов",
-          "status": "blocked_on_owner_input",
-          "blocked_reason": "согласие клиента и обезличенные образцы за закрытый месяц (S1–S3 минимум)",
+          "status": "samples_received",
+          "received_at": "2026-10-27",
+          "period": "2026-09",
+          "local_storage": "var/fa-r03-client-samples/",
+          "deidentification_required": false,
+          "owner_consent": "confirmed_by_owner_2026-10-27",
+          "packages_on_disk": ["S1", "S2", "S3"],
           "blocking_inputs": [
-            "согласие клиента на передачу обезличенных образцов",
-            "обезличенные образцы S1–S3 (минимум) за один закрытый месяц → var/fa-r03-deidentified-samples/",
-            "релиз платформы 1С:Предприятие 8.3.x (TBD; блокирует матрицу совместимости ClientBank/ОСВ)"
+            "S9: ОСВ 62 по контрагентам и договорам",
+            "S10: карточка 62",
+            "S11: журнал реализаций",
+            "релиз платформы 1С:Предприятие 8.3.x (TBD)",
+            "FA-R03.1_samples_analysis_LOCAL.md в var/ (если ещё не добавлен владельцем)"
           ],
           "evidence": [
-            "docs/roadmap/FA-R03.1-sample-matrix.md"
+            "docs/roadmap/FA-R03.1-sample-matrix.md",
+            "var/fa-r03-client-samples/MANIFEST.txt (local only)"
           ]
         },
         {
           "id": "FA-R03.2",
           "title": "Парсеры профиля",
-          "status": "planned",
+          "status": "plan_first",
+          "next_action": "парсеры S1–S3, инварианты сверки, синтетические фикстуры; xlrd — решение владельца",
           "evidence": []
         },
         {

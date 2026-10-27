@@ -25,3 +25,4 @@ test-results/
 .release-artifacts-*/
 var/
 var/fa-r03-deidentified-samples/
+var/fa-r03-client-samples/
