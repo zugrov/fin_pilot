@@ -1695,8 +1695,16 @@
   "owner_decisions_2026_10_27": {
     "clientbank_external_id_slice_2a": "accepted_no_identity_migration_real_cb_never_committed",
     "revenue_return_linked_sale_entry_id": "nullable_fk_no_backfill",
-    "xlrd_2_0_1": "dev_dependency_accepted_not_in_ci_prod_yet"
+    "xlrd_2_0_1": "dev_dependency_accepted_not_in_ci_prod_yet",
+    "acquiring_in_cashflow_report": "variant_a_bank_net_only_2026-10-27",
+    "acquiring_gross_commission_in_cashflow": "deferred_to_fa_r06_2_design",
+    "deposit_interest_91_01_section": "proposed_investing_awaiting_owner_confirm"
   },
+  "open_calibration_and_samples_2026_10_27": [
+    "FA-R03.1: S9–S11 (ОСВ/карточка 62, журнал реализаций) — ждём клиента",
+    "релиз платформы 1С 8.3.x и конфигурации — TBD",
+    "классификация процентов по депозиту (91.01 → investing) — предложено, не закрыто"
+  ],
   "fa_r06_1_p3_0": {
     "status": "in_progress_local",
     "migration_deploy": "forbidden_until_separate_decision",
