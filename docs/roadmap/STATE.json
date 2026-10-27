@@ -8,9 +8,9 @@
   "baseline": {
     "application_sha_last_reported": "9819768179bba0c09243f5706dd59df10645dbce",
     "checkpoint_docs_sha": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
-    "migration_repo_head": "20261022_0016",
+    "migration_repo_head": "20261027_0017",
     "migration_last_reported": "20261022_0016",
-    "migration_staging_note": "staging schema 20261022_0016 после окна REL0 2026-10-27; до окна — 20261019_0014",
+    "migration_staging_note": "staging schema 20261022_0016 после REL0 2026-10-27; целевая следующая — 20261027_0017 (решение владельца 2026-10-27, не применено)",
     "synthetic_company_only": true,
     "restore_current_cluster_verified_by_report": true,
     "offsite_copy_verified_by_report": true,
@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.2",
   "status": "in_progress",
-  "allowed_next_action": "FA-R03.2b: сверка S1/S2/S3. FA-R06.1-P3b API receivable-aging (без deploy/migrations). FA-R03.1: S9–S11 и 8.3.x — ждём клиента. Staging не трогать.",
+  "allowed_next_action": "FA-R03.2b: сверка S1/S2/S3. План набора правил v1 (без кода). Окно staging REL0 list D: P3-0/0017 + P3a + P3b + FA-R03.2a — только по отдельному «ок» владельца (решение 2026-10-27, не выполнено). FA-R06.1-P4 UI — после деплоя. FA-R03.1: S9–S11 и 8.3.x — ждём клиента.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -1690,7 +1690,7 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "REL1 2026-10-27: e2e-polygon-rel1 (da499cf); FA-R06.1 P1/P1b приняты 2026-10-27; P3a в repo; P3b API — in progress; FA-R03.1 S9–S11/8.3.x ждём клиента. B4 CI — отдельное решение.",
+  "note": "REL1 2026-10-27; FA-R06.1 P1/P1b приняты; P3-0/P3a/P3b в repo; деплой staging + 0017 — план, не выполнен; Q6 → набор-шаблон v1; проценты по депозитам → investing; P4 после деплоя.",
   "updated_at": "2026-10-27",
   "owner_decisions_2026_10_27": {
     "clientbank_external_id_slice_2a": "accepted_no_identity_migration_real_cb_never_committed",
@@ -1698,16 +1698,32 @@
     "xlrd_2_0_1": "dev_dependency_accepted_not_in_ci_prod_yet",
     "acquiring_in_cashflow_report": "variant_a_bank_net_only_2026-10-27",
     "acquiring_gross_commission_in_cashflow": "deferred_to_fa_r06_2_design",
-    "deposit_interest_91_01_section": "proposed_investing_awaiting_owner_confirm"
+    "deposit_interest_cashflow_section": "investing_accepted_2026-10-27",
+    "classification_rule_pack_v1": "catalog_preview_install_no_model_extension_no_auto_seed",
+    "staging_deploy_bundle": "P3-0_0017_P3a_P3b_clientbank_2a_decided_not_executed",
+    "fa_r06_1_p4_ui": "after_staging_deploy_only",
+    "q6_closed": "rule_template_pack_client_driven_2026-10-27",
+    "backlog_assumed_default_category": "org_setting_off_by_default_hold_out_required",
+    "counterparty_inn_present": "rejected_2026-10-27"
   },
   "open_calibration_and_samples_2026_10_27": [
     "FA-R03.1: S9–S11 (ОСВ/карточка 62, журнал реализаций) — ждём клиента",
-    "релиз платформы 1С 8.3.x и конфигурации — TBD",
-    "классификация процентов по депозиту (91.01 → investing) — предложено, не закрыто"
+    "релиз платформы 1С 8.3.x и конфигурации — TBD"
   ],
+  "planned_staging_deploy_2026_10_27": {
+    "status": "planned_not_executed",
+    "baseline_staging_product_sha": "9819768179bba0c09243f5706dd59df10645dbce",
+    "target_head_note": "main после docs-коммита; диапазон от 9819768: P3-0, P3a, P3b, FA-R03.2a/b, ClientBank fix 7926e67, …",
+    "migrations": ["20261027_0017"],
+    "settings_delta": ["receivable_aging_max_rows=500"],
+    "openapi_note": "GET /companies/{id}/reports/receivable-aging (P3b); ops count ~111",
+    "procedure": "ops/rel0 + FA-R06-release-readiness.md list D",
+    "rel1_synthetic_only": true
+  },
   "fa_r06_1_p3_0": {
-    "status": "in_progress_local",
-    "migration_deploy": "forbidden_until_separate_decision",
+    "status": "done_in_repo",
+    "migration": "20261027_0017",
+    "migration_staging": "not_applied_pending_deploy_window",
     "field": "revenue_entries.linked_sale_entry_id"
   },
   "fa_r06_1_p1_p1b": {
@@ -1724,6 +1740,15 @@
   "fa_r06_1_p3a": {
     "status": "done_in_repo",
     "commit_note": "feat: guard matches plus returns on sale (FA-R06.1-P3a)"
+  },
+  "fa_r06_1_p3b": {
+    "status": "done_in_repo",
+    "commit_note": "feat: receivable aging report API (FA-R06.1-P3b)",
+    "deploy_staging": "planned_with_p3_0_window_2026-10-27"
+  },
+  "fa_r06_1_p4": {
+    "status": "blocked_until_staging_deploy",
+    "owner_decision": "2026-10-27"
   },
   "fa_r06_1_p2": {
     "status": "done_in_repo",
