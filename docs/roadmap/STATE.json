@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.1",
   "status": "blocked_on_owner_input",
-  "allowed_next_action": "FA-R03.1: снять блокеры (см. FA-R03.1.blocking_inputs). Параллельно: FA-R06.1-P2 (план), P3/P4 по approval; приёмка FA-R06.1-P1/P1b — решение владельца. Staging не трогать.",
+  "allowed_next_action": "FA-R03.1: снять блокеры (см. FA-R03.1.blocking_inputs). Параллельно: FA-R06.1-P3 (plan-first, затем реализация по approval), P4; приёмка FA-R06.1-P1/P1b — решение владельца. Staging не трогать.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -1675,7 +1675,21 @@
       "P1_cashflow_sections_harness": "bfc817163bbd6ada44d876e68d86a276a997b720",
       "P1b_completeness": "23f3dcb23396df898009ecfb48b5b51961c73222"
     },
-    "not_in_scope_yet": ["FA-R06.1-P2", "FA-R06.1-P3", "FA-R06.1-P4"]
+    "not_in_scope_yet": ["FA-R06.1-P3", "FA-R06.1-P4"]
+  },
+  "fa_r06_1_p2": {
+    "status": "done_in_repo",
+    "commit": "c8733f3",
+    "commit_full": "c8733f31823597b5cbc0b3a3c2516346b6941c59",
+    "ci_fix_commit_note": "ruff E501 follow-up после c8733f3",
+    "owner_acceptance": "local_verified_polygon",
+    "next_package": "FA-R06.1-P3",
+    "next_package_mode": "plan-first",
+    "evidence": [
+      "docs/roadmap/FA-R06.1-management-rules-v1.md §6.3",
+      "backend/tests/integration/test_receivable_polygon_p2.py",
+      "backend/tests/synthetic_polygon/receivable_oracle.py"
+    ]
   },
   "rel1_e2e_ci": {
     "workflow": ".github/workflows/e2e-polygon-rel1.yml",

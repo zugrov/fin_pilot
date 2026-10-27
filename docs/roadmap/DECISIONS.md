@@ -258,7 +258,16 @@ FA-R00.3 не блокируют.
 - **Staging:** входит в product **`9819768179bba0c09243f5706dd59df10645dbce`** (окно **FA-R06-REL0**, принято
   2026-10-27); schema **`20261022_0016`**.
 - **Приёмка P1/P1b владельцем:** **ожидается решение владельца** (не смешивать с accept REL0 / classification B3b).
-- **Не реализовано:** P2 (`receivable_demo`), P3 (API AR), P4 (UI).
+- **FA-R06.1-P2 (`receivable_demo` + ORACLE):** реализовано в repo; коммит P2 на `main` (см. `STATE.json` → `fa_r06_1_p2`).
+- **Не реализовано:** P3 (API `receivable-aging`), P4 (UI).
+
+#### FA-R06.1-P2 · receivable_demo и решения по AR (**2026-10-27**)
+
+- Профиль **`receivable_demo`**: fixtures + ORACLE §6.3; **не** в `ALL_PROFILES`; группа **117 500 / 46 000** не меняется.
+- **Строки balance = 0** не попадают в отчёт дебиторки.
+- **Неразнесённые поступления** — отдельная справочная строка (15 000 в ORACLE), без авто-зачёта.
+- **Return:** `entry_type="return"`, положительная сумма inc VAT.
+- **Match:** превышение связей над sale → **422** `validation_error`; учёт return в лимите связей — **P3** (см. §6.3).
 
 - **FA-R06.1-P1b (spec):** правила **`completeness`** для `/cashflow` — §3.6 документа;
   retail ORACLE §6.1 (ClientBank → unmapped).
