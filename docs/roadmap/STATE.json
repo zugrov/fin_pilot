@@ -18,10 +18,10 @@
     "live_repository_and_server_must_be_rechecked": false,
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
-  "current_stage": "FA-R06",
-  "current_task": "FA-R06.3",
-  "status": "in_progress",
-  "allowed_next_action": "FA-R06-REL0 принят владельцем 2026-10-27 (с оговоркой: два тестовых правила — два submit). B4 и расширение CI — только отдельное решение владельца; новый пакет не начинать без явного scope.",
+  "current_stage": "FA-R03",
+  "current_task": "FA-R03.1",
+  "status": "blocked_on_owner_input",
+  "allowed_next_action": "FA-R03.1: согласие клиента + обезличенные образцы S1–S3 за один закрытый месяц (матрица FA-R03.1-sample-matrix.md). Параллельно: FA-R06.1-P3/P4 (design/code по approval), REL1-E2E (workflow — отдельный commit). Staging не трогать.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -31,14 +31,89 @@
     "external_integrations": "requires exact purpose/target approval",
     "payment_or_slot_changes": "requires explicit approval; never SQL bypass"
   },
-  "decisions_needed": [
-    "first_1c_configuration_platform_and_hosting",
-    "real_pilot_isolation_method_before_launch",
-    "source_precedence_for_target_pnl_and_balance",
-    "period_close_authority",
-    "incoming_mail_provider_and_identity_boundary",
-    "ocr_llm_data_processing_boundary"
+  "decisions_needed": [],
+  "resolved_for_current_stage": [
+    {
+      "id": "real_pilot_isolation_method_before_launch",
+      "decision": "C",
+      "detail": "staging = synthetic only (ООО «Топ»); реальный пилот — не на текущем staging",
+      "review_gate": "FA-R10.1",
+      "review_options": ["A", "B"],
+      "resolved_at": "2026-10-27"
+    },
+    {
+      "id": "source_precedence_for_target_pnl_and_balance",
+      "decision": "A",
+      "detail": "денежная модель: банк/ClientBank первичны для денег и текущего D3 scope",
+      "review_gate": "FA-R06.1–06.4 и FA-R07",
+      "deferred_adr": "начисление / бухгалтерия vs банк — ADR обязателен до FA-R06.1–06.4 и R07; не closed",
+      "resolved_at": "2026-10-27"
+    },
+    {
+      "id": "period_close_authority",
+      "decision": "A",
+      "detail": "на staging/synthetic — owner workspace",
+      "target": "C",
+      "target_detail": "закрытие по чек-листу полноты",
+      "review_gate": "FA-R06.4",
+      "resolved_at": "2026-10-27"
+    },
+    {
+      "id": "incoming_mail_provider_and_identity_boundary",
+      "decision": "C",
+      "detail": "fixture only; POLL_IMAP=false на staging",
+      "review_gate": "FA-R04.2",
+      "resolved_at": "2026-10-27"
+    },
+    {
+      "id": "ocr_llm_data_processing_boundary",
+      "decision": "A",
+      "detail": "local parsers only; без внешнего LLM/OCR в prod path",
+      "review_gate": "FA-R05",
+      "resolved_at": "2026-10-27"
+    },
+    {
+      "id": "first_1c_configuration_platform_and_hosting",
+      "status": "partially_closed",
+      "facts": {
+        "platform": "1С:Предприятие 8",
+        "configuration": "Бухгалтерия предприятия 3.0",
+        "configuration_release": "3.0.206",
+        "hosting": "сервер клиента",
+        "platform_8_3_release": "TBD (О программе)",
+        "access": "только в согласованные часы",
+        "requested_exports": [
+          "выписка 51: 1CClientBankExchange",
+          "карточка/обороты сч. 51",
+          "ОСВ"
+        ]
+      },
+      "blocks_fa_r03_1": true,
+      "blockers": [
+        "согласие клиента на передачу обезличенных образцов",
+        "обезличенный пакет за один закрытый месяц"
+      ],
+      "review_gate": "FA-R03.1 samples on disk (var/fa-r03-deidentified-samples/)",
+      "resolved_at": "2026-10-27"
+    }
   ],
+  "client_data_handling": {
+    "effective_at": "2026-10-27",
+    "rules": [
+      "работа с данными клиента только после явного согласия клиента",
+      "обезличивание до выхода файла из контура клиента",
+      "образцы не в git, не на staging, не в чате",
+      "хранение: var/fa-r03-deidentified-samples/ (gitignored)"
+    ]
+  },
+  "parallel_work_while_fa_r03_blocked": {
+    "allowed": [
+      "FA-R06.1-P3",
+      "FA-R06.1-P4",
+      "REL1-E2E (design; workflow commit — отдельное approval)"
+    ],
+    "note": "исключение из линейного порядка MASTER_PLAN: R03.1 ждёт образцов, P3/P4 и REL1-E2E не требуют client samples"
+  },
   "stages": [
     {
       "id": "FA-R00",
@@ -376,13 +451,16 @@
       "depends_on": [
         "FA-R02"
       ],
-      "status": "planned",
+      "status": "in_progress",
       "tasks": [
         {
           "id": "FA-R03.1",
           "title": "Матрица образцов",
-          "status": "planned",
-          "evidence": []
+          "status": "blocked_on_owner_input",
+          "blocked_reason": "согласие клиента и обезличенные образцы за закрытый месяц (S1–S3 минимум)",
+          "evidence": [
+            "docs/roadmap/FA-R03.1-sample-matrix.md"
+          ]
         },
         {
           "id": "FA-R03.2",
@@ -1575,7 +1653,7 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R06-REL0 deployed+accepted на staging 2026-10-27 (product 9819768, schema 0016). B4/CI E2E classification+polygon — только по решению владельца. FA-R03 — planned.",
+  "note": "REL1 decisions 2026-10-27: FA-R03.1 blocked_on_owner_input; parallel FA-R06.1-P3/P4 + REL1-E2E. REL0 accepted on staging. B4/CI E2E — отдельное approval.",
   "updated_at": "2026-10-27",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
