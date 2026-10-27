@@ -133,29 +133,44 @@ test.describe("Classification screen · polygon retail", () => {
     const slowPreviewGate = new Promise<void>((resolve) => {
       releaseSlowPreview = resolve;
     });
-    let slowPreviewResponseDelivered = false;
     let previewRequestOrdinal = 0;
+    let slowPreviewRequestUrl = "";
 
     await page.route("**/api/v1/rules/*/preview", async (route) => {
       previewRequestOrdinal += 1;
       const isSlowPreview = previewRequestOrdinal === 1;
       if (isSlowPreview) {
+        slowPreviewRequestUrl = route.request().url();
         await slowPreviewGate;
+        const response = await route.fetch();
+        await route.fulfill({ response });
+        return;
       }
       await route.continue();
-      if (isSlowPreview) {
-        slowPreviewResponseDelivered = true;
-      }
     });
 
     await slowCard.getByRole("button", { name: "Проверить" }).click();
+    await expect
+      .poll(() => slowPreviewRequestUrl.length > 0, { timeout: 15_000 })
+      .toBe(true);
+
+    const slowPreviewResponse = page.waitForResponse(
+      (response) =>
+        response.url() === slowPreviewRequestUrl && response.request().method() === "POST",
+      { timeout: 15_000 },
+    );
+
     await fastCard.getByRole("button", { name: "Проверить" }).click();
     await expect(fastCard.getByText(/Совпадений: 0/)).toBeVisible({ timeout: 15_000 });
 
     releaseSlowPreview();
-    await expect
-      .poll(() => slowPreviewResponseDelivered, { timeout: 15_000 })
-      .toBe(true);
+    await slowPreviewResponse;
+
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+    });
 
     await expect(fastCard.getByText(/Совпадений: 0/)).toBeVisible();
     await expect(slowCard.getByText(/Совпадений: 1/)).not.toBeVisible();
