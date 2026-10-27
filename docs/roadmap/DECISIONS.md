@@ -241,13 +241,26 @@ FA-R00.3 не блокируют.
 
 ### FA-R06.1 · правила управленческого учёта v1 (2026-10-21)
 
-- **Статус:** **accepted design**, not implemented (поправки 1–6 и Q1–Q5 в документе).
+- **Статус дизайна:** **accepted** (поправки 1–6 и Q1–Q5 в документе).
 - **Документ:** [FA-R06.1-management-rules-v1.md](FA-R06.1-management-rules-v1.md) — ОДДС по деятельности и
   возрастная дебиторка; без ОПиУ/баланса/закрытия периода.
 - **ORACLE:** три профиля полигона (services, retail, subscription) на 2026-10-31; группа 117500/46000 не меняется;
   профиль **`cashflow_sections`** — только FA-R06.1-P1, в группу не входит.
 - **As-is API:** `GET .../cashflow`; match — `POST /api/v1/revenue-cash-matches` + `Idempotency-Key`.
-- **FA-R06.1-P1b (2026-10-22):** правила **`completeness`** для `/cashflow` — §3.6 документа;
+
+#### FA-R06.1-P1 / P1b · реализация и staging (**2026-10-27**)
+
+- **P1 (ОДДС ORACLE + тесты + `cashflow_sections`):** реализовано в repo; коммиты
+  [`4740221`](https://github.com/zugrov/fin_pilot/commit/474022167c40394d356051703a93da7940648abb),
+  [`bfc8171`](https://github.com/zugrov/fin_pilot/commit/bfc8171) (harness профиля + подтверждение coverage для cash).
+- **P1b (`completeness` в `/cashflow`):** реализовано; коммит
+  [`23f3dcb`](https://github.com/zugrov/fin_pilot/commit/23f3dcb23396df898009ecfb48b5b51961c73222).
+- **Staging:** входит в product **`9819768179bba0c09243f5706dd59df10645dbce`** (окно **FA-R06-REL0**, принято
+  2026-10-27); schema **`20261022_0016`**.
+- **Приёмка P1/P1b владельцем:** **ожидается решение владельца** (не смешивать с accept REL0 / classification B3b).
+- **Не реализовано:** P2 (`receivable_demo`), P3 (API AR), P4 (UI).
+
+- **FA-R06.1-P1b (spec):** правила **`completeness`** для `/cashflow` — §3.6 документа;
   retail ORACLE §6.1 (ClientBank → unmapped).
 - **FA-R06.2-A (2026-10-22):** **Q6 закрыт** — ClientBank классифицируется через
   `ClassificationRule` при импорте и `POST /rules/{id}/apply`
@@ -336,7 +349,9 @@ FA-R00.3 не блокируют.
 
 **Данные клиента:** только после **согласия**; **обезличивание до выхода** из контура клиента; образцы **не** в git / staging / чате (`var/fa-r03-deidentified-samples/`, gitignored).
 
-**Параллельная работа (исключение из порядка этапов):** пока **FA-R03.1** ждёт образцов, допускаются **FA-R06.1-P3/P4** и подготовка **REL1-E2E** (commit workflow — отдельно).
+**Параллельная работа (исключение из порядка этапов):** пока **FA-R03.1** ждёт образцов, допускаются **FA-R06.1-P2 (план)**, **P3/P4** и **REL1-E2E** (workflow `e2e-polygon-rel1.yml`, commit `da499cf` — nightly/dispatch, не required check).
+
+**FA-R03.1 · блокирующие входы (current_task):** (1) согласие клиента; (2) обезличенные образцы S1–S3 за один закрытый месяц; (3) релиз платформы **1С 8.3.x** (TBD).
 
 ### FA-R06-REL0 · приёмка окна staging (**2026-10-27**)
 
@@ -354,6 +369,14 @@ FA-R00.3 не блокируют.
 - **Отклонения процесса:** D-6 — ложный fail baseline из‑за `docker exec … <<HEREDOC` (исправление в §G: **`psql -c`**); worker `ready` не в `tail=80`, есть в полном логе.
 - **Не проверено / остаточные риски:** classification+polygon E2E **не в default CI**; restore **уровня 2** в `finpilot` **не репетировался** (только probe verify); очистка Celery при откате **не определена**.
 - **Следующий пакет:** **не начинать.** **FA-R06.2-B4** и расширение CI — **только отдельное решение владельца.**
+
+### REL1 · workflow polygon + classification E2E (**2026-10-27**)
+
+- **Workflow:** `.github/workflows/e2e-polygon-rel1.yml` (commit `da499cf`); `workflow_dispatch` + cron 02:00 UTC.
+- **Scope:** polygon **7** + classification **4** (`playwright --list`); **не** required check.
+- **Прогоны dispatch (подряд):** [40468715411](https://github.com/zugrov/fin_pilot/actions/runs/40468715411) success ~3m02s (7+4 passed);
+  [40469050668](https://github.com/zugrov/fin_pilot/actions/runs/40469050668) success ~2m44s (7+4 passed).
+- **Локально:** stale preview E2E — детерминированный route gate (без `waitForTimeout`); classification ×3 green на чистой `finpilot_test`.
 
 ### FA-R06.2-B0 · массовая отмена применения правила (2026-10-22)
 
