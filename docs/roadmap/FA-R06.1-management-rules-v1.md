@@ -285,7 +285,8 @@ age_days = as_of − age_base_date
 **Контракт P3b · `GET …/reports/receivable-aging` · `rows[]` (2026-10-27):**
 
 - В **`rows`** **не** попадают return, **учтённые в продаже** (логическая строка sale с net balance после связанного return и matches).
-- Отдельная строка return в отчёте — **только** **`orphan_return=true`**: return **без** `linked_sale_entry_id` (или иной orphan по правилам сервиса); **`balance` отрицательный** (gross return inc VAT со знаком минус).
+- Отдельная строка return в отчёте — **только** **`orphan_return=true`**: return **без** `linked_sale_entry_id`, либо ссылка на sale **снятую с учёта** (`status=void`, откат импорта/ревизия — FK сохраняется, sale не `posted`); **`balance` отрицательный** (gross return inc VAT со знаком минус).
+- **Привязка (P3-0):** новая ссылка на sale **не** `posted` → **422**; уже сохранённая ссылка на void sale **не** блокирует хранение, но в P3b такой return учитывается как **`orphan_return=true`** (логическая связь с gross sale не применяется).
 - Поля строки: `counterparty`, `document`, `balance`, `bucket`, `age_days`, `orphan_return` (boolean); **`note` в контракт не входит**.
 
 **Приёмка P2:** полигон `test_receivable_polygon_p2.py` + fixtures `tests/fixtures/synthetic_polygon/receivable_demo/`.
