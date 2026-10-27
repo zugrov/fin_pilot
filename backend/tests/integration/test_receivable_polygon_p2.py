@@ -144,6 +144,14 @@ def test_revenue_match_sum_exceeds_gross_returns_422(client, admin, app, fake, t
     assert second.json()["code"] == "validation_error"
 
 
-@pytest.mark.skip(reason="P3")
-def test_receivable_aging_service_matches_oracle() -> None:
-    raise AssertionError("receivable_aging_service — пакет FA-R06.1-P3")
+def test_receivable_aging_service_matches_oracle(client, admin, app, fake, tmp_path) -> None:
+    company_id = _company(client, admin, app, fake, tmp_path, "rd-p3-svc@example.com")
+    load_receivable_demo_profile(client, company_id)
+    apply_receivable_demo_matches(client, company_id)
+    body = client.get(
+        f"/api/v1/companies/{company_id}/reports/receivable-aging",
+        params={"as_of": "2026-10-31"},
+    )
+    assert body.status_code == 200, body.text
+    payload = body.json()
+    assert Decimal(payload["total_balance"]) == total_balance()

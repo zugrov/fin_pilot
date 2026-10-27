@@ -72,4 +72,4 @@ def test_openapi_operation_count_unchanged() -> None:
     ops = 0
     for methods in app.openapi()["paths"].values():
         ops += sum(1 for m in methods if m in {"get", "post", "put", "patch", "delete"})
-    assert ops == 110
+    assert ops == 111

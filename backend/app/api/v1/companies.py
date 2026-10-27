@@ -20,6 +20,10 @@ from app.security.access import (
 )
 from app.security.tokens import canonical_hash
 from app.services.cash_service import company_summary, summary_payload
+from app.services.receivable_aging_service import (
+    default_as_of,
+    receivable_aging_payload,
+)
 from app.services.report_service import (
     cashflow_payload,
     dashboard_payload,
@@ -163,9 +167,7 @@ def list_companies(tenant_id: UUID, request: Request, session: DbSession):
 
 
 @router.post("/workspaces/{tenant_id}/companies")
-def post_company(
-    tenant_id: UUID, payload: CompanyIn, request: Request, session: DbSession
-):
+def post_company(tenant_id: UUID, payload: CompanyIn, request: Request, session: DbSession):
     row, user = current_session(request, session)
     require_csrf(request, row)
     membership = tenant_of(request, session, user)
@@ -193,9 +195,7 @@ def post_company(
 
 
 @router.post("/workspaces/{tenant_id}/invitations")
-def post_invite(
-    tenant_id: UUID, payload: InviteIn, request: Request, session: DbSession
-):
+def post_invite(tenant_id: UUID, payload: InviteIn, request: Request, session: DbSession):
     row, user = current_session(request, session)
     require_csrf(request, row)
     membership = tenant_of(request, session, user)
@@ -213,9 +213,7 @@ def post_invite(
 
 
 @router.post("/workspaces/{tenant_id}/company-access")
-def post_access(
-    tenant_id: UUID, payload: AccessIn, request: Request, session: DbSession
-):
+def post_access(tenant_id: UUID, payload: AccessIn, request: Request, session: DbSession):
     row, user = current_session(request, session)
     require_csrf(request, row)
     membership = tenant_of(request, session, user)
@@ -352,6 +350,31 @@ def dashboard(company_id: UUID, request: Request, session: DbSession):
     return dashboard_payload(session, company, moment, _period(request, moment))
 
 
+@router.get("/companies/{company_id}/reports/receivable-aging")
+def receivable_aging(company_id: UUID, request: Request, session: DbSession):
+    _row, user = current_session(request, session)
+    membership, company = find_company_across_memberships(session, user.id, company_id)
+    settings = settings_of(request)
+    assert_finance_access(
+        session,
+        membership=membership,
+        company=company,
+        user_verified=user.email_verified_at is not None,
+        at=now(),
+        mode="read",
+        grace_days=settings.billing_grace_days,
+        bypass=settings.billing_bypass_allowed(),
+    )
+    moment = now()
+    as_of = _as_of_date(request, company, moment)
+    return receivable_aging_payload(
+        session,
+        company,
+        as_of=as_of,
+        max_rows=settings.receivable_aging_max_rows,
+    )
+
+
 @router.get("/companies/{company_id}/cashflow")
 def cashflow(company_id: UUID, request: Request, session: DbSession):
     _row, user = current_session(request, session)
@@ -368,6 +391,16 @@ def cashflow(company_id: UUID, request: Request, session: DbSession):
         bypass=settings.billing_bypass_allowed(),
     )
     return cashflow_payload(session, company, now(), _period(request, now()))
+
+
+def _as_of_date(request: Request, company: Company, at) -> date:
+    raw = request.query_params.get("as_of")
+    if not raw:
+        return default_as_of(at, company.timezone)
+    try:
+        return date.fromisoformat(raw)
+    except ValueError as exc:
+        raise AppError(422, "validation_error", "Некорректная дата as_of") from exc
 
 
 def _period(request: Request, at) -> tuple[date, date]:
