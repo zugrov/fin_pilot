@@ -257,9 +257,12 @@ FA-R00.3 не блокируют.
   [`23f3dcb`](https://github.com/zugrov/fin_pilot/commit/23f3dcb23396df898009ecfb48b5b51961c73222).
 - **Staging:** входит в product **`9819768179bba0c09243f5706dd59df10645dbce`** (окно **FA-R06-REL0**, принято
   2026-10-27); schema **`20261022_0016`**.
-- **Приёмка P1/P1b владельцем:** **ожидается решение владельца** (не смешивать с accept REL0 / classification B3b).
+- **Приёмка P1/P1b владельцем:** **ПРИНЯТО 2026-10-27** (отдельно от accept REL0 / classification B3b).
 - **FA-R06.1-P2 (`receivable_demo` + ORACLE):** реализовано в repo; коммит P2 на `main` (см. `STATE.json` → `fa_r06_1_p2`).
-- **Не реализовано:** P3 (API `receivable-aging`), P4 (UI).
+- **FA-R06.1-P3-0 / P3a:** `linked_sale_entry_id`, guard matches + returns — в repo (`main`).
+- **P3b (API `receivable-aging`), P4 (UI):** по пакетам §8 документа.
+- **ClientBank / external_id (2a):** владелец подтверждает 2026-10-27 — **реальные ClientBank-данные нигде, кроме локальной машины владельца, не загружались**; срез составного `external_id` **без** миграции `SourceIdentity` (см. FA-R03.2a).
+- **FA-R03.1:** пакеты **S9–S11**, релиз платформы **8.3.x** и конфигурации — **клиент пришлёт позже** (см. `STATE.json` → `first_1c_configuration`).
 
 #### FA-R06.1-P2 · receivable_demo и решения по AR (**2026-10-27**)
 

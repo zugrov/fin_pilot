@@ -1,6 +1,7 @@
 # FA-R06.1 · Правила управленческого учёта v1 (accepted design)
 
-**Статус:** accepted design, not implemented (2026-10-21)
+**Статус:** accepted design; P1, P1b, P2, P3-0, P3a implemented (2026-10-27)
+**Приёмка владельца P1 / P1b:** ПРИНЯТО 2026-10-27
 **База:** `35235738` · зависимости: [MASTER_PLAN.md](MASTER_PLAN.md) FA-R06 / FA-R07
 **Связанные нормы:** [accounting-policy.md](../accounting-policy.md), [import-formats.md](../import-formats.md)
 
@@ -312,7 +313,7 @@ age_days = as_of − age_base_date
 | `GET /api/v1/companies/{id}/reports/receivable-aging?as_of` | finance read | `rows[]` {counterparty, document, balance, bucket, age_days, orphan_return?}, `totals_by_bucket`, `quality_flags`, `completeness` — см. §6.3 P3b |
 | `POST /api/v1/revenue-cash-matches` | finance write | создание `RevenueCashMatch` (заголовок **`Idempotency-Key`** обязателен); тело: `company_id`, `revenue_entry_id`, `cash_transaction_id`, `amount` |
 
-**Ошибки:** 409 при превышении sum match над entry.
+**Ошибки:** 422 `validation_error` при превышении sum match над entry или правила matches + return > gross (§6.3).
 **UI:** heatmap корзин; строки без контрагента; «нет данных» без таблицы нулей.
 
 ---
@@ -346,7 +347,7 @@ age_days = as_of − age_base_date
 
 ### Поправки 1–6 к черновику proposed
 
-1. Статус документа: **accepted design, not implemented** (реализация — пакеты P2–P4).
+1. Статус документа: **accepted design**; реализованы P1, P1b, P2, P3-0, P3a; P3b (API AR) и P4 (UI) — по пакетам §8.
 2. **§3.6:** unmapped → только **preliminary** (Q2); убрана оговорка «полно с warning».
 3. **§6.2:** исправлены возрасты retail по фикстурам (return **11d**, не «−20d»).
 4. **§7:** фактические маршруты **`/cashflow`** (компания и workspace); `completeness` — контракт **P3**, не as-is.

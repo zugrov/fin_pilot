@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.2",
   "status": "in_progress",
-  "allowed_next_action": "FA-R03.2b: сверка S1/S2/S3 (чистые функции). FA-R03.2a done. xlrd — решение владельца. FA-R03.1: S9–S11, 8.3.x. FA-R06.1-P3 plan-first. Staging не трогать.",
+  "allowed_next_action": "FA-R03.2b: сверка S1/S2/S3. FA-R06.1-P3b API receivable-aging (без deploy/migrations). FA-R03.1: S9–S11 и 8.3.x — ждём клиента. Staging не трогать.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -636,8 +636,8 @@
         {
           "id": "FA-R06.1",
           "title": "Правила учёта",
-          "status": "p1_p1b_deployed_staging",
-          "owner_acceptance_p1_p1b": "ожидается решение владельца",
+          "status": "p1_p1b_accepted_p3a_in_repo",
+          "owner_acceptance_p1_p1b": "accepted_2026-10-27",
           "deployed_product_sha": "9819768179bba0c09243f5706dd59df10645dbce",
           "evidence": [
             "docs/roadmap/FA-R06.1-management-rules-v1.md",
@@ -1690,7 +1690,7 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "REL1 2026-10-27: e2e-polygon-rel1 workflow (da499cf); FA-R06.1-P1/P1b на staging @ 9819768, приёмка P1/P1b — ждёт владельца; FA-R03.1 samples_received. B4/default required CI — отдельное решение.",
+  "note": "REL1 2026-10-27: e2e-polygon-rel1 (da499cf); FA-R06.1 P1/P1b приняты 2026-10-27; P3a в repo; P3b API — in progress; FA-R03.1 S9–S11/8.3.x ждём клиента. B4 CI — отдельное решение.",
   "updated_at": "2026-10-27",
   "owner_decisions_2026_10_27": {
     "clientbank_external_id_slice_2a": "accepted_no_identity_migration_real_cb_never_committed",
@@ -1705,13 +1705,17 @@
   "fa_r06_1_p1_p1b": {
     "implementation": "done_in_repo",
     "deployed_staging_product_sha": "9819768179bba0c09243f5706dd59df10645dbce",
-    "owner_acceptance": "ожидается решение владельца",
+    "owner_acceptance": "accepted_2026-10-27",
     "commits": {
       "P1_oracle_tests": "474022167c40394d356051703a93da7940648abb",
       "P1_cashflow_sections_harness": "bfc817163bbd6ada44d876e68d86a276a997b720",
       "P1b_completeness": "23f3dcb23396df898009ecfb48b5b51961c73222"
     },
-    "not_in_scope_yet": ["FA-R06.1-P3", "FA-R06.1-P4"]
+    "not_in_scope_yet": ["FA-R06.1-P4"]
+  },
+  "fa_r06_1_p3a": {
+    "status": "done_in_repo",
+    "commit_note": "feat: guard matches plus returns on sale (FA-R06.1-P3a)"
   },
   "fa_r06_1_p2": {
     "status": "done_in_repo",
