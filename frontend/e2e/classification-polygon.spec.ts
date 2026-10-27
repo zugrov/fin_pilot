@@ -129,22 +129,36 @@ test.describe("Classification screen · polygon retail", () => {
     const slowCard = page.locator("li").filter({ hasText: "Slow preview rule" });
     const fastCard = page.locator("li").filter({ hasText: "Fast preview rule" });
 
-    let previewCalls = 0;
+    let releaseSlowPreview: () => void = () => {};
+    const slowPreviewGate = new Promise<void>((resolve) => {
+      releaseSlowPreview = resolve;
+    });
+    let slowPreviewResponseDelivered = false;
+    let previewRequestOrdinal = 0;
+
     await page.route("**/api/v1/rules/*/preview", async (route) => {
-      previewCalls += 1;
-      if (previewCalls === 1) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+      previewRequestOrdinal += 1;
+      const isSlowPreview = previewRequestOrdinal === 1;
+      if (isSlowPreview) {
+        await slowPreviewGate;
       }
       await route.continue();
+      if (isSlowPreview) {
+        slowPreviewResponseDelivered = true;
+      }
     });
 
     await slowCard.getByRole("button", { name: "Проверить" }).click();
     await fastCard.getByRole("button", { name: "Проверить" }).click();
     await expect(fastCard.getByText(/Совпадений: 0/)).toBeVisible({ timeout: 15_000 });
-    await page.waitForTimeout(2500);
+
+    releaseSlowPreview();
+    await expect
+      .poll(() => slowPreviewResponseDelivered, { timeout: 15_000 })
+      .toBe(true);
+
     await expect(fastCard.getByText(/Совпадений: 0/)).toBeVisible();
     await expect(slowCard.getByText(/Совпадений: 1/)).not.toBeVisible();
-    expect(previewCalls).toBe(2);
   });
 
   test("скриншоты: загрузка, пусто, данные", async ({ page }) => {

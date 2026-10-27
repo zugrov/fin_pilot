@@ -1,0 +1,72 @@
+# FA-R06-REL1: polygon (7) + classification (4) E2E — nightly / manual.
+# Не включён в required checks до решения владельца (см. FA-R06-REL1-E2E-CI-design.md).
+# Локальная подготовка пакета; коммит workflow — отдельное approval.
+
+name: e2e-polygon-rel1
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  polygon-classification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16.6
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Backend deps
+        working-directory: backend
+        run: uv sync --group dev --frozen
+      - name: Роль для миграций
+        working-directory: backend
+        run: >
+          uv run python -c "import os, psycopg; user=os.popen('whoami').read().strip();
+          conn=psycopg.connect('postgresql://postgres@127.0.0.1:5433/postgres', autocommit=True);
+          conn.execute('CREATE ROLE %s WITH LOGIN SUPERUSER' % psycopg.sql.Identifier(user).as_string(conn))"
+      - name: Frontend deps
+        working-directory: frontend
+        run: npm ci
+      - name: Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Polygon then classification E2E
+        working-directory: frontend
+        run: npm run test:e2e:polygon && npm run test:e2e:classification
+        env:
+          TEST_PG_PORT: "5433"
+          CI: "true"
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: playwright-polygon-rel1-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results-polygon/
+            frontend/test-results-classification/
+          retention-days: 7
