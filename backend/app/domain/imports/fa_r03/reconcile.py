@@ -125,8 +125,9 @@ def account51_totals_equal(
 def aggregate_card_rows(rows: list[Card51Row]) -> list[AggregatedCardDocument]:
     buckets: dict[tuple[str, date, str | None, bool], list[Card51Row]] = {}
     for row in rows:
-        has_number = bool((row.document_number or "").strip())
-        doc_key: str | None = row.document_number.strip() if has_number else None
+        number_raw = (row.document_number or "").strip()
+        has_number = bool(number_raw)
+        doc_key: str | None = number_raw if has_number else None
         flag = not has_number
         key = (row.direction, row.business_date, doc_key, flag)
         buckets.setdefault(key, []).append(row)
