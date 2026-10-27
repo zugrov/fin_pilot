@@ -487,12 +487,13 @@
               "commit": "7926e67"
             },
             "FA-R03.2b": {
-              "status": "plan_first",
+              "status": "in_progress",
               "next": "reconcile.py + unit tests на списках"
             },
             "FA-R03.2c": {
               "status": "plan_first",
-              "next": "xls row reader; xlrd dev-only pending owner"
+              "xlrd_2_0_1_dev_dependency": "accepted_owner_2026_10_27",
+              "next": "xls row reader после 2b"
             }
           },
           "evidence": [
@@ -1689,8 +1690,18 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "REL1 2026-10-27: e2e-polygon-rel1 workflow (da499cf); FA-R06.1-P1/P1b на staging @ 9819768, приёмка P1/P1b — ждёт владельца; FA-R03.1 blocked. B4/default required CI — отдельное решение.",
+  "note": "REL1 2026-10-27: e2e-polygon-rel1 workflow (da499cf); FA-R06.1-P1/P1b на staging @ 9819768, приёмка P1/P1b — ждёт владельца; FA-R03.1 samples_received. B4/default required CI — отдельное решение.",
   "updated_at": "2026-10-27",
+  "owner_decisions_2026_10_27": {
+    "clientbank_external_id_slice_2a": "accepted_no_identity_migration_real_cb_never_committed",
+    "revenue_return_linked_sale_entry_id": "nullable_fk_no_backfill",
+    "xlrd_2_0_1": "dev_dependency_accepted_not_in_ci_prod_yet"
+  },
+  "fa_r06_1_p3_0": {
+    "status": "in_progress_local",
+    "migration_deploy": "forbidden_until_separate_decision",
+    "field": "revenue_entries.linked_sale_entry_id"
+  },
   "fa_r06_1_p1_p1b": {
     "implementation": "done_in_repo",
     "deployed_staging_product_sha": "9819768179bba0c09243f5706dd59df10645dbce",

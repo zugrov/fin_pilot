@@ -279,8 +279,14 @@ age_days = as_of − age_base_date
 
 1. Строки с **остатком 0** в отчёт **не попадают**.
 2. **Неразнесённые поступления** — отдельная справочная строка; **не зачитываются** автоматически против чужих entry.
-3. **Возврат:** отдельная `RevenueEntry` с `entry_type="return"`, **положительная** `amount_inc_vat`; уменьшает остаток логической продажи (в ORACLE — отдельная строка с отрицательным balance).
+3. **Возврат:** отдельная `RevenueEntry` с `entry_type="return"`, **положительная** `amount_inc_vat`; опциональная связь с sale — `linked_sale_entry_id` (P3-0).
 4. **Превышение связей:** сумма `RevenueCashMatch` на sale **>** `amount_inc_vat` sale → **422** `validation_error`; правило **matches + return > gross** на одну логическую продажу — контракт P3 (guard в match API и отчёт).
+
+**Контракт P3b · `GET …/reports/receivable-aging` · `rows[]` (2026-10-27):**
+
+- В **`rows`** **не** попадают return, **учтённые в продаже** (логическая строка sale с net balance после связанного return и matches).
+- Отдельная строка return в отчёте — **только** **`orphan_return=true`**: return **без** `linked_sale_entry_id` (или иной orphan по правилам сервиса); **`balance` отрицательный** (gross return inc VAT со знаком минус).
+- Поля строки: `counterparty`, `document`, `balance`, `bucket`, `age_days`, `orphan_return` (boolean); **`note` в контракт не входит**.
 
 **Приёмка P2:** полигон `test_receivable_polygon_p2.py` + fixtures `tests/fixtures/synthetic_polygon/receivable_demo/`.
 
@@ -302,7 +308,7 @@ age_days = as_of − age_base_date
 
 | Операция | Права | Ответ |
 |----------|-------|--------|
-| `GET /api/v1/companies/{id}/reports/receivable-aging?as_of` | finance read | `rows[]` {counterparty, document, balance, bucket, age_days}, `totals_by_bucket`, `quality_flags`, `completeness` |
+| `GET /api/v1/companies/{id}/reports/receivable-aging?as_of` | finance read | `rows[]` {counterparty, document, balance, bucket, age_days, orphan_return?}, `totals_by_bucket`, `quality_flags`, `completeness` — см. §6.3 P3b |
 | `POST /api/v1/revenue-cash-matches` | finance write | создание `RevenueCashMatch` (заголовок **`Idempotency-Key`** обязателен); тело: `company_id`, `revenue_entry_id`, `cash_transaction_id`, `amount` |
 
 **Ошибки:** 409 при превышении sum match над entry.

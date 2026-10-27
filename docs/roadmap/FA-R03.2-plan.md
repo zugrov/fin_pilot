@@ -15,7 +15,7 @@
 - Модуль: [`backend/app/domain/imports/clientbank.py`](../../backend/app/domain/imports/clientbank.py).
 - Направление: непустая `ДатаСписано` / `ДатаПоступило`; при обеих пустых или обеих непустых — по `РасчСчет` секции vs `Плательщик*` / `Получатель*`; конфликт → `direction_conflict`.
 - `external_id`: `cb-{sha256…}` из счёта, номера, даты, направления, суммы, ИНН, hash назначения; полные дубликаты → суффикс `~n` и `possible_duplicate` в `raw`.
-- **Риск re-import:** старые импорты с `external_id=Номер` не совпадут с новым ключом → повторная загрузка создаст **новые** `SourceIdentity` (не revise). Mitigation: одноразовая миграция идентичностей или отключение повторного commit старых batch — **отдельное решение владельца**.
+- **Re-import:** **решение владельца 2026-10-27** — срез 2a **без** миграции identity (реальные ClientBank не коммитились). Повторная загрузка старых batch с `external_id=Номер` по-прежнему создаст **новые** identity относительно `cb-…`.
 - Тесты: [`backend/tests/unit/test_clientbank_export_profile.py`](../../backend/tests/unit/test_clientbank_export_profile.py), фикстура `clientbank_export_profile.cp1251.txt` (синтетика, cp1251).
 
 ## FA-R03.2b · сверка (без .xls)
@@ -33,7 +33,7 @@
 
 ## FA-R03.2c · чтение .xls
 
-- **xlrd 2.0.1** — только **dev-dependency** (optional group); **решение владельца ожидается**, в CI/prod **не устанавливать** до approval.
+- **xlrd 2.0.1** — только **dev-dependency** (optional group); **принято владельцем 2026-10-27**; в CI/prod **не устанавливать** до отдельного процесса.
 - **Бинарных .xls-фикстур в репозитории нет.** Покрытие: ручной тест с маркером `@pytest.mark.manual` (локальный путь к S2/S3 в `var/…`); юнит-тесты сверки — на списках после stub-парсера в тесте.
 - Суммы из ячеек: `Decimal(str(v))`, нормализация **не более 2** знаков (`money()`).
 - Модули (план): `backend/app/domain/imports/fa_r03/card51_xls.py`, `osv_xls.py` — только преобразование лист → `list[list[str]]` / row dicts.
