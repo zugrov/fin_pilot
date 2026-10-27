@@ -320,6 +320,23 @@ FA-R00.3 не блокируют.
 - **Публикация:** только явно выбранные скрипты в существующий repo; без дампов, `.enc`, passphrase, `.env`, ключей.
 - **Предусловия окна (остаются):** commit канона + CI (когда включён); mirror Mac; согласованный список CREATE+verify **0014**; IMAGE-DELIVERY; назначение слота; §G.
 
+### FA-R06-REL0 · приёмка окна staging (**2026-10-27**)
+
+- **Статус:** **deployed + accepted** владельцем **с оговоркой** (дубликат тестового правила — **два самостоятельных submit**, не дефект).
+- **Product SHA:** `9819768179bba0c09243f5706dd59df10645dbce` (backend + frontend **candidate** на VPS).
+- **Schema staging:** `20261022_0016` (окно list D: **0014 → 0015 → 0016**).
+- **Образы (теги / manifest `.Id` на VPS):** api `release-candidate-9819768…` → `sha256:7ff7ba916fc…`; frontend → `sha256:0867913db57…`. Rollback-теги **be9e47a**, **1555575**, **7ee85e5** на диске **не удалялись**.
+- **Ops-канон backup:** git `ops/rel0/` @ `f94be16f690f5cb2681a7f45134b9b2aa0e3df46`; копия `/var/tmp/finpilot-rel0-artifacts` на VPS **удалена после приёмки** (бэкапы, override, образы — без изменений).
+- **Backup окна D-1:** `/var/backups/finpilot/finpilot-staging-REL0-20261027T055643Z.tar.enc`, SHA-256 `e9233fa2a5eae93e6fe4fcf68c230158b6500b2f48fc5e31135bc2de161fad70`, verify **`REL0_BACKUP_VERIFY_OK`** (`schema_before=20261019_0014`, baseline «Топ»).
+- **D-7 (браузер):** правило «REL0 smoke 2026-10-27», **отключено**; **apply не выполнялся** (`classification_rule_id IS NOT NULL` → **0**).
+- **Артефакты приёмки (два правила, оба `enabled=false`, `version=2`, ООО «Топ»):**
+  - `dba429b1-b4b1-4041-8d3f-8df02a31adfd` — idempotency `9122a49c-8d9b-434b-a827-50df10f74497` (POST **200**, 06:22:45 UTC);
+  - `53f7323b-a3f7-46e6-9af3-b716ef2a4418` — idempotency `c93e64ff-257a-4d3d-a030-23b1ca1e5f83` (POST **200**, 06:23:44 UTC).
+- **Флаги окружения:** не менялись (ingest/quarantine/SEND\_\*/IMAP/refunds **false**; balances import **true**; billing **test**).
+- **Отклонения процесса:** D-6 — ложный fail baseline из‑за `docker exec … <<HEREDOC` (исправление в §G: **`psql -c`**); worker `ready` не в `tail=80`, есть в полном логе.
+- **Не проверено / остаточные риски:** classification+polygon E2E **не в default CI**; restore **уровня 2** в `finpilot` **не репетировался** (только probe verify); очистка Celery при откате **не определена**.
+- **Следующий пакет:** **не начинать.** **FA-R06.2-B4** и расширение CI — **только отдельное решение владельца.**
+
 ### FA-R06.2-B0 · массовая отмена применения правила (2026-10-22)
 
 - **Статус:** отложено; **не** в scope FA-R06.2-B0.

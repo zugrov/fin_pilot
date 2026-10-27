@@ -3,9 +3,9 @@
 **Режим документа:** READ-ONLY инвентаризация по записям репозитория.  
 **Не выполнялось:** SSH, deploy, миграции, смена флагов, изменение workflows и product-кода.  
 **База сравнения (repo):** `f1dcd8626e139998e1881c5fe5a72f67a3cfa7e3` (HEAD `main`: product `9819768…` + docs `faa708b` + chore `f1dcd86`).  
-**Последний принятый staging backend (G2):** `be9e47af63310f3d5745eadf67dddb0e8c6c9442`, schema **`20261019_0014`**.  
-**Staging frontend (отдельный SHA):** `15555751aafffe1743e60107508ea3df6ca93724` (UX-CALENDAR-01).  
-**Следующий пакет в STATE:** `FA-R06-REL0`; классификация **заморожена на B3b**; **B4** отложен до принятия REL0.
+**Staging после REL0 (2026-10-27, принято владельцем с оговоркой):** product **`9819768179bba0c09243f5706dd59df10645dbce`**, schema **`20261022_0016`**, образы candidate (api `sha256:7ff7ba916fc…`, frontend `sha256:0867913db57…`).  
+**Предыдущий baseline (G2):** backend `be9e47a…` + frontend `1555575…`, schema **`20261019_0014`**.  
+**Следующий пакет:** **не начинать** без решения владельца; **B4** и CI E2E classification/polygon — отдельное approval.
 
 Источники: `docs/roadmap/MASTER_PLAN.md`, `docs/roadmap/STATE.json`, `docs/roadmap/FA-R02-release-phase-A.md`, `docs/runbook-staging.md`, `docs/readiness-live.md`, `docs/roadmap/DECISIONS.md`, миграции Alembic, `.github/workflows/*`, Playwright configs.
 
@@ -752,6 +752,28 @@ echo HEALTH_OK
 - Логи: `docker compose … logs --tail=80 api worker beat` — **нет** traceback; worker содержит **`ready`**.
 - SQL baseline ООО «Топ» (read-only, те же числа, что verify **0014**): posted_cash **5**; cash_in **27000.00**; cash_out **46500.50**; opening_active_sum **100000.00**; revenue_oct_ex_vat **20002.00**.
 
+**D-6 — SQL baseline (обязательно `psql -c`, не heredoc):** `docker exec … <<SQL` **не** передаёт stdin в psql → пустой результат и ложный fail. Использовать один вызов `-c` (как D-3) или `docker exec -i … psql` с pipe.
+
+```bash
+COMPANY=2f346a28-da63-4ab1-a9e8-611fe7e2dd7d
+docker exec finpilot-staging-postgres-1 psql -U finpilot -d finpilot -At -c "
+SET row_security = off;
+SELECT 'posted_cash=' || count(*)::text FROM cash_transactions
+  WHERE company_id = '$COMPANY' AND status = 'posted';
+SELECT 'cash_in=' || coalesce(sum(amount) FILTER (WHERE direction = 'in'), 0)::text
+  FROM cash_transactions WHERE company_id = '$COMPANY' AND status = 'posted';
+SELECT 'cash_out=' || coalesce(sum(amount) FILTER (WHERE direction = 'out'), 0)::text
+  FROM cash_transactions WHERE company_id = '$COMPANY' AND status = 'posted';
+SELECT 'opening_active_sum=' || coalesce(
+  sum(amount) FILTER (WHERE status = 'active'), 0
+)::text FROM opening_balances WHERE company_id = '$COMPANY';
+SELECT 'revenue_oct_ex_vat=' || coalesce(sum(amount_ex_vat), 0)::text
+  FROM revenue_entries
+  WHERE company_id = '$COMPANY' AND status = 'posted' AND entry_type = 'sale'
+    AND recognition_date >= '2026-10-01' AND recognition_date < '2026-11-01';
+"
+```
+
 **D-7 — владелец (браузер, SSH-туннель 8090):**
 
 - Вход; фирма **ООО «Топ»**; экран **«Классификация»**.
@@ -874,3 +896,30 @@ umask 077
 bash /var/tmp/finpilot-rel0-artifacts/rel0-backup-verify.sh \
   "$PASSFILE" 20261019_0014 "$ENC" <EXPECTED_SHA_ENC>
 ```
+
+---
+
+## REL0 · приёмка окна (2026-10-27)
+
+**Статус:** **deployed + accepted** владельцем **с оговоркой** (два отключённых smoke-правила — два submit с **разными** `Idempotency-Key`, не дефект продукта).
+
+| Поле | Значение |
+| --- | --- |
+| Product SHA | `9819768179bba0c09243f5706dd59df10645dbce` |
+| Schema | `20261022_0016` |
+| Api image | `finpilot-api:release-candidate-9819768…` · `sha256:7ff7ba916fcdb4120632f433477ef5e3dc034f47455afbae95b245fe2743ea1a` |
+| Frontend image | `finpilot-frontend:release-candidate-9819768…` · `sha256:0867913db57b9f84a31ccbb07bf9f57c557e7845b15cf16df9094d1ec403e10a` |
+| Ops канон | `ops/rel0/` @ `f94be16f690f5cb2681a7f45134b9b2aa0e3df46` |
+| Backup D-1 | `finpilot-staging-REL0-20261027T055643Z.tar.enc` · SHA `e9233fa2a5eae93e6fe4fcf68c230158b6500b2f48fc5e31135bc2de161fad70` · verify **OK** (0014 baseline «Топ») |
+| D-7 правила (отключены, v2) | `dba429b1-b4b1-4041-8d3f-8df02a31adfd`; `53f7323b-a3f7-46e6-9af3-b716ef2a4418` |
+| Apply | не выполнялся (`classification_rule_id` заполненных строк **0**) |
+| `mail_quarantine_entries` | **0** |
+| Флаги | ingest/quarantine/SEND\_\*/IMAP/refunds **false**; balances import **true**; billing **test** — **без изменений в окне** |
+
+**Post-accept на VPS:** удалён только `/var/tmp/finpilot-rel0-artifacts` (скрипты/MANIFEST); бэкапы, passphrase, override candidate/be9e47a/frontend, образы rollback — **сохранены**.
+
+**Отклонения:** D-6 heredoc (см. §G.4 выше); worker `ready` вне `tail=80`.
+
+**Не проверено:** restore level-2 в `finpilot`; Celery queue policy при откате; classification/polygon E2E в CI.
+
+**Дальше:** B4 и CI — **только решение владельца** (`STATE.json` → `fa_r06_rel0_acceptance`).

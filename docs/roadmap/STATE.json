@@ -9,8 +9,8 @@
     "application_sha_last_reported": "9819768179bba0c09243f5706dd59df10645dbce",
     "checkpoint_docs_sha": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
     "migration_repo_head": "20261022_0016",
-    "migration_last_reported": "20261019_0014",
-    "migration_staging_note": "staging schema 20261019_0014; 20261021_0015 и 20261022_0016 на staging не применялись",
+    "migration_last_reported": "20261022_0016",
+    "migration_staging_note": "staging schema 20261022_0016 после окна REL0 2026-10-27; до окна — 20261019_0014",
     "synthetic_company_only": true,
     "restore_current_cluster_verified_by_report": true,
     "offsite_copy_verified_by_report": true,
@@ -19,9 +19,9 @@
     "recheck_note": "Факт стенда снят в FA-R00.1 2026-10-17. Задача локальных документов сервер не перепроверяла."
   },
   "current_stage": "FA-R06",
-  "current_task": "FA-R06-REL0",
-  "status": "local_verified",
-  "allowed_next_action": "FA-R06-REL0 — list C OK; IMAGE-DELIVERY (a–d) OK; list P OK 2026-10-25 (override+scripts+read-only). Далее: go/no-go §G; подтверждение окна 2026-10-26 16:00 MSK (до 18:30 — владелец); «команды ok» list D. B4 после accept REL0.",
+  "current_task": "FA-R06.3",
+  "status": "in_progress",
+  "allowed_next_action": "FA-R06-REL0 принят владельцем 2026-10-27 (с оговоркой: два тестовых правила — два submit). B4 и расширение CI — только отдельное решение владельца; новый пакет не начинать без явного scope.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -538,7 +538,7 @@
           "status": "local_verified",
           "local_verified_product_sha": "9819768179bba0c09243f5706dd59df10645dbce",
           "classification_frozen_at": "FA-R06.2-B3b",
-          "b4_paused_until": "FA-R06-REL0 accepted",
+          "b4_paused_until": "отдельное решение владельца после REL0 accept",
           "evidence": [
             "docs/roadmap/DECISIONS.md FA-R06.2-A/B1/B2/B3b",
             "docs/roadmap/FA-R06.2-spec-compliance.md P5/E1",
@@ -1242,6 +1242,14 @@
       "status": "accepted_by_owner",
       "by": "owner",
       "basis": "product be9e47a; schema 0014; backup SHA 7661414a… offsite match; health 200/200; financial baseline preserved; manual browser OK + calendar screenshot; session ingest off; phase B not done"
+    },
+    {
+      "at": "2026-10-27",
+      "task": "FA-R06-REL0",
+      "scope": "staging_maintenance_window_list_D",
+      "status": "accepted_by_owner_with_caveat",
+      "by": "owner",
+      "basis": "product 9819768 candidate backend+frontend; schema 0016; backup REL0 20261027T055643Z verify OK; D-7 browser OK; два отключённых smoke-правила (два Idempotency-Key); apply=0; baseline Top preserved; flags unchanged"
     }
   ],
   "fa_r01_3_acceptance": {
@@ -1567,8 +1575,8 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "FA-R06.2-B2/B3b local_verified 2026-10-23: push main 447e728+9819768; CI green @ 9819768; repo migration head 20261022_0016; staging 20261019_0014 (0015/0016 не на staging). Классификация заморожена на B3b; B4 отложен до REL0. FA-R03 — planned.",
-  "updated_at": "2026-10-23",
+  "note": "FA-R06-REL0 deployed+accepted на staging 2026-10-27 (product 9819768, schema 0016). B4/CI E2E classification+polygon — только по решению владельца. FA-R03 — planned.",
+  "updated_at": "2026-10-27",
   "sha": {
     "application": "0449e8dc262c03d604b1ebeedc66e27471e22b88",
     "documentation": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
@@ -1678,15 +1686,11 @@
       "scope": "create guardrails, stale preview, idempotency integration tests"
     },
     "b3b": {
-      "status": "local_verified",
+      "status": "deployed_staging",
       "product_sha": "9819768179bba0c09243f5706dd59df10645dbce",
       "migration_repo": "20261022_0016",
-      "migration_staging": "20261019_0014",
-      "migrations_not_on_staging": [
-        "20261021_0015",
-        "20261022_0016"
-      ],
-      "deploy_plan": "0015+0016 отдельный scope REL0; B3b staging не трогал"
+      "migration_staging": "20261022_0016",
+      "rel0_accepted_at": "2026-10-27"
     },
     "ci_9819768": {
       "run_id": 39908727390,
@@ -1717,12 +1721,98 @@
       "confirmed_locally": true,
       "confirmed_in_github_actions_default_e2e": false
     },
-    "next_package": "FA-R06-REL0",
+    "next_package": "FA-R06.2-B4",
     "b4_paused": [
       "equals",
       "wallet",
       "source",
       "tenant POST rules"
-    ]
+    ],
+    "b4_requires_owner_decision": true
+  },
+  "fa_r06_rel0_acceptance": {
+    "status": "accepted_by_owner_with_caveat",
+    "accepted_at": "2026-10-27",
+    "window_start_msk": "2026-10-27 08:55",
+    "caveat": "Два отключённых правила «REL0 smoke 2026-10-27» — два самостоятельных submit владельца (разные Idempotency-Key), не дефект продукта.",
+    "product_sha": "9819768179bba0c09243f5706dd59df10645dbce",
+    "schema_after": "20261022_0016",
+    "previous_staging_product_sha": "be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+    "previous_staging_frontend_sha": "15555751aafffe1743e60107508ea3df6ca93724",
+    "images": {
+      "api_tag": "finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce",
+      "api_image_id": "sha256:7ff7ba916fcdb4120632f433477ef5e3dc034f47455afbae95b245fe2743ea1a",
+      "frontend_tag": "finpilot-frontend:release-candidate-9819768179bba0c09243f5706dd59df10645dbce",
+      "frontend_image_id": "sha256:0867913db57b9f84a31ccbb07bf9f57c557e7845b15cf16df9094d1ec403e10a",
+      "rollback_preserved": [
+        "finpilot-api:release-be9e47af63310f3d5745eadf67dddb0e8c6c9442",
+        "finpilot-frontend:release-1555575",
+        "finpilot-frontend:release-7ee85e5"
+      ]
+    },
+    "ops_rel0_canon_commit": "f94be16f690f5cb2681a7f45134b9b2aa0e3df46",
+    "vps_rel0_artifacts_removed_after_accept": "/var/tmp/finpilot-rel0-artifacts",
+    "backup_window_d1": {
+      "path": "/var/backups/finpilot/finpilot-staging-REL0-20261027T055643Z.tar.enc",
+      "sha256": "e9233fa2a5eae93e6fe4fcf68c230158b6500b2f48fc5e31135bc2de161fad70",
+      "verify": "REL0_BACKUP_VERIFY_OK",
+      "manifest_schema_before": "20261019_0014",
+      "baseline_top": {
+        "posted_cash": 5,
+        "cash_in": "27000.00",
+        "cash_out": "46500.50",
+        "opening_active_sum": "100000.00",
+        "revenue_oct_ex_vat": "20002.00"
+      }
+    },
+    "d7_browser": {
+      "owner_result": "OK",
+      "rule_name": "REL0 smoke 2026-10-27",
+      "apply_not_performed": true,
+      "classification_rule_id_not_null_count": 0
+    },
+    "acceptance_artifacts_classification_rules": [
+      {
+        "id": "dba429b1-b4b1-4041-8d3f-8df02a31adfd",
+        "enabled": false,
+        "version": 2,
+        "idempotency_key": "9122a49c-8d9b-434b-a827-50df10f74497",
+        "created_at_utc": "2026-10-27T06:22:45.741357+00:00"
+      },
+      {
+        "id": "53f7323b-a3f7-46e6-9af3-b716ef2a4418",
+        "enabled": false,
+        "version": 2,
+        "idempotency_key": "c93e64ff-257a-4d3d-a030-23b1ca1e5f83",
+        "created_at_utc": "2026-10-27T06:23:44.157134+00:00"
+      }
+    ],
+    "company_id_top": "2f346a28-da63-4ab1-a9e8-611fe7e2dd7d",
+    "safe_flags_unchanged": {
+      "SESSION_INGEST_ENABLED": false,
+      "MAIL_QUARANTINE_ENABLED": false,
+      "SEND_REAL_EMAIL": false,
+      "SEND_EXTERNAL_MESSAGES": false,
+      "SEND_LIVE_PAYMENTS": false,
+      "POLL_IMAP": false,
+      "REFUNDS_ENABLED": false,
+      "BALANCES_IMPORT_ENABLED": true,
+      "BILLING_MODE": "test"
+    },
+    "mail_quarantine_entries_count": 0,
+    "deviations": [
+      "D-6: ложный POSTED_CASH_MISMATCH из-за docker exec + heredoc (исправлено в §G runbook: psql -c)",
+      "worker ready не в logs --tail=80; есть в полном логе при старте"
+    ],
+    "not_verified_residual_risks": [
+      "classification и polygon E2E не в default CI",
+      "уровень 2 отката (restore в finpilot) не репетировался — только probe-БД verify",
+      "очистка очередей Celery при откате не определена"
+    ],
+    "next_scope_blocked_until_owner": [
+      "FA-R06.2-B4",
+      "CI expansion classification+polygon E2E"
+    ],
+    "docs": "docs/roadmap/FA-R06-release-readiness.md §REL0 accept"
   }
 }
