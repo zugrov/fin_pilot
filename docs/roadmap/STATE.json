@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.2",
   "status": "in_progress",
-  "allowed_next_action": "FA-R03.2: plan-first (парсеры S1–S3, инварианты сверки, синтетические фикстуры). FA-R03.1: samples_received — S9–S11 и 8.3.x открыты. Параллельно FA-R06.1-P3/P4 по approval. Staging не трогать.",
+  "allowed_next_action": "FA-R03.2b: сверка S1/S2/S3 (чистые функции). FA-R03.2a done. xlrd — решение владельца. FA-R03.1: S9–S11, 8.3.x. FA-R06.1-P3 plan-first. Staging не трогать.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -480,9 +480,24 @@
         {
           "id": "FA-R03.2",
           "title": "Парсеры профиля",
-          "status": "plan_first",
-          "next_action": "парсеры S1–S3, инварианты сверки, синтетические фикстуры; xlrd — решение владельца",
-          "evidence": []
+          "status": "in_progress",
+          "subpackages": {
+            "FA-R03.2a": {
+              "status": "done_in_repo",
+              "commit": "7926e67"
+            },
+            "FA-R03.2b": {
+              "status": "plan_first",
+              "next": "reconcile.py + unit tests на списках"
+            },
+            "FA-R03.2c": {
+              "status": "plan_first",
+              "next": "xls row reader; xlrd dev-only pending owner"
+            }
+          },
+          "evidence": [
+            "docs/roadmap/FA-R03.2-plan.md"
+          ]
         },
         {
           "id": "FA-R03.3",
