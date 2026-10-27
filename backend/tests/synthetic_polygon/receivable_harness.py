@@ -12,6 +12,22 @@ from tests.synthetic_polygon.receivable_oracle import MATCH_PLAN
 
 def load_receivable_demo_profile(client: TestClient, company_id: str) -> None:
     load_profile(client, company_id, RECEIVABLE_DEMO)
+    apply_receivable_demo_return_links(client, company_id)
+
+
+def apply_receivable_demo_return_links(client: TestClient, company_id: str) -> None:
+    listed = client.get(f"/api/v1/companies/{company_id}/revenue")
+    assert listed.status_code == 200, listed.text
+    by_ext = {item["external_id"]: item for item in listed.json()["entries"]}
+    sale_id = by_ext["rd-r-c-sale"]["id"]
+    ret_row = by_ext["rd-r-c-ret"]
+    linked = client.patch(
+        f"/api/v1/companies/{company_id}/revenue/{ret_row['id']}/linked-sale",
+        json={"linked_sale_entry_id": sale_id, "version": ret_row["version"]},
+        headers={"Idempotency-Key": uuid4().hex},
+    )
+    assert linked.status_code == 200, linked.text
+    assert linked.json()["linked_sale_entry_id"] == sale_id
 
 
 def _entry_id_by_external_id(client: TestClient, company_id: str, external_id: str) -> str:

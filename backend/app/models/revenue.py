@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Integer, Numeric, String, Text, Uuid
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -54,6 +54,11 @@ class RevenueEntry(Base):
     created_by: Mapped[uuid.UUID] = mapped_column(Uuid)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    linked_sale_entry_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("revenue_entries.id", ondelete="NO ACTION"),
+        nullable=True,
+    )
 
 
 class RevenueCashMatch(Base):

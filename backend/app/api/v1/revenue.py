@@ -30,6 +30,12 @@ class RevenueIn(BaseModel):
     counterparty_inn: str | None = None
     counterparty_name: str | None = None
     external_id: str | None = None
+    linked_sale_entry_id: UUID | None = None
+
+
+class LinkedSaleIn(BaseModel):
+    linked_sale_entry_id: UUID | None = None
+    version: int = Field(ge=1)
 
 
 class VoidIn(BaseModel):
@@ -58,9 +64,7 @@ def get_directions(company_id: UUID, request: Request, session: DbSession):
 
 
 @router.post("/companies/{company_id}/directions")
-def post_direction(
-    company_id: UUID, payload: DirectionIn, request: Request, session: DbSession
-):
+def post_direction(company_id: UUID, payload: DirectionIn, request: Request, session: DbSession):
     user, membership, company = _actor(request, session, company_id, "write", mutate=True)
     return revenue_service.create_direction(
         session,
@@ -92,9 +96,7 @@ def get_revenue(company_id: UUID, request: Request, session: DbSession):
 
 
 @router.post("/companies/{company_id}/revenue")
-def post_revenue(
-    company_id: UUID, payload: RevenueIn, request: Request, session: DbSession
-):
+def post_revenue(company_id: UUID, payload: RevenueIn, request: Request, session: DbSession):
     user, membership, company = _actor(request, session, company_id, "write", mutate=True)
     key = request.headers.get("idempotency-key")
     if not key:
@@ -116,15 +118,40 @@ def post_revenue(
         counterparty_inn=payload.counterparty_inn,
         counterparty_name=payload.counterparty_name,
         external_id=payload.external_id,
+        linked_sale_entry_id=payload.linked_sale_entry_id,
+        idempotency_key=key,
+        at=now(),
+    )
+
+
+@router.patch("/companies/{company_id}/revenue/{entry_id}/linked-sale")
+def patch_linked_sale(
+    company_id: UUID,
+    entry_id: UUID,
+    payload: LinkedSaleIn,
+    request: Request,
+    session: DbSession,
+):
+    user, membership, company = _actor(request, session, company_id, "write", mutate=True)
+    key = request.headers.get("idempotency-key")
+    if not key:
+        raise AppError(400, "validation_error", "Нужен заголовок Idempotency-Key")
+    return revenue_service.set_return_linked_sale(
+        session,
+        membership,
+        company,
+        user,
+        settings_of(request),
+        return_entry_id=entry_id,
+        linked_sale_entry_id=payload.linked_sale_entry_id,
+        version=payload.version,
         idempotency_key=key,
         at=now(),
     )
 
 
 @router.post("/revenue/{entry_id}/void")
-def post_void(
-    entry_id: UUID, payload: VoidIn, request: Request, session: DbSession
-):
+def post_void(entry_id: UUID, payload: VoidIn, request: Request, session: DbSession):
     row, user = current_session(request, session)
     require_csrf(request, row)
     from app.api.deps import tenant_of

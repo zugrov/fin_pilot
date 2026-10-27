@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 CREATE_SCOPE = "revenue-create"
 MATCH_SCOPE = "revenue-match"
+LINK_SCOPE = "revenue-return-link"
 
 
 def list_directions(session: Session, company: Company) -> list[dict]:
@@ -102,6 +103,7 @@ def create_revenue(
     counterparty_inn: str | None,
     counterparty_name: str | None,
     external_id: str | None,
+    linked_sale_entry_id: uuid.UUID | None,
     idempotency_key: str,
     at: datetime,
 ) -> dict:
@@ -121,6 +123,9 @@ def create_revenue(
             "counterparty_inn": counterparty_inn,
             "counterparty_name": counterparty_name,
             "external_id": external_id,
+            "linked_sale_entry_id": None
+            if linked_sale_entry_id is None
+            else str(linked_sale_entry_id),
         }
     )
     replay = _idempotent(session, user, CREATE_SCOPE, idempotency_key, fingerprint)
@@ -128,7 +133,19 @@ def create_revenue(
         return _require_replay_company(replay.response_body, company.id)
     if entry_type not in {"sale", "return"}:
         raise AppError(422, "validation_error", "Некорректные поля продажи")
+    if linked_sale_entry_id is not None and entry_type != "return":
+        raise AppError(422, "validation_error", "Ссылка на продажу только для возврата")
     ex_vat, vat, inc = _checked_amounts(amount_ex_vat, vat_amount, amount_inc_vat, vat_basis)
+    if linked_sale_entry_id is not None:
+        sale = _lock_revenue_entry(
+            session,
+            tenant_id=company.tenant_id,
+            company_id=company.id,
+            entry_id=linked_sale_entry_id,
+        )
+        _validate_linked_sale(
+            session, company, linked_sale_entry_id, return_entry_id=None, sale=sale
+        )
     direction = _direction(session, company, direction_code)
     party = _counterparty(session, company, counterparty_inn, counterparty_name, at)
     row = RevenueEntry(
@@ -152,6 +169,7 @@ def create_revenue(
         created_by=user.id,
         created_at=at,
         updated_at=at,
+        linked_sale_entry_id=linked_sale_entry_id,
     )
     session.add(row)
     session.flush()
@@ -160,6 +178,72 @@ def create_revenue(
         session, user, company.tenant_id, CREATE_SCOPE, idempotency_key, fingerprint, payload, at
     )
     _audit(session, user, company.tenant_id, "revenue_created", row.id, at)
+    return payload
+
+
+def set_return_linked_sale(
+    session: Session,
+    membership: Membership,
+    company: Company,
+    user: User,
+    settings: Settings,
+    *,
+    return_entry_id: uuid.UUID,
+    linked_sale_entry_id: uuid.UUID | None,
+    version: int,
+    idempotency_key: str,
+    at: datetime,
+) -> dict:
+    _deny(membership)
+    open_company(session, user, company.id, settings, "write")
+    fingerprint = request_hash(
+        {
+            "company_id": str(company.id),
+            "return_entry_id": str(return_entry_id),
+            "linked_sale_entry_id": None
+            if linked_sale_entry_id is None
+            else str(linked_sale_entry_id),
+            "version": version,
+        }
+    )
+    replay = _idempotent(session, user, LINK_SCOPE, idempotency_key, fingerprint)
+    if replay is not None:
+        return _require_replay_company(replay.response_body, company.id)
+    row = _lock_revenue_entry(
+        session,
+        tenant_id=company.tenant_id,
+        company_id=company.id,
+        entry_id=return_entry_id,
+    )
+    if row.entry_type != "return":
+        raise AppError(422, "validation_error", "Ссылка на продажу только для возврата")
+    if row.status == "void":
+        raise AppError(422, "validation_error", "Продажа уже отменена")
+    if row.version != version:
+        raise AppError(409, "version_conflict", "Продажа уже изменена")
+    if linked_sale_entry_id is not None:
+        sale = _lock_revenue_entry(
+            session,
+            tenant_id=company.tenant_id,
+            company_id=company.id,
+            entry_id=linked_sale_entry_id,
+        )
+        _validate_linked_sale(
+            session,
+            company,
+            linked_sale_entry_id,
+            return_entry_id=return_entry_id,
+            sale=sale,
+        )
+    row.linked_sale_entry_id = linked_sale_entry_id
+    row.version += 1
+    row.updated_at = at
+    session.flush()
+    payload = entry_payload(session, row)
+    _remember(
+        session, user, company.tenant_id, LINK_SCOPE, idempotency_key, fingerprint, payload, at
+    )
+    _audit(session, user, company.tenant_id, "revenue_return_linked", row.id, at)
     return payload
 
 
@@ -331,7 +415,33 @@ def entry_payload(session: Session, row: RevenueEntry) -> dict:
         "matched_amount": money_str(matched),
         "unallocated_amount": money_str(unallocated),
         "match_links": links,
+        "linked_sale_entry_id": None
+        if row.linked_sale_entry_id is None
+        else str(row.linked_sale_entry_id),
     }
+
+
+def _validate_linked_sale(
+    session: Session,
+    company: Company,
+    linked_sale_entry_id: uuid.UUID | None,
+    *,
+    return_entry_id: uuid.UUID | None,
+    sale: RevenueEntry | None = None,
+) -> None:
+    if linked_sale_entry_id is None:
+        return
+    if return_entry_id is not None and linked_sale_entry_id == return_entry_id:
+        raise AppError(422, "validation_error", "Возврат не может ссылаться на себя")
+    target = sale if sale is not None else session.get(RevenueEntry, linked_sale_entry_id)
+    if target is None:
+        raise AppError(422, "validation_error", "Связанная продажа не найдена")
+    if target.tenant_id != company.tenant_id or target.company_id != company.id:
+        raise AppError(422, "validation_error", "Связанная продажа другой фирмы")
+    if target.entry_type != "sale":
+        raise AppError(422, "validation_error", "Ссылка только на продажу")
+    if target.status != "posted":
+        raise AppError(422, "validation_error", "Связанная продажа снята с учёта")
 
 
 def _revenue_match_links(session: Session, revenue_entry_id: uuid.UUID) -> list[dict]:
