@@ -10,8 +10,9 @@ from sqlalchemy.exc import ProgrammingError
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import BACKEND
 
-HEAD = "20261022_0016"
-PREV = "20261021_0015"
+HEAD = "20261027_0017"
+PREV = "20261022_0016"
+DOWNGRADE_WITH_EVIDENCE_GUARD = "20261021_0015"
 
 
 @pytest.fixture(autouse=True)
@@ -130,7 +131,7 @@ def test_migration_sql_not_valid_and_downgrade_guard(migrated_database, restore_
         )
 
     with pytest.raises((CommandError, ProgrammingError), match="downgrade_blocked"):
-        command.downgrade(_alembic_config(), PREV)
+        command.downgrade(_alembic_config(), DOWNGRADE_WITH_EVIDENCE_GUARD)
     assert _current_revision(migrated_database) == HEAD
 
     with migrated_database.begin() as connection:
@@ -142,7 +143,7 @@ def test_migration_sql_not_valid_and_downgrade_guard(migrated_database, restore_
             {"id": tx_id},
         )
 
-    command.downgrade(_alembic_config(), PREV)
-    assert _current_revision(migrated_database) == PREV
+    command.downgrade(_alembic_config(), DOWNGRADE_WITH_EVIDENCE_GUARD)
+    assert _current_revision(migrated_database) == DOWNGRADE_WITH_EVIDENCE_GUARD
     command.upgrade(_alembic_config(), HEAD)
     assert _current_revision(migrated_database) == HEAD
