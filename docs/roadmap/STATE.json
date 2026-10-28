@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.2",
   "status": "in_progress",
-  "allowed_next_action": "FA-R06.1-P4 UI (только после плана и отдельного разрешения): P4a ОДДС, P4b дебиторка. FA-R03.2b: сверка S1/S2/S3. FA-R03.1: S9–S11 и 8.3.x — ждём клиента. Набор правил v1 (ru-bank-clientbank 1.0.0) в коде, в tenant не устанавливался.",
+  "allowed_next_action": "FA-R06.1-P4b (дебиторка): код не начат, нужно отдельное разрешение. P4a: код в repo (ac06f3e), на staging НЕ задеплоен. FA-R03.2b: сверка S1/S2/S3. FA-R03.1: S9–S11 и 8.3.x — ждём клиента. Набор правил v1 (ru-bank-clientbank 1.0.0) в коде, в tenant не устанавливался.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -1748,10 +1748,25 @@
     "deploy_staging": "deployed_2026_10_28"
   },
   "fa_r06_1_p4": {
-    "status": "plan_only",
+    "status": "p4a_done_in_repo",
     "owner_decision": "2026-10-28",
     "split": ["P4a_ОДДС", "P4b_дебиторка"],
-    "implementation": "not_started_no_code"
+    "p4a": {
+      "status": "done_in_repo",
+      "commit": "ac06f3e",
+      "route": "/cashflow",
+      "menu_link": "Деньги",
+      "deployed_staging": "not_deployed_owner_forbade",
+      "ci_run": 40676155466,
+      "e2e_run": 40676155422,
+      "local_e2e": {"default": "11 passed", "polygon": "10 passed"},
+      "unit": "frontend 133 passed (cashflow 27)",
+      "screens": "var/p4a-screens/ (локально, не в git)"
+    },
+    "p4b": {
+      "status": "planned_not_started",
+      "route": "/receivables"
+    }
   },
   "staging_window_2026_10_28": {
     "status": "completed",
