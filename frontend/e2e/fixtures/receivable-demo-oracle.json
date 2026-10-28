@@ -1,0 +1,266 @@
+{
+  "company_id": "9da728c4-43b9-4f4a-af47-1513504d61cf",
+  "as_of": "2026-10-31",
+  "completeness": "full",
+  "quality_flags": [
+    "missing_counterparty"
+  ],
+  "total_balance": "47506.00",
+  "totals_by_bucket": {
+    "0-30": "32501.00",
+    "31-60": "5002.00",
+    "61-90": "5002.00",
+    ">90": "5001.00"
+  },
+  "totals_by_counterparty": [
+    {
+      "inn": null,
+      "name": null,
+      "balance": "1500.00"
+    },
+    {
+      "inn": "7700000901",
+      "name": "7700000901",
+      "balance": "25000.00"
+    },
+    {
+      "inn": "7700000902",
+      "name": "7700000902",
+      "balance": "21006.00"
+    }
+  ],
+  "unallocated_receipts": [
+    {
+      "cash_transaction_id": "8607393f-a3a5-48f5-9e65-159a66c5656d",
+      "document_number": "RD-ADV",
+      "business_date": "2026-10-08",
+      "amount": "15000.00",
+      "label": "Аванс без match"
+    }
+  ],
+  "rows": [
+    {
+      "recognition_date": "2026-05-15",
+      "counterparty": {
+        "inn": "7700000902",
+        "name": "7700000902"
+      },
+      "document": {
+        "number": "RD-F3",
+        "external_id": "rd-r-f3"
+      },
+      "balance": "5000.00",
+      "bucket": ">90",
+      "age_days": 169,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-08-01",
+      "counterparty": {
+        "inn": "7700000902",
+        "name": "7700000902"
+      },
+      "document": {
+        "number": "RD-B91",
+        "external_id": "rd-r-b91"
+      },
+      "balance": "1.00",
+      "bucket": ">90",
+      "age_days": 91,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-08-02",
+      "counterparty": {
+        "inn": "7700000902",
+        "name": "7700000902"
+      },
+      "document": {
+        "number": "RD-B90",
+        "external_id": "rd-r-b90"
+      },
+      "balance": "1.00",
+      "bucket": "61-90",
+      "age_days": 90,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-08-25",
+      "counterparty": {
+        "inn": "7700000902",
+        "name": "7700000902"
+      },
+      "document": {
+        "number": "RD-F2",
+        "external_id": "rd-r-f2"
+      },
+      "balance": "5000.00",
+      "bucket": "61-90",
+      "age_days": 67,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-08-31",
+      "counterparty": {
+        "inn": "7700000902",
+        "name": "7700000902"
+      },
+      "document": {
+        "number": "RD-B61",
+        "external_id": "rd-r-b61"
+      },
+      "balance": "1.00",
+      "bucket": "61-90",
+      "age_days": 61,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-09-01",
+      "counterparty": {
+        "inn": "7700000902",
+        "name": "7700000902"
+      },
+      "document": {
+        "number": "RD-B60",
+        "external_id": "rd-r-b60"
+      },
+      "balance": "1.00",
+      "bucket": "31-60",
+      "age_days": 60,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-09-20",
+      "counterparty": {
+        "inn": "7700000902",
+        "name": "7700000902"
+      },
+      "document": {
+        "number": "RD-F1",
+        "external_id": "rd-r-f1"
+      },
+      "balance": "5000.00",
+      "bucket": "31-60",
+      "age_days": 41,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-09-30",
+      "counterparty": {
+        "inn": "7700000902",
+        "name": "7700000902"
+      },
+      "document": {
+        "number": "RD-B31",
+        "external_id": "rd-r-b31"
+      },
+      "balance": "1.00",
+      "bucket": "31-60",
+      "age_days": 31,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-10-01",
+      "counterparty": {
+        "inn": "7700000902",
+        "name": "7700000902"
+      },
+      "document": {
+        "number": "RD-B30",
+        "external_id": "rd-r-b30"
+      },
+      "balance": "1.00",
+      "bucket": "0-30",
+      "age_days": 30,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-10-05",
+      "counterparty": {
+        "inn": "7700000901",
+        "name": "7700000901"
+      },
+      "document": {
+        "number": "RD-A",
+        "external_id": "rd-r-a"
+      },
+      "balance": "12000.00",
+      "bucket": "0-30",
+      "age_days": 26,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-10-10",
+      "counterparty": {
+        "inn": "7700000901",
+        "name": "7700000901"
+      },
+      "document": {
+        "number": "RD-B",
+        "external_id": "rd-r-b"
+      },
+      "balance": "6000.00",
+      "bucket": "0-30",
+      "age_days": 21,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-10-12",
+      "counterparty": {
+        "inn": "7700000901",
+        "name": "7700000901"
+      },
+      "document": {
+        "number": "RD-C",
+        "external_id": "rd-r-c-sale"
+      },
+      "balance": "6000.00",
+      "bucket": "0-30",
+      "age_days": 19,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-10-20",
+      "counterparty": {
+        "inn": "7700000902",
+        "name": "7700000902"
+      },
+      "document": {
+        "number": "RD-D",
+        "external_id": "rd-r-d"
+      },
+      "balance": "6000.00",
+      "bucket": "0-30",
+      "age_days": 11,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-10-25",
+      "counterparty": null,
+      "document": {
+        "number": "RD-E",
+        "external_id": "rd-r-e"
+      },
+      "balance": "1500.00",
+      "bucket": "0-30",
+      "age_days": 6,
+      "orphan_return": false
+    },
+    {
+      "recognition_date": "2026-10-30",
+      "counterparty": {
+        "inn": "7700000901",
+        "name": "7700000901"
+      },
+      "document": {
+        "number": "RD-OVER",
+        "external_id": "rd-r-over"
+      },
+      "balance": "1000.00",
+      "bucket": "0-30",
+      "age_days": 1,
+      "orphan_return": false
+    }
+  ],
+  "rows_truncated": false
+}

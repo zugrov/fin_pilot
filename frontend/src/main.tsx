@@ -14,6 +14,7 @@ import { ClassificationPage } from "./pages/ClassificationPage";
 import { ForecastPage } from "./pages/ForecastPage";
 import { ImportPage } from "./pages/ImportPage";
 import { OverviewPage } from "./pages/OverviewPage";
+import { ReceivablePage } from "./pages/ReceivablePage";
 import { SalesPage } from "./pages/SalesPage";
 import { TelegramPage } from "./pages/TelegramPage";
 import { WalletsPage } from "./pages/WalletsPage";
@@ -22,6 +23,7 @@ const router = createBrowserRouter([
   { path: "/", element: <OverviewPage /> },
   { path: "/overview", element: <OverviewPage /> },
   { path: "/cashflow", element: <CashflowPage /> },
+  { path: "/receivables", element: <ReceivablePage /> },
   { path: "/wallets", element: <WalletsPage /> },
   { path: "/sales", element: <SalesPage /> },
   { path: "/calendar", element: <CalendarPage /> },

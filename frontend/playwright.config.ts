@@ -31,6 +31,7 @@ export default defineConfig({
         /group-e-synthetic-polygon\.spec\.ts/,
         /classification-polygon\.spec\.ts/,
         /cashflow-polygon\.spec\.ts/,
+        /receivable-polygon\.spec\.ts/,
         /polygon\//,
       ],
       use: {

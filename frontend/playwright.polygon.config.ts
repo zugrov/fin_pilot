@@ -5,7 +5,11 @@ const port = process.env.TEST_PG_PORT ?? "5432";
 /** Изолированный E2E полигона: не трогает seed/clock основных group-a…d. */
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: [/group-e-synthetic-polygon\.spec\.ts/, /cashflow-polygon\.spec\.ts/],
+  testMatch: [
+    /group-e-synthetic-polygon\.spec\.ts/,
+    /cashflow-polygon\.spec\.ts/,
+    /receivable-polygon\.spec\.ts/,
+  ],
   fullyParallel: false,
   workers: 1,
   forbidOnly: Boolean(process.env.CI),

@@ -991,3 +991,40 @@ export function loadCashflowWithStatus(companyId: string, dateFrom: string, date
     `/api/v1/companies/${companyId}/cashflow?${query.toString()}`,
   );
 }
+
+export type ReceivableAgingRow = {
+  recognition_date: string;
+  counterparty: { inn: string | null; name: string | null } | null;
+  document: { number: string | null; external_id: string | null };
+  balance: string;
+  bucket: string;
+  age_days: number;
+  orphan_return: boolean;
+};
+
+export type ReceivableAgingReport = {
+  company_id: string;
+  as_of: string;
+  completeness: string;
+  quality_flags: string[];
+  total_balance: string;
+  totals_by_bucket: Record<string, string>;
+  totals_by_counterparty: { inn: string | null; name: string | null; balance: string }[];
+  unallocated_receipts: {
+    cash_transaction_id: string;
+    document_number: string | null;
+    business_date: string;
+    amount: string;
+    label: string;
+  }[];
+  rows: ReceivableAgingRow[];
+  rows_truncated: boolean;
+};
+
+/** Возрастной анализ дебиторки; ошибка несёт HTTP-статус (403/404/422/сеть). */
+export function loadReceivableAgingWithStatus(companyId: string, asOf: string) {
+  const query = new URLSearchParams({ as_of: asOf });
+  return walletRequest<ReceivableAgingReport>(
+    `/api/v1/companies/${companyId}/reports/receivable-aging?${query.toString()}`,
+  );
+}
