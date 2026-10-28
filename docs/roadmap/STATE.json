@@ -6,11 +6,11 @@
   "created_at": "2026-10-17",
   "is_execution_authorization": false,
   "baseline": {
-    "application_sha_last_reported": "9819768179bba0c09243f5706dd59df10645dbce",
+    "application_sha_last_reported": "ebd391228a76846f1c805f568467ea8f846e6aa5",
     "checkpoint_docs_sha": "46d13bfa347c4344217550ea6b7bcd2b9eb48787",
     "migration_repo_head": "20261027_0017",
-    "migration_last_reported": "20261022_0016",
-    "migration_staging_note": "staging schema 20261022_0016 после REL0 2026-10-27; целевая следующая — 20261027_0017 (решение владельца 2026-10-27, не применено)",
+    "migration_last_reported": "20261027_0017",
+    "migration_staging_note": "staging schema 20261027_0017 после окна 2026-10-28 (D-3 применена одноразовым контейнером образа release-candidate-ebd3912 через MIGRATION_DATABASE_URL)",
     "synthetic_company_only": true,
     "restore_current_cluster_verified_by_report": true,
     "offsite_copy_verified_by_report": true,
@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.2",
   "status": "in_progress",
-  "allowed_next_action": "FA-R03.2b: сверка S1/S2/S3. План набора правил v1 (без кода). Окно staging REL0 list D: P3-0/0017 + P3a + P3b + FA-R03.2a — только по отдельному «ок» владельца (решение 2026-10-27, не выполнено). FA-R06.1-P4 UI — после деплоя. FA-R03.1: S9–S11 и 8.3.x — ждём клиента.",
+  "allowed_next_action": "FA-R06.1-P4 UI (только после плана и отдельного разрешения): P4a ОДДС, P4b дебиторка. FA-R03.2b: сверка S1/S2/S3. FA-R03.1: S9–S11 и 8.3.x — ждём клиента. Набор правил v1 (ru-bank-clientbank 1.0.0) в коде, в tenant не устанавливался.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -1690,8 +1690,8 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "REL1 2026-10-27; FA-R06.1 P1/P1b приняты; P3-0/P3a/P3b в repo; деплой staging + 0017 — план, не выполнен; Q6 → набор-шаблон v1; проценты по депозитам → investing; P4 после деплоя.",
-  "updated_at": "2026-10-27",
+  "note": "REL1 2026-10-28: окно staging выполнено — product ebd3912, schema 20261027_0017, pack v1 выключен, offsite проверен. Q6 → набор-шаблон v1; проценты по депозитам → investing; P4 (ОДДС, дебиторка) — план, не код.",
+  "updated_at": "2026-10-28",
   "owner_decisions_2026_10_27": {
     "clientbank_external_id_slice_2a": "accepted_no_identity_migration_real_cb_never_committed",
     "revenue_return_linked_sale_entry_id": "nullable_fk_no_backfill",
@@ -1711,7 +1711,7 @@
     "релиз платформы 1С 8.3.x и конфигурации — TBD"
   ],
   "planned_staging_deploy_2026_10_27": {
-    "status": "planned_not_executed",
+    "status": "executed_2026_10_28_as_staging_window_2026_10_28",
     "baseline_staging_product_sha": "9819768179bba0c09243f5706dd59df10645dbce",
     "target_head_note": "main после docs-коммита; диапазон от 9819768: P3-0, P3a, P3b, FA-R03.2a/b, ClientBank fix 7926e67, …",
     "migrations": ["20261027_0017"],
@@ -1723,8 +1723,9 @@
   "fa_r06_1_p3_0": {
     "status": "done_in_repo",
     "migration": "20261027_0017",
-    "migration_staging": "not_applied_pending_deploy_window",
-    "field": "revenue_entries.linked_sale_entry_id"
+    "migration_staging": "applied_2026_10_28",
+    "field": "revenue_entries.linked_sale_entry_id",
+    "staging_verification": "alembic_version=20261027_0017; column linked_sale_entry_id present; index revenue_entries_linked_sale_idx present; revenue_entries rows 2 before/after"
   },
   "fa_r06_1_p1_p1b": {
     "implementation": "done_in_repo",
@@ -1744,11 +1745,79 @@
   "fa_r06_1_p3b": {
     "status": "done_in_repo",
     "commit_note": "feat: receivable aging report API (FA-R06.1-P3b)",
-    "deploy_staging": "planned_with_p3_0_window_2026-10-27"
+    "deploy_staging": "deployed_2026_10_28"
   },
   "fa_r06_1_p4": {
-    "status": "blocked_until_staging_deploy",
-    "owner_decision": "2026-10-27"
+    "status": "plan_only",
+    "owner_decision": "2026-10-28",
+    "split": ["P4a_ОДДС", "P4b_дебиторка"],
+    "implementation": "not_started_no_code"
+  },
+  "staging_window_2026_10_28": {
+    "status": "completed",
+    "product_sha": "ebd391228a76846f1c805f568467ea8f846e6aa5",
+    "api_image": "finpilot-api:release-candidate-ebd391228a76846f1c805f568467ea8f846e6aa5",
+    "api_image_id_local": "sha256:b79d6052e53bb767a15189f5ed1067d3799b12d30926e9733d89dac521dc9f0a",
+    "artifact_sha256_tarball": "68a6c236779a6f68aae069d1ed8a00dd1abd3f8bfbfdcf7a9eb15304d40aea1f",
+    "frontend_deploy": "skipped_D5_no_src_changes",
+    "frontend_image_present": "finpilot-frontend:release-candidate-ebd3912… (собран, на стенд не выкатывался)",
+    "rollback_images_kept": [
+      "finpilot-api:release-candidate-9819768179bba0c09243f5706dd59df10645dbce",
+      "finpilot-frontend:release-candidate-9819768179bba0c09243f5706dd59df10645dbce",
+      "finpilot-api:release-be9e47a…"
+    ],
+    "schema_before": "20261022_0016",
+    "schema_after": "20261027_0017",
+    "settings": {
+      "classification_packs_enabled": false,
+      "receivable_aging_max_rows": 500,
+      "mail_quarantine_enabled": false,
+      "send_flags": "all false",
+      "billing_mode": "test"
+    },
+    "backup": {
+      "enc_file": "finpilot-staging-REL0-20261028T081545Z.tar.enc",
+      "enc_sha256": "57fe4b435d201f5c370a17ff39b16b5ba570f8f519aa1848e7048674f2cbaa1a",
+      "verify": "REL0_BACKUP_VERIFY_OK",
+      "verify_manifest_schema": "20261022_0016",
+      "offsite_path": "~/finpilot-backups/ (вне репозитория, Mac владельца)",
+      "offsite_sha256_match": true
+    },
+    "smoke": {
+      "health_live_ready": 200,
+      "logs_traceback": false,
+      "pack_routes_404": ["preview", "install", "disable", "apply"],
+      "cashflow_oct": {"in": "27000.00", "out": "46500.50", "external_count": 5, "net": "-19500.50"},
+      "receivable_aging_as_of_2026_10_31": {
+        "total": "8001.50",
+        "buckets": {"0-30": "8001.50", "31-60": "0.00", "61-90": "0.00", ">90": "0.00"},
+        "rows": 2
+      },
+      "clientbank_2a": "5 строк, повторная загрузка без дубликатов; аннулированы через POST /transactions/{id}/void (5 audit transaction_void)",
+      "baseline_top_posted_ops": 5
+    },
+    "real_client_data_on_staging": false,
+    "deviations": [
+      "receivable_demo на staging не загружался: ORACLE 47506.00 и корзины P2 проверены на полигоне/CI, не на стенде",
+      "все 5 операций «Топ» остаются в секции unmapped: на staging нет ни одного правила классификации (исходное состояние REL0)"
+    ]
+  },
+  "deploy_allowlist_commit_2026_10_28": {
+    "commit": "d08c35ce01dc159b768d493a6a000494f7d3635b",
+    "scope": "только .github/workflows/release-candidate-rel0-artifacts.yml (REL0_PRODUCT_CANDIDATE_SHA → ebd3912, ALEMBIC_HEAD → 0017)",
+    "note": "product SHA не содержит себя; правка allowlist отдельным ci-коммитом после product",
+    "artifact_run_id": 40651401501
+  },
+  "classification_pack_v1": {
+    "pack": "ru-bank-clientbank/1.0.0",
+    "rules": 32,
+    "priority_base": 1000,
+    "status": "in_repo_disabled_on_staging",
+    "code_commit": "1be94b5",
+    "docs_commit": "ebd3912",
+    "flag_default": false,
+    "installed_in_tenant": false,
+    "hold_out": "второй месяц/банк локально, не CI; до hold-out набор не включается"
   },
   "fa_r06_1_p2": {
     "status": "done_in_repo",

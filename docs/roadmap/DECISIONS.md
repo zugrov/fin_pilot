@@ -433,6 +433,25 @@ FA-R00.3 не блокируют.
   [40469050668](https://github.com/zugrov/fin_pilot/actions/runs/40469050668) success ~2m44s (7+4 passed).
 - **Локально:** stale preview E2E — детерминированный route gate (без `waitForTimeout`); classification ×3 green на чистой `finpilot_test`.
 
+### REL1 · окно staging 2026-10-28 (деплой + миграция 0017) (**2026-10-28**)
+
+- **Статус:** **окно выполнено и закрыто**; staging на новом product SHA; набор правил v1 **выключен**.
+- **Product SHA:** `ebd391228a76846f1c805f568467ea8f846e6aa5` (`ebd3912`). HEAD `main` после окна — `d08c35c` (**только** allowlist workflow, product-код там не менялся).
+- **Schema staging:** `20261022_0016` → **`20261027_0017`** (единственная новая миграция: `revenue_entries.linked_sale_entry_id` + FK `NOT VALID` → `VALIDATE` + частичный индекс `revenue_entries_linked_sale_idx`). Строк в `revenue_entries` до/после — **2 / 2**.
+- **Образ:** `finpilot-api:release-candidate-ebd391228a76846f1c805f568467ea8f846e6aa5` (api, worker, beat). Tarball sha256 `68a6c236779a6f68aae069d1ed8a00dd1abd3f8bfbfdcf7a9eb15304d40aea1f`; artifact `finpilot-api-release-candidate-ebd3912…-run-40651401501-linux-amd64`. Override `/var/tmp/finpilot-rel0-candidate-ebd3912/compose.override.yml`.
+- **D-5 пропущен:** `git diff 9819768..ebd3912 -- frontend/src` — **пусто**; frontend на стенде остался **9819768**.
+- **Флаги:** `CLASSIFICATION_PACKS_ENABLED` **не задавался** (default **false** → 4 маршрута pack отвечают **404**); `RECEIVABLE_AGING_MAX_ROWS` default **500**; `MAIL_QUARANTINE_ENABLED=false`; `SESSION_INGEST_ENABLED`/`SEND_*`/`POLL_IMAP`/`REFUNDS_ENABLED` — **false**; `BILLING_MODE=test`. **Без изменений в окне.**
+- **Backup D-1/D-2:** `finpilot-staging-REL0-20261028T081545Z.tar.enc`, SHA-256 `57fe4b435d201f5c370a17ff39b16b5ba570f8f519aa1848e7048674f2cbaa1a`, verify **`REL0_BACKUP_VERIFY_OK`** (`manifest schema_before=20261022_0016`, baseline «Топ»). Offsite-копия на Mac владельца `~/finpilot-backups/` (вне репозитория), **sha256 совпал** с сервером и sidecar. Парольная фраза не копировалась и не выводилась.
+- **Rollback:** образы **9819768** (api + frontend) и **be9e47a** оставлены на диске; `.enc` этого окна — точка восстановления данных.
+- **Smoke D-6:** health live/ready **200**, логи без traceback; cashflow «Топ» октябрь — **27 000.00 / 46 500.50**, `external_count=5`, `net_external=-19 500.50` = сверка с БД; receivable-aging `as_of=2026-10-31` — **200**, итог **8 001.50** = ручной расчёт по двум строкам выручки, корзины `0-30 8 001.50` / остальные `0.00`, сумма корзин = итог; ClientBank 2a (cp1251, оба ключа дат, один пуст) — 5 строк, повторная загрузка **тот же batch**, без дубликатов.
+- **Аннулирование синтетики:** 5 сентябрьских операций ClientBank-фикстуры отменены штатно `POST /api/v1/transactions/{id}/void` (**5** записей `transaction_void` в аудите), **не** SQL-удалением. После: posted операций «Топ» = **5**, октябрьский cashflow без изменений.
+- **Отклонения:**
+  - **`receivable_demo` на staging не загружался.** Поэтому ORACLE **47 506,00** и корзины P2 (32 501 / 5 002 / 5 002 / 5 001) **на стенде не воспроизводились** — они проверяются на полигоне/CI (`test_receivable_polygon_p2`). На стенде итог по фактическим двум строкам — **8 001.50**. Групповой ORACLE **117 500 / 46 000** не пересчитывался.
+  - Все 5 операций «Топ» остаются в секции `unmapped`: на staging нет ни одного правила классификации — исходное состояние REL0, не регрессия.
+  - В `/fin_pilot` на VPS git HEAD — `7ee85e5`; деплой выполнен образом и скриптами из `/var/tmp`, исходники на сервере не обновлялись.
+- **Реальные данные клиента на staging не загружались.**
+- **Остаточные риски:** restore уровня 2 (восстановление в `finpilot`) не репетировался; набор правил v1 не проходил hold-out (второй месяц/банк) и в tenant не устанавливался; classification/polygon E2E не входят в required checks.
+
 ### FA-R06.2-B0 · массовая отмена применения правила (2026-10-22)
 
 - **Статус:** отложено; **не** в scope FA-R06.2-B0.

@@ -923,3 +923,46 @@ bash /var/tmp/finpilot-rel0-artifacts/rel0-backup-verify.sh \
 **Не проверено:** restore level-2 в `finpilot`; Celery queue policy при откате; classification/polygon E2E в CI.
 
 **Дальше:** B4 и CI — **только решение владельца** (`STATE.json` → `fa_r06_rel0_acceptance`).
+
+---
+
+## REL1 · окно staging 2026-10-28 (закрыто)
+
+**Статус:** **выполнено и закрыто**. Стенд переведён на новый product SHA, схема обновлена, набор правил v1 выключен. Реальные данные клиента на staging **не загружались**.
+
+| Поле | Значение |
+| --- | --- |
+| Product SHA | `ebd391228a76846f1c805f568467ea8f846e6aa5` |
+| HEAD `main` после окна | `d08c35ce01dc159b768d493a6a000494f7d3635b` — **только** allowlist `release-candidate-rel0-artifacts` |
+| Schema до → после | `20261022_0016` → **`20261027_0017`** |
+| Api/worker/beat image | `finpilot-api:release-candidate-ebd391228a76846f1c805f568467ea8f846e6aa5` |
+| Api image `.Id` (VPS, docker inspect) | `sha256:b79d6052e53bb767a15189f5ed1067d3799b12d30926e9733d89dac521dc9f0a` |
+| Api tarball sha256 | `68a6c236779a6f68aae069d1ed8a00dd1abd3f8bfbfdcf7a9eb15304d40aea1f` |
+| Artifact run | [40651401501](https://github.com/zugrov/fin_pilot/actions/runs/40651401501) · `finpilot-api-release-candidate-ebd3912…-run-40651401501-linux-amd64` |
+| Override | `/var/tmp/finpilot-rel0-candidate-ebd3912/compose.override.yml` |
+| Frontend | **D-5 пропущен** — на стенде остался `release-candidate-9819768…`; `git diff 9819768..ebd3912 -- frontend/src` **пусто** |
+| Backup D-1 | `finpilot-staging-REL0-20261028T081545Z.tar.enc` · SHA-256 `57fe4b435d201f5c370a17ff39b16b5ba570f8f519aa1848e7048674f2cbaa1a` · verify **`REL0_BACKUP_VERIFY_OK`** (`schema_before=20261022_0016`) |
+| Offsite | `~/finpilot-backups/` на Mac владельца (вне репозитория), sha256 **совпал**; парольная фраза не копировалась |
+| Rollback | образы **9819768** (api+frontend) и **be9e47a** на диске не удалялись |
+| Флаги | `CLASSIFICATION_PACKS_ENABLED` **не задавался** (default **false**); `RECEIVABLE_AGING_MAX_ROWS` default **500**; quarantine/SEND\_\*/IMAP/refunds **false**; balances import **true**; billing **test** |
+
+**Smoke D-6 (агент):**
+
+| Проверка | Результат |
+| --- | --- |
+| `health/live`, `health/ready` | **200 / 200** подряд, логи без traceback |
+| Pack routes `preview`/`install`/`disable`/`apply` | **404 ×4** (флаг выключен) |
+| Cashflow «Топ» 2026-10-01…31 | поступления **27 000.00**, списания **46 500.50**, `external_count=5`, `net_external=-19 500.50` — совпало с SQL |
+| Receivable aging `as_of=2026-10-31` | **200**; итог **8 001.50** = ручная сверка по двум строкам; корзины `0-30 8 001.50`, остальные `0.00`; сумма корзин = итог; структура содержит `completeness`, `quality_flags`, `rows`, `totals_by_bucket`, `rows_truncated`, `unallocated_receipts` |
+| ClientBank 2a (cp1251, оба ключа дат, один пуст) | 5 строк `new=5`; повторная загрузка → тот же batch; posted не изменилось; дубликатов `source_identities.external_id` — **0** |
+| Сентябрьские операции фикстуры | аннулированы штатным `POST /api/v1/transactions/{id}/void` (5 записей `transaction_void`), **не** SQL; posts «Топ» = **5**, октябрь без изменений |
+| Схема после старта | `alembic_version = 20261027_0017`; колонка `linked_sale_entry_id` и индекс `revenue_entries_linked_sale_idx` на месте |
+
+**Отклонения и остаточные риски:**
+
+- **`receivable_demo` на staging не загружался.** ORACLE **47 506,00** и корзины P2 (**32 501 / 5 002 / 5 002 / 5 001**) на стенде **не воспроизводились** — они проверяются на полигоне/CI (`test_receivable_polygon_p2`). Групповой ORACLE **117 500 / 46 000** не пересчитывался.
+- Все 5 операций «Топ» остаются в `unmapped`: на стенде нет правил классификации — исходное состояние REL0, не регрессия.
+- В `/fin_pilot` на VPS git HEAD `7ee85e5`: деплой шёл образом и override из `/var/tmp`, исходники на сервере не обновлялись.
+- Restore **уровня 2** в `finpilot` не репетировался (только probe verify).
+- Набор правил v1: `classification_packs_enabled=false`, в tenant **не устанавливался**; hold-out (второй месяц/банк) не проходил → в продукт не включается.
+- classification/polygon E2E **не** required checks.
