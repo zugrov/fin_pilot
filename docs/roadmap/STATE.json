@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.2",
   "status": "in_progress",
-  "allowed_next_action": "FA-R06.1-P4b (дебиторка): код не начат, нужно отдельное разрешение. P4a: код в repo (ac06f3e), на staging НЕ задеплоен. FA-R03.2b: сверка S1/S2/S3. FA-R03.1: S9–S11 и 8.3.x — ждём клиента. Набор правил v1 (ru-bank-clientbank 1.0.0) в коде, в tenant не устанавливался.",
+  "allowed_next_action": "P4a и P4b: код в repo (ac06f3e, f147092), на staging НЕ задеплоены — деплой отдельным решением. FA-R03.2b: сверка S1/S2/S3. FA-R03.1: S9–S11 и 8.3.x — ждём клиента. Набор правил v1 (ru-bank-clientbank 1.0.0) в коде, в tenant не устанавливался.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -1748,7 +1748,7 @@
     "deploy_staging": "deployed_2026_10_28"
   },
   "fa_r06_1_p4": {
-    "status": "p4a_done_in_repo",
+    "status": "done_in_repo",
     "owner_decision": "2026-10-28",
     "split": ["P4a_ОДДС", "P4b_дебиторка"],
     "p4a": {
@@ -1764,8 +1764,20 @@
       "screens": "var/p4a-screens/ (локально, не в git)"
     },
     "p4b": {
-      "status": "planned_not_started",
-      "route": "/receivables"
+      "status": "done_in_repo",
+      "commit": "f147092",
+      "route": "/receivables",
+      "menu_link": "Дебиторка",
+      "deployed_staging": "not_deployed_owner_forbade",
+      "unit": "frontend 166 passed (receivable 33)",
+      "local_e2e": {"default": "16 passed", "polygon": "14 passed"},
+      "oracle_fixture": "frontend/e2e/fixtures/receivable-demo-oracle.json (снят с реального API профиля receivable_demo, as_of 2026-10-31)",
+      "oracle_values": {
+        "total": "47506.00",
+        "buckets": {"0-30": "32501.00", "31-60": "5002.00", "61-90": "5002.00", ">90": "5001.00"},
+        "unallocated": "15000.00"
+      },
+      "screens": "var/p4b-screens/ (локально, не в git)"
     }
   },
   "staging_window_2026_10_28": {
