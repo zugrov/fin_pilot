@@ -310,9 +310,26 @@ export type UnclassifiedList = {
   cursor: { business_date: string; transaction_id: string } | null;
 };
 
+export type CashflowSection = {
+  code: string;
+  in: string;
+  out: string;
+  transaction_ids?: string[];
+};
+
 export type CashflowReport = {
-  sections: { code: string; in: string; out: string }[];
+  company_id: string;
+  as_of: string;
+  date_from: string;
+  date_to: string;
+  input_revision: string;
+  quality_flags: string[];
+  completeness: string;
+  metric_basis: string;
+  external_count: number;
   net_external: string;
+  sections: CashflowSection[];
+  drilldown_refs: { transaction_ids: string[] };
 };
 
 export type Source = {
@@ -965,4 +982,12 @@ export function classifyCashTransaction(
 export function loadCashflow(companyId: string, dateFrom: string, dateTo: string) {
   const query = new URLSearchParams({ date_from: dateFrom, date_to: dateTo });
   return request<CashflowReport>(`/api/v1/companies/${companyId}/cashflow?${query.toString()}`);
+}
+
+/** Тот же запрос, что loadCashflow, но с HTTP-статусом в ошибке (403/404/422/сеть). */
+export function loadCashflowWithStatus(companyId: string, dateFrom: string, dateTo: string) {
+  const query = new URLSearchParams({ date_from: dateFrom, date_to: dateTo });
+  return walletRequest<CashflowReport>(
+    `/api/v1/companies/${companyId}/cashflow?${query.toString()}`,
+  );
 }

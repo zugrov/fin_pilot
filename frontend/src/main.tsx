@@ -9,6 +9,7 @@ import { ForgotPage, LoginPage, RegisterPage, ResetPage, VerifyPage } from "./pa
 import { AlertsPage } from "./pages/AlertsPage";
 import { BudgetsPage } from "./pages/BudgetsPage";
 import { CalendarPage } from "./pages/CalendarPage";
+import { CashflowPage } from "./pages/CashflowPage";
 import { ClassificationPage } from "./pages/ClassificationPage";
 import { ForecastPage } from "./pages/ForecastPage";
 import { ImportPage } from "./pages/ImportPage";
@@ -20,6 +21,7 @@ import { WalletsPage } from "./pages/WalletsPage";
 const router = createBrowserRouter([
   { path: "/", element: <OverviewPage /> },
   { path: "/overview", element: <OverviewPage /> },
+  { path: "/cashflow", element: <CashflowPage /> },
   { path: "/wallets", element: <WalletsPage /> },
   { path: "/sales", element: <SalesPage /> },
   { path: "/calendar", element: <CalendarPage /> },

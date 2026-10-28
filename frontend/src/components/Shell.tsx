@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 const LINKS = [
   ["/overview", "Обзор"],
+  ["/cashflow", "Деньги"],
   ["/wallets", "Кошельки"],
   ["/sales", "Продажи"],
   ["/calendar", "Календарь"],
