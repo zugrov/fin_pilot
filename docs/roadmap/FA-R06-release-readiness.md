@@ -966,3 +966,50 @@ bash /var/tmp/finpilot-rel0-artifacts/rel0-backup-verify.sh \
 - Restore **уровня 2** в `finpilot` не репетировался (только probe verify).
 - Набор правил v1: `classification_packs_enabled=false`, в tenant **не устанавливался**; hold-out (второй месяц/банк) не проходил → в продукт не включается.
 - classification/polygon E2E **не** required checks.
+
+---
+
+## REL1 · окно frontend P4a+P4b (2026-10-29, закрыто и принято)
+
+**Статус:** **закрыто**; P4a и P4b **приняты владельцем 2026-10-29** (приёмка в браузере через SSH-туннель `127.0.0.1:8090`).
+
+| Слой | Значение после окна |
+| --- | --- |
+| **frontend** | `finpilot-frontend:release-candidate-f1470927045f05c5e35a158baf434006aa0db46b` · `.Id` `sha256:582bd01c8c31…` · контейнер `34d1873ac688` · started `2026-10-29T05:22:05Z` |
+| **api / worker / beat** | `finpilot-api:release-candidate-ebd391228a76846f1c805f568467ea8f846e6aa5` — **не перезапускались**: `6a952bda96c7`, `249b61bf9375`, `a2ae6e6bd616`, `StartedAt` `2026-10-28T08:20:49Z` |
+| **schema** | **`20261027_0017`** — без изменений |
+| **бэкап БД** | не повторялся; используется `.enc` от 2026-10-28 (verify OK, offsite OK) |
+
+| Поле | Значение |
+| --- | --- |
+| Product SHA | `f1470927045f05c5e35a158baf434006aa0db46b` (P4a `ac06f3e` + P4b `f147092`) |
+| Artifact run | [40745480017](https://github.com/zugrov/fin_pilot/actions/runs/40745480017) |
+| Artifact name | `finpilot-frontend-release-candidate-f147092…-run-40745480017-linux-amd64` |
+| Tarball sha256 | `be2a6b5562878956296883f925b139ba946c268d447561d1e219f2b2dd51abc9` |
+| Retention | 21 день (до 2026-11-18) |
+| Allowlist | отдельный ci-коммит `abcf0d2`; `ALEMBIC_HEAD` = `20261027_0017` |
+| Rollback image | `finpilot-frontend:release-candidate-9819768…` (`sha256:0867913db57b…`) — **оставлен** |
+
+**Смоук:**
+
+| Проверка | Результат |
+| --- | --- |
+| `health/live`, `health/ready` | **200 / 200** |
+| `GET /` | **200**, `text/html`, бандл `index-GG57nPoL.js` (477 004 байта) |
+| `GET /assets/*.js`, `*.css` | **200** (`application/javascript`, `text/css`) |
+| `GET /cashflow`, `GET /receivables` | **200**, HTML приложения (`<div id="root">`) |
+| API cashflow «Топ» октябрь | поступления **27 000,00**, списания **46 500,50**, `external_count=5` |
+| API receivable-aging `as_of=2026-10-31` | **8 001,50**, корзина `0-30` = 8 001,50, строк **2** |
+| Логи frontend/api/worker/beat | **0 traceback** |
+
+**E2E на продуктивном SHA (ручные dispatch ×2):** [40743997791](https://github.com/zugrov/fin_pilot/actions/runs/40743997791), [40744745826](https://github.com/zugrov/fin_pilot/actions/runs/40744745826) — оба **14 + 4 passed**.
+
+**Ночное расписание (cron) — зафиксированное расхождение:**
+
+- **2026-10-28:** единственный scheduled-прогон [40652211890](https://github.com/zugrov/fin_pilot/actions/runs/40652211890) — success, **7 + 4 passed**, но на коммите **`d08c35c`**, то есть **до P4a/P4b**. Новые экраны он не покрывал: четыре `cashflow-polygon` появились только с P4a.
+- **2026-10-29:** scheduled-запусков **0**. Workflow `active`, в самом workflow ошибок нет; GitHub cron — **best-effort** и может пропускаться.
+- **Действие:** отдельным ci-коммитом cron изменён с `0 2 * * *` на **`17 3 * * *`**. Больше в workflow **ничего** не добавлено (ни шаг-счётчик, ни required check).
+
+**Откат** (не потребовался): rollback-override на образ `9819768` и `up -d --no-deps --no-build --pull never frontend`; восстановление БД не нужно, данные не менялись.
+
+**Реальные данные клиента на staging не загружались.**

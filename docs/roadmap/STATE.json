@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.2",
   "status": "in_progress",
-  "allowed_next_action": "P4a и P4b: код в repo (ac06f3e, f147092), на staging НЕ задеплоены — деплой отдельным решением. FA-R03.2b: сверка S1/S2/S3. FA-R03.1: S9–S11 и 8.3.x — ждём клиента. Набор правил v1 (ru-bank-clientbank 1.0.0) в коде, в tenant не устанавливался.",
+  "allowed_next_action": "P4a и P4b приняты владельцем 2026-10-29 и задеплоены на staging (frontend f147092, backend ebd3912, schema 0017). Дальше: FA-R03.2b сверка S1/S2/S3; FA-R03.1 S9–S11 и 8.3.x — ждём клиента. Набор правил v1 в коде, в tenant не устанавливался. Изменения cron polygon — отдельным ci-коммитом.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -1690,8 +1690,8 @@
     "storage_primary": "raw_import_rows.normalized_payload stale_guard before after",
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
-  "note": "REL1 2026-10-28: окно staging выполнено — product ebd3912, schema 20261027_0017, pack v1 выключен, offsite проверен. Q6 → набор-шаблон v1; проценты по депозитам → investing; P4 (ОДДС, дебиторка) — план, не код.",
-  "updated_at": "2026-10-28",
+  "note": "REL1 2026-10-29: P4a+P4b приняты и задеплоены на staging (только frontend f147092); backend ebd3912, schema 20261027_0017 без изменений. Окно 2026-10-28 (backend+0017) закрыто ранее. Pack v1 выключен. Q6 → набор-шаблон v1; проценты по депозитам → investing.",
+  "updated_at": "2026-10-29",
   "owner_decisions_2026_10_27": {
     "clientbank_external_id_slice_2a": "accepted_no_identity_migration_real_cb_never_committed",
     "revenue_return_linked_sale_entry_id": "nullable_fk_no_backfill",
@@ -1748,15 +1748,16 @@
     "deploy_staging": "deployed_2026_10_28"
   },
   "fa_r06_1_p4": {
-    "status": "done_in_repo",
+    "status": "accepted_and_deployed",
     "owner_decision": "2026-10-28",
+    "owner_acceptance": "accepted_2026-10-29",
     "split": ["P4a_ОДДС", "P4b_дебиторка"],
     "p4a": {
-      "status": "done_in_repo",
+      "status": "accepted_and_deployed",
       "commit": "ac06f3e",
       "route": "/cashflow",
       "menu_link": "Деньги",
-      "deployed_staging": "not_deployed_owner_forbade",
+      "deployed_staging": "deployed_2026_10_29_with_frontend_f147092",
       "ci_run": 40676155466,
       "e2e_run": 40676155422,
       "local_e2e": {"default": "11 passed", "polygon": "10 passed"},
@@ -1764,11 +1765,11 @@
       "screens": "var/p4a-screens/ (локально, не в git)"
     },
     "p4b": {
-      "status": "done_in_repo",
+      "status": "accepted_and_deployed",
       "commit": "f147092",
       "route": "/receivables",
       "menu_link": "Дебиторка",
-      "deployed_staging": "not_deployed_owner_forbade",
+      "deployed_staging": "deployed_2026_10_29_with_frontend_f147092",
       "unit": "frontend 166 passed (receivable 33)",
       "local_e2e": {"default": "16 passed", "polygon": "14 passed"},
       "oracle_fixture": "frontend/e2e/fixtures/receivable-demo-oracle.json (снят с реального API профиля receivable_demo, as_of 2026-10-31)",
@@ -1779,6 +1780,46 @@
       },
       "screens": "var/p4b-screens/ (локально, не в git)"
     }
+  },
+  "staging_window_frontend_2026_10_29": {
+    "status": "completed_and_accepted",
+    "product_sha": "f1470927045f05c5e35a158baf434006aa0db46b",
+    "scope": "только frontend; backend, схема и данные не менялись; бэкап БД не повторялся",
+    "frontend_image": "finpilot-frontend:release-candidate-f1470927045f05c5e35a158baf434006aa0db46b",
+    "frontend_image_id_local": "sha256:582bd01c8c31f0734af40254822e6b12a8554e86aad383192afac3860ffc0714",
+    "frontend_artifact": "finpilot-frontend-release-candidate-f147092…-run-40745480017-linux-amd64",
+    "frontend_artifact_sha256": "be2a6b5562878956296883f925b139ba946c268d447561d1e219f2b2dd51abc9",
+    "artifact_retention": "21 день, до 2026-11-18",
+    "allowlist_commit": "abcf0d2b7105018c65d5eb7b045aaaf81063250d",
+    "artifact_run_id": 40745480017,
+    "backend_unchanged": {
+      "api": "finpilot-api:release-candidate-ebd391228a76846f1c805f568467ea8f846e6aa5 (container 6a952bda96c7)",
+      "worker": "container 249b61bf9375",
+      "beat": "container a2ae6e6bd616",
+      "started_at": "2026-10-28T08:20:49Z — не перезапускались",
+      "schema": "20261027_0017"
+    },
+    "rollback_image_kept": "finpilot-frontend:release-candidate-9819768179bba0c09243f5706dd59df10645dbce (sha256:0867913db57b…)",
+    "smoke": {
+      "health_live_ready": "200 / 200",
+      "root": "200, text/html, бандл index-GG57nPoL.js (477 004 байта)",
+      "spa_routes": {"/cashflow": 200, "/receivables": 200},
+      "api_cashflow_oct": {"in": "27000.00", "out": "46500.50", "external_count": 5},
+      "api_receivable_aging_2026_10_31": {"total": "8001.50", "rows": 2},
+      "logs_traceback": false
+    },
+    "e2e_polygon_runs_on_f147092": [
+      {"run_id": 40743997791, "event": "workflow_dispatch", "conclusion": "success", "passed": "14 + 4"},
+      {"run_id": 40744745826, "event": "workflow_dispatch", "conclusion": "success", "passed": "14 + 4"}
+    ],
+    "nightly_cron_findings": {
+      "schedule_2026_10_28": {"run_id": 40652211890, "head_sha": "d08c35ce01dc159b768d493a6a000494f7d3635b", "conclusion": "success", "passed": "7 + 4", "note": "до P4a/P4b: набор был 7 полигонных + 4 classification"},
+      "schedule_2026_10_29": {"runs": 0, "note": "расписание не сработало; GitHub cron — best-effort и может пропускаться"},
+      "workflow_state": "active",
+      "cron_before": "0 2 * * *",
+      "cron_after_ci_commit": "17 3 * * *"
+    },
+    "real_client_data_on_staging": false
   },
   "staging_window_2026_10_28": {
     "status": "completed",
