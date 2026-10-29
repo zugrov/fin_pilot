@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.2",
   "status": "in_progress",
-  "allowed_next_action": "P4a и P4b приняты владельцем 2026-10-29 и задеплоены на staging (frontend f147092, backend ebd3912, schema 0017). Дальше: FA-R03.2b сверка S1/S2/S3; FA-R03.1 S9–S11 и 8.3.x — ждём клиента. Набор правил v1 в коде, в tenant не устанавливался. Изменения cron polygon — отдельным ci-коммитом.",
+  "allowed_next_action": "Визуальное направление FinPilot v2 принято владельцем 2026-10-29 и слито в main (42d3e6f), ci и e2e на main зелёные, полигон 14 + 4. Staging НЕ обновлён: там frontend f147092, backend ebd3912, schema 0017. Дальше: отдельное решение на окно замены только frontend. Параллельно: FA-R03.2b сверка S1/S2/S3; FA-R03.1 S9–S11 и 8.3.x — ждём клиента. Набор правил v1 в коде, в tenant не устанавливался.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -2226,5 +2226,53 @@
       ]
     },
     "pending": "приёмка владельцем 2b вместе с 2c после ручной проверки"
+  },
+  "design_system_v2_2026_10_29": {
+    "status": "accepted_by_owner_2026_10_29",
+    "direction": "Equinox / «Управленческий контроль»",
+    "owner_acceptance": "Владелец принимает текущее визуальное направление FinPilot v2 как первую рабочую версию по скриншоту; новую итерацию дизайна не начинать",
+    "implementation_sha": "42d3e6f272c0d8784e40635d3b74d677d4b02982",
+    "branch": "design/system-v1 (слит в main fast-forward, история не переписывалась)",
+    "merge_base": "534e1e9d4629c4a6902cdcedb8467a6b0db0d7ca",
+    "scope": "только frontend: каркас, токены, графики, страницы",
+    "backend_api_migrations_changed": false,
+    "test_results_on_42d3e6f": {
+      "frontend_unit": 185,
+      "frontend_build": "ok",
+      "e2e_default": 16,
+      "e2e_polygon_rel1": "14 + 4",
+      "ci_run_id": 40920143862,
+      "e2e_run_id": 40920143907,
+      "polygon_run_id": 40920376304
+    },
+    "replaces_previous_decision": {
+      "what": "тёмное боковое меню из design/system-v1 (commit c5b3177)",
+      "now": "светлое меню с группами и иконками, как в референсе Equinox",
+      "reason": "решение владельца 2026-10-29 по приложенным примерам удачного дизайна"
+    },
+    "staging": {
+      "updated": false,
+      "note": "staging остаётся на frontend f147092 (backend ebd3912, schema 20261027_0017); окно замены только frontend не открывалось"
+    },
+    "out_of_scope": {
+      "billing_page": "осталась вне выполненного объёма: только замена классов на токены, структура и платёжный сценарий не менялись",
+      "auth_pages": "остались вне выполненного объёма: только замена классов на токены",
+      "note": "обе страницы не помечаются как обновлённые"
+    },
+    "security_and_boundaries": {
+      "new_dependencies": false,
+      "api_changes": false,
+      "classification_packs_enabled": false,
+      "real_client_data": false
+    },
+    "backlog_not_implemented": [
+      "уменьшить высоту KPI-карточек, подробности перенести в раскрываемый блок",
+      "сворачиваемая таблица прогноза",
+      "пользовательские подписи вместо сырых quality_flags",
+      "все видимые денежные значения через существующий Amount/форматтер",
+      "согласовать нулевые корзины в легенде кольца и таблице: подтверждённый ноль — 0,00 ₽, неизвестное значение — «Нет данных»"
+    ],
+    "backlog_test_rule": "при будущих исправлениях тесты проверяют и корректное значение, и пользовательское отображение",
+    "docs_commit_note": "docs-коммит идёт после кода; SHA реализации — 42d3e6f, фактический SHA docs-коммита — HEAD после push (см. git log)"
   }
 }
