@@ -1,4 +1,4 @@
-import { formatMoney } from "../../lib/money";
+import { formatMoney, moneyToNumber } from "../../lib/money";
 
 export type BarDatum = {
   label: string;
@@ -15,21 +15,12 @@ type BarsProps = {
   id?: string;
 };
 
-function toNumber(value: string | null): number | null {
-  if (value === null) {
-    return null;
-  }
-  const cleaned = value.replace(/\s/g, "").replace(",", ".");
-  const parsed = Number(cleaned);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 /**
  * Столбчатая диаграмма без библиотек. Рисуется как SVG, но смысл
  * продублирован таблицей ниже и текстовым описанием для скринридера.
  */
 export function BarChart({ title, data, unit = "руб.", id = "bar" }: BarsProps) {
-  const values = data.map((item) => toNumber(item.value));
+  const values = data.map((item) => moneyToNumber(item.value));
   const known = values.filter((value): value is number => value !== null);
   const hasData = known.length > 0;
   const max = hasData ? Math.max(...known.map((value) => Math.abs(value)), 1) : 1;

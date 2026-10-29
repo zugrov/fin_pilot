@@ -43,6 +43,18 @@ export function toCents(value: string): bigint | null {
   return sign * (BigInt(parts.whole) * 100n + BigInt(parts.fraction));
 }
 
+/** Число для масштабирования диаграмм; null, если строка не разбирается. */
+export function moneyToNumber(value: string | null | undefined): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const cents = toCents(value.trim());
+  if (cents === null) {
+    return null;
+  }
+  return Number(cents) / 100;
+}
+
 export function fromCents(cents: bigint): string {
   const negative = cents < 0n;
   const absolute = negative ? -cents : cents;
@@ -65,6 +77,24 @@ export function sumMoney(values: readonly (string | null | undefined)[]): string
     total += cents;
   }
   return fromCents(total);
+}
+
+/** Доля в промилле на BigInt: value от total. total = 0 → 0, деления на ноль нет. */
+export function permille(value: bigint, total: bigint): bigint {
+  if (total === 0n) {
+    return 0n;
+  }
+  return (value * 1000n) / total;
+}
+
+/** Промилле → подпись процента: 1250 → «12,5 %», 2000 → «20 %». */
+export function percentLabel(permilleValue: bigint): string {
+  const negative = permilleValue < 0n;
+  const absolute = negative ? -permilleValue : permilleValue;
+  const whole = absolute / 10n;
+  const tenth = absolute % 10n;
+  const body = tenth === 0n ? `${whole}` : `${whole},${tenth}`;
+  return `${negative ? "−" : ""}${body} %`;
 }
 
 /** Денежный статус ошибки по HTTP: тип проверяется по полю status. */
