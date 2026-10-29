@@ -26,6 +26,7 @@ import { todayInTimeZone } from "../lib/receivable";
 import { balanceLabel, isLoadedOnly, qualityNotes } from "../lib/overview";
 import { revenueDisplay } from "../lib/revenue";
 import { flowLabel } from "../lib/overview";
+import { gapDisplay } from "../lib/forecast";
 
 /** Сумма поступлений и списаний двух месяцев не складывается: показываем как есть. */
 export function OverviewPage() {  const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
@@ -262,8 +263,13 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
           <KpiCard
             title="Ближайший разрыв"
             value={gapAmount}
+            valueText={
+              gapAmount === null || gapAmount === "0.00"
+                ? gapDisplay(gapAmount, forecast.data?.status ?? "")
+                : undefined
+            }
             caption={gapDate ? `Ожидается ${gapDate}` : "Разрыва не видно"}
-            tone={gapAmount === null ? "neutral" : "outflow"}
+            tone={gapAmount === null || gapAmount === "0.00" ? "neutral" : "outflow"}
             detail={
               forecast.data === undefined ? (
                 <span className="text-note text-ink-subtle">Прогноз не рассчитан</span>

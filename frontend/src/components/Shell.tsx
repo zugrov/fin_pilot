@@ -125,8 +125,10 @@ export function Shell({
             <Link to="/overview" className="lg:hidden" aria-label="FinPilot, на главную">
               <Logo />
             </Link>
-            {title ? <h1 className="text-title">{title}</h1> : null}
-            <div className="ml-auto min-w-0 flex-1">{header}</div>
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              {title ? <h1 className="text-title">{title}</h1> : null}
+              {header ? <div className="min-w-0">{header}</div> : null}
+            </div>
           </div>
         </header>
 
