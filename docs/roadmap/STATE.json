@@ -2159,5 +2159,72 @@
       "CI expansion classification+polygon E2E"
     ],
     "docs": "docs/roadmap/FA-R06-release-readiness.md §REL0 accept"
+  },
+  "fa_r03_2b_2c": {
+    "status": "done_in_repo_pending_owner_acceptance",
+    "2b": {
+      "commit": "82193f5",
+      "content": "сверка S1/S2/S3 чистыми функциями, допуск 0,00"
+    },
+    "2c": {
+      "commit": "52e63ef",
+      "content": "чтение .xls: карточка 51, ОСВ с иерархией по отступам, ОСВ 57.03 с оборотами по дням; мост к 2b",
+      "dependency": "xlrd==2.0.1 в dev-группе; production-образ ставит --no-dev, CI ставит --group dev",
+      "manual_test": "@pytest.mark.manual, пропускается без var/fa-r03-client-samples/"
+    },
+    "tool": {
+      "commit": "3112ff4",
+      "entrypoint": "python -m app.tools.fa_r03_check <папка> --month 2026-09",
+      "ci": false,
+      "readme": "backend/app/tools/README-fa-r03-check.md"
+    },
+    "september_2026_run": {
+      "month": "2026-09",
+      "s1": {
+        "documents": 219,
+        "in": "11548590.94",
+        "out": "11735066.31",
+        "opening": "481939.83",
+        "closing": "295464.46",
+        "chain_errors": 0,
+        "encoding": "cp1251"
+      },
+      "cross_check_51": "S1 = S2 = S3, допуск 0,00 — совпало",
+      "document_match": {
+        "found_by_number": 187,
+        "not_found": 26,
+        "ambiguous": 6,
+        "by_date_amount": 219,
+        "multi_row_documents": 14
+      },
+      "acquiring_5703": {
+        "days": 22,
+        "gross": "1142709.83",
+        "fee": "30346.31",
+        "net": "1112363.52",
+        "day_mismatches": 0,
+        "net_vs_s2_diff": "0.00"
+      },
+      "account_9102": {
+        "osv_turnover": "43307.41",
+        "bank_fees": "12961.10",
+        "acquiring_fee": "30346.31",
+        "diff": "0.00"
+      },
+      "rule_accuracy_vs_s2": {
+        "labeled_documents": 219,
+        "correct": 216,
+        "accuracy_by_count": "98.63 %",
+        "accuracy_by_amount": "99.99 %",
+        "expected_by_owner": "219/219, 100 %",
+        "discrepancy_note": "3 документа — поступления 1000,00 с назначением из одних цифр (корр. счёт 90.01.1). Калибровка v2 добивала такие строки fallback-правилом «поступление с ИНН → operating», которое для набора v1 запрещено владельцем. Набор под выборку не подгонялся.",
+        "caveat": "обучающая выборка, не доказательство качества; нужен hold-out"
+      },
+      "skipped_sections": [
+        "S11 (журнал реализаций) — ожидается образец",
+        "S9/S10 (счёт 62) — ожидается образец"
+      ]
+    },
+    "pending": "приёмка владельцем 2b вместе с 2c после ручной проверки"
   }
 }
