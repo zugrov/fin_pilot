@@ -5,11 +5,30 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+from typing import Protocol
 
 from app.domain.imports.fa_r03.clientbank_daily import ClientBankDailySection
 from app.domain.money import money
 
 ZERO = Decimal("0.00")
+
+
+class CardRowLike(Protocol):
+    """Минимум, который даёт чтение .xls (FA-R03.2c)."""
+
+    business_date: date
+    document: str
+    amount: Decimal
+
+    @property
+    def direction(self) -> str: ...
+
+
+class StatementLike(Protocol):
+    direction: str
+    business_date: date
+    amount: Decimal
+    document_number: str | None
 
 
 @dataclass(frozen=True)
@@ -197,3 +216,29 @@ def _all_within(values: list[Decimal], tolerance: Decimal) -> bool:
         if abs(money(item) - money(anchor)) > tolerance:
             return False
     return True
+
+
+def card51_rows_to_reconcile(rows: list[CardRowLike]) -> list[Card51Row]:
+    """Мост: строки карточки 51 → тип сверки (номер документа = название документа 1С)."""
+    return [
+        Card51Row(
+            direction=row.direction,
+            business_date=row.business_date,
+            amount=money(row.amount),
+            document_number=(row.document or "").strip() or None,
+        )
+        for row in rows
+    ]
+
+
+def statement_documents_from_s1(docs: list[StatementLike]) -> list[StatementDocument]:
+    """Мост: разобранные документы S1 → тип сверки."""
+    return [
+        StatementDocument(
+            direction=doc.direction,
+            business_date=doc.business_date,
+            amount=money(doc.amount),
+            document_number=str(doc.document_number or "").strip(),
+        )
+        for doc in docs
+    ]

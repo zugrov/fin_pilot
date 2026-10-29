@@ -27,6 +27,8 @@ dev = [
   "mypy>=1.13",
   "pytest>=8.3",
   "ruff>=0.8",
+  # FA-R03.2c: чтение .xls (карточка 51, ОСВ). Только dev, не в production-образ.
+  "xlrd==2.0.1",
 ]
 
 [tool.ruff]
@@ -48,6 +50,9 @@ ignore = ["B008"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+markers = [
+  "manual: ручная проверка на локальных образцах клиента (var/fa-r03-client-samples), не в CI",
+]
 
 [tool.mypy]
 python_version = "3.12"
