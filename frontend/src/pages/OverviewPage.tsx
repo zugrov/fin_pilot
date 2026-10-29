@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 
 import {
   listCompanies,
+  loadCashflowWithStatus,
   loadDashboard,
   loadForecast,
   loadReceivableAgingWithStatus,
@@ -12,11 +13,13 @@ import {
 } from "../api";
 import { Shell } from "../components/Shell";
 import { Amount } from "../components/system/Amount";
-import { BarChart } from "../components/system/BarChart";
+import { DonutChart } from "../components/system/DonutChart";
 import { FreshnessLabel } from "../components/system/FreshnessLabel";
+import { GroupedBarChart } from "../components/system/GroupedBarChart";
 import { KpiCard } from "../components/system/KpiCard";
 import { PeriodPicker } from "../components/system/PeriodPicker";
 import { StatusChip } from "../components/system/StatusChip";
+import { SECTIONS, sectionLabel } from "../lib/cashflow";
 import { BUCKETS } from "../lib/receivable";
 import { monthRangeInTimeZone } from "../lib/periodRange";
 import { todayInTimeZone } from "../lib/receivable";
@@ -66,6 +69,13 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
     enabled: Boolean(companyId),
   });
 
+  // ОДДС за тот же период: секции нужны для сгруппированных столбцов на Обзоре.
+  const cashflow = useQuery({
+    queryKey: ["cashflow-overview", companyId, period.from, period.to],
+    queryFn: () => loadCashflowWithStatus(companyId, period.from, period.to),
+    enabled: Boolean(companyId),
+  });
+
   const values = dashboard.data?.values;
   const flags = dashboard.data?.quality_flags ?? [];
   const notes = qualityNotes(flags);
@@ -99,18 +109,32 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
   const gapAmount = forecast.data?.gap_amount ?? null;
   const gapDate = forecast.data?.gap_date ?? null;
 
-  const cashflowBars = (dashboard.data?.values ?? null)
-    ? [
-        { label: "Поступления", value: values?.cash_in ?? null },
-        { label: "Списания", value: values?.cash_out ?? null },
-        { label: "Чистое движение", value: values?.net_cash_flow ?? null },
-      ]
-    : [];
+  // Секции ОДДС в фиксированном порядке: неизвестные коды — в конец.
+  const cashflowSections = (cashflow.data?.sections ?? [])
+    .slice()
+    .sort((a, b) => {
+      const indexA = SECTIONS.indexOf(a.code as (typeof SECTIONS)[number]);
+      const indexB = SECTIONS.indexOf(b.code as (typeof SECTIONS)[number]);
+      return (indexA === -1 ? SECTIONS.length : indexA) - (indexB === -1 ? SECTIONS.length : indexB);
+    });
 
-  const receivableBars = BUCKETS.map((code) => ({
-    label: code === ">90" ? "> 90" : code,
-    // Если дебиторка недоступна — null, а не ноль: диаграмма покажет пустоту.
+  const sectionBars = cashflowSections.map((section) => ({
+    label: sectionLabel(section.code),
+    values: [section.in, section.out],
+  }));
+
+  const receivableSlices = BUCKETS.map((code, index) => ({
+    label: code === ">90" ? "Старше 90 дней" : code,
     value: agingData === undefined ? null : (bucketTotals[code] ?? null),
+    color: `var(--fp-series-${(index % 6) + 1})`,
+  }));
+
+  // Прогноз: только существующий ряд points, без выдуманных данных.
+  const forecastPoints = forecast.data?.points ?? [];
+  const shownForecastPoints = forecastPoints.slice(0, 14);
+  const forecastBars = shownForecastPoints.map((point) => ({
+    label: `${point.date.slice(8, 10)}.${point.date.slice(5, 7)}`,
+    values: [point.inflows, point.outflows],
   }));
 
   const freshness = {
@@ -254,8 +278,41 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
 
       {values ? (
         <div className="mb-6 grid gap-4 lg:grid-cols-2">
-          <BarChart title="Движение денег за период" data={cashflowBars} id="cf" />
-          <BarChart title="Долги по срокам" data={receivableBars} id="ar" />
+          <GroupedBarChart
+            title="Движение денег по секциям за период"
+            data={sectionBars}
+            series={[
+              { name: "Поступления", color: "var(--fp-inflow)" },
+              { name: "Списания", color: "var(--fp-outflow)" },
+            ]}
+            id="cf-sections"
+          />
+          <DonutChart
+            title="Долги по срокам"
+            data={receivableSlices}
+            centerLabel="Всего долгов"
+            centerValue={agingTotal}
+            id="ar-donut"
+          />
+        </div>
+      ) : null}
+
+      {forecastBars.length > 0 ? (
+        <div className="mb-6">
+          <GroupedBarChart
+            title="Прогноз: ожидаемые поступления и выплаты"
+            data={forecastBars}
+            series={[
+              { name: "Ожидаемые поступления", color: "var(--fp-series-2)" },
+              { name: "Ожидаемые выплаты", color: "var(--fp-series-3)" },
+            ]}
+            id="fc-bars"
+          />
+          {forecastPoints.length > shownForecastPoints.length ? (
+            <p className="mt-1 text-note text-ink-subtle">
+              Показаны первые {shownForecastPoints.length} дат прогноза из {forecastPoints.length}.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
