@@ -12,6 +12,7 @@ export {
 } from "./money";
 
 import { messageOf, statusOf, toCents } from "./money";
+import { formatDate } from "./dates";
 
 const BUCKET_LABEL: Record<BucketCode, string> = {
   "0-30": "до 30 дней",
@@ -200,7 +201,7 @@ export function todayInTimeZone(timeZone: string, now: Date = new Date()): strin
 }
 
 export function asOfCaption(asOf: string): string {
-  return `Долги на ${asOf}`;
+  return `Долги на ${formatDate(asOf)}`;
 }
 
 export function receivableErrorText(error: unknown): string {

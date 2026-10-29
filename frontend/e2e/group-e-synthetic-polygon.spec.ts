@@ -2,8 +2,10 @@ import { expect, test, type Request } from "@playwright/test";
 
 import {
   E2E_PASSWORD,
+  labeledMoneyPattern,
   loadPolygonMeta,
   loadPolygonOracle,
+  moneyPattern,
   POLYGON_CLOCK_ISO,
 } from "./fixtures/polygon-seed";
 import { openAppShell, selectCompany } from "./helpers/auth";
@@ -27,8 +29,14 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
       await selectCompany(page, company.name);
       await page.getByRole("link", { name: "Обзор" }).click();
 
-      await expect(page.getByText(`Начальный остаток: ${expected.opening_balance}`)).toBeVisible();
-      await expect(page.getByText(`${oracle.revenue_label}: ${expected.revenue_net_ex_vat}`)).toBeVisible();
+      // Значение из oracle остаётся источником истины, а на экране оно
+      // печатается через форматтер: 50000.00 → «50 000,00 ₽».
+      await expect(
+        page.getByText(labeledMoneyPattern("Начальный остаток", expected.opening_balance)),
+      ).toBeVisible();
+      await expect(
+        page.getByText(labeledMoneyPattern(oracle.revenue_label, expected.revenue_net_ex_vat)),
+      ).toBeVisible();
       await expect(page.getByText(`Операций: ${expected.operation_count}`)).toBeVisible();
       // Сумма на экране форматируется; исходное значение доступно в data-value.
       await expect(page.getByTestId("kpi-cash-total")).toHaveAttribute(
@@ -46,7 +54,9 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     await selectCompany(page, meta.companies.services.name);
     await page.getByRole("link", { name: "Обзор" }).click();
     await expect(
-      page.getByText(`${oracle.revenue_label}: ${oracle.companies.services.revenue_net_ex_vat}`),
+      page.getByText(
+        labeledMoneyPattern(oracle.revenue_label, oracle.companies.services.revenue_net_ex_vat),
+      ),
     ).toBeVisible();
 
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), meta.companies.retail.id);
@@ -54,10 +64,14 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     await page.reload();
     await page.getByRole("link", { name: "Обзор" }).click();
     await expect(
-      page.getByText(`${oracle.revenue_label}: ${oracle.companies.retail.revenue_net_ex_vat}`),
+      page.getByText(
+        labeledMoneyPattern(oracle.revenue_label, oracle.companies.retail.revenue_net_ex_vat),
+      ),
     ).toBeVisible();
     await expect(
-      page.getByText(`${oracle.revenue_label}: ${oracle.companies.services.revenue_net_ex_vat}`),
+      page.getByText(
+        labeledMoneyPattern(oracle.revenue_label, oracle.companies.services.revenue_net_ex_vat),
+      ),
     ).not.toBeVisible();
   });
 
@@ -90,6 +104,21 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     const meta = loadPolygonMeta();
     const oracle = loadPolygonOracle();
     const plan = oracle.plan_move_services;
+    // Даты в UI печатаются как ДД.ММ.ГГГГ; в oracle они ISO.
+    const displayDate = (iso: string) => iso.split("-").reverse().join(".");
+    // «Неоплаченная выплата 4000.00 на 2026-11-01» → пользовательский вид.
+    // formatMoney добавляет «₽», поэтому валюта в шаблоне необязательна.
+    const displayUnpaid = (text: string): RegExp => {
+      const match = /^(.*?)\s*(\d+\.\d{2})\s*на\s*(\d{4}-\d{2}-\d{2})$/.exec(text);
+      const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (!match) {
+        return new RegExp(escape(text));
+      }
+      const [, label, amount, date] = match;
+      return new RegExp(
+        `${escape(label)} ${moneyPattern(amount)}(?:\\s*₽)? на ${displayDate(date)}`,
+      );
+    };
 
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), meta.companies.services.id);
     await selectCompany(page, meta.companies.services.name);
@@ -101,12 +130,14 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     );
 
     await page.getByRole("link", { name: "Прогноз" }).click();
-    await expect(page.getByText(plan.forecast_unpaid_before)).toBeVisible();
+    // В oracle строка в API-формате; на экране сумма и дата — через форматтеры.
+    await expect(page.getByText(displayUnpaid(plan.forecast_unpaid_before))).toBeVisible();
 
     await page.getByRole("link", { name: "Календарь" }).click();
-    const planRow = page.locator("li").filter({ hasText: plan.plan_marker_due }).first();
-    const dueBefore = plan.plan_marker_due;
-    const expectedBefore = plan.plan_marker_due;
+    // Значения в oracle остаются ISO (источник истины), на экране — ДД.ММ.ГГГГ.
+    const dueBefore = displayDate(plan.plan_marker_due);
+    const expectedBefore = dueBefore;
+    const planRow = page.locator("li").filter({ hasText: dueBefore }).first();
     await expect(planRow).toContainText(`срок ${dueBefore}`);
     await expect(planRow).toContainText(`ожидание ${expectedBefore}`);
 
@@ -135,7 +166,7 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), meta.companies.services.id);
     await selectCompany(page, meta.companies.services.name);
     await page.getByRole("link", { name: "Календарь" }).click();
-    const planRowReloaded = page.locator("li").filter({ hasText: plan.plan_marker_due }).first();
+    const planRowReloaded = page.locator("li").filter({ hasText: dueBefore }).first();
     await expect(planRowReloaded).toContainText(`ожидание ${expectedBefore}`);
     await expect(planRowReloaded).toContainText(`срок ${dueBefore}`);
 
@@ -153,11 +184,11 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     expect(lastPatch.due_date).toBeUndefined();
 
     await expect(planRowReloaded).toContainText(`срок ${dueBefore}`);
-    await expect(planRowReloaded.getByText(new RegExp(plan.calendar_expected_after))).toBeVisible();
+    await expect(planRowReloaded).toContainText(displayDate(plan.calendar_expected_after));
     page.off("request", onPlanMovePatch);
 
     await page.getByRole("link", { name: "Прогноз" }).click();
-    await expect(page.getByText(plan.forecast_unpaid_after)).toBeVisible();
+    await expect(page.getByText(displayUnpaid(plan.forecast_unpaid_after))).toBeVisible();
 
     await page.getByRole("link", { name: "Обзор" }).click();
     // Сумма на экране форматируется; исходное значение доступно в data-value.

@@ -200,7 +200,7 @@ describe("строки долгов", () => {
 
 describe("orphan_return", () => {
   it("показывает отрицательную сумму с пояснением", () => {
-    expect(formatMoney("-2000.00")).toBe("-2 000,00 ₽");
+    expect(formatMoney("-2000.00")).toBe("\u22122 000,00 ₽");
     expect(orphanTitle()).toBe("Возвраты без связанной продажи");
     expect(orphanNote()).toContain("знаком минус");
   });
@@ -229,7 +229,7 @@ describe("тексты экрана", () => {
   });
 
   it("строит подпись даты среза", () => {
-    expect(asOfCaption("2026-10-31")).toBe("Долги на 2026-10-31");
+    expect(asOfCaption("2026-10-31")).toBe("Долги на 31.10.2026");
   });
 });
 

@@ -66,19 +66,20 @@ describe("дата прогноза", () => {
     const asOf = "2026-10-16";
     const path = forecastPath("firm-a", asOf, "base");
     expect(path).toContain(`as_of=${asOf}`);
-    expect(forecastCaption(asOf)).toBe(`Расчёт на ${asOf}`);
-    expect(forecastCaption(asOf)).toContain(asOf);
+    // Проверяем и значение (ISO из API), и пользовательское отображение.
+    expect(forecastCaption("2026-10-16")).toBe("Расчёт на 16.10.2026");
+    expect(forecastCaption("2026-10-16")).not.toContain("2026-10-16");
   });
 });
 
 describe("показатели прогноза", () => {
   it("показывает отрицательный остаток и положительный дефицит", () => {
     expect(closingLabel("2026-10-20", "-29500.50")).toBe(
-      "Прогнозный остаток на 2026-10-20: -29500.50",
+      "Прогнозный остаток на 20.10.2026: \u221229 500,50 ₽",
     );
     expect(gapDisplay("29500.50", "ready")).toBe("Дефицит: 29500.50");
     expect(unpaidLabel("110000.00", "2026-10-20")).toBe(
-      "Неоплаченная выплата 110000.00 на 2026-10-20",
+      "Неоплаченная выплата 110 000,00 ₽ на 20.10.2026",
     );
   });
 

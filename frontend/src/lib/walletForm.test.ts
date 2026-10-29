@@ -14,6 +14,7 @@ import {
   markWalletCreateUnknown,
   openingAttemptAfterCancel,
   openingSubmitPayloadKey,
+  openingSummary,
   parseAmountInput,
   pendingOpeningFromAttempt,
   resolveOpeningConfirmAttempt,
@@ -49,7 +50,7 @@ describe("walletForm", () => {
 
   it("не показывает ноль вместо отсутствующего остатка", () => {
     expect(balanceLabel(null, ["missing_anchor"])).toBe("Нет начального остатка");
-    expect(balanceLabel("0.00", [])).toBe("0.00");
+    expect(balanceLabel("0.00", [])).toBe("0,00 ₽");
   });
 
   it("сохраняет ключ create при том же payload после unknown", () => {
@@ -244,5 +245,20 @@ describe("walletForm", () => {
       { key: "k", payload: openingPayload, phase: "draft" },
       openingPayload,
     )).toBe(true);
+  });
+});
+
+describe("openingSummary: пользовательский вид вместо сырых значений (пункт е)", () => {
+  it("сумма и дата форматируются, значение не теряется", () => {
+    const text = openingSummary({ amount: "1000.00", effective_at: "2026-10-01T00:00:00+03:00" });
+    expect(text).toBe("1 000,00 ₽ с 01.10.2026");
+    // Сырого формата в отображении больше нет.
+    expect(text).not.toContain("1000.00");
+    expect(text).not.toContain("2026-10-01");
+  });
+
+  it("отсутствие остатка — словом, не нулём", () => {
+    expect(openingSummary(null)).toBe("Не задан");
+    expect(openingSummary(null)).not.toContain("0,00");
   });
 });

@@ -101,7 +101,8 @@ export function Shell({
         Перейти к содержимому
       </a>
 
-      {/* Светлое боковое меню: только десктоп. */}
+      {/* Светлое боковое меню: только десктоп. sticky + h-screen держит его
+          на всю высоту окна при прокрутке длинных страниц (пункт з). */}
       <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col overflow-y-auto border-r border-line bg-surface px-2 py-4 lg:flex">
         <Link to="/overview" className="mb-6 px-3" aria-label="FinPilot, на главную">
           <Logo />

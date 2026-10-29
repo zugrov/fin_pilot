@@ -1,3 +1,5 @@
+import { formatDateRange } from "./dates";
+
 const FLAG_TEXT: Record<string, string> = {
   unclassified_operations:
     "Есть операции без категории. Они входят в поступления и выплаты.",
@@ -6,14 +8,25 @@ const FLAG_TEXT: Record<string, string> = {
   missing_opening_balance:
     "Полнота операций не подтверждена. Обороты показаны по загруженным операциям.",
   missing_revenue_source: "Источник выручки не подключён. Деньги не становятся выручкой.",
+  // Пункт ж: раньше технический код показывался как есть.
+  partial_period:
+    "Выписка загружена не за весь период. Часть операций может быть ещё не в отчёте.",
+  rows_truncated: "Строк больше, чем помещается в отчёт. Сузьте период или дату среза.",
 };
+
+/** Флаг без записи в словаре: показываем по-русски, без машинного кода. */
+const UNKNOWN_FLAG_TEXT = "У отчёта есть замечание к полноте данных.";
+
+export function flagText(flag: string): string {
+  return FLAG_TEXT[flag] ?? UNKNOWN_FLAG_TEXT;
+}
 
 export function cashAmount(value: string | null, missing: string): string {
   return value ?? missing;
 }
 
 export function qualityNotes(flags: string[]): string[] {
-  return flags.map((flag) => FLAG_TEXT[flag] ?? flag);
+  return flags.map(flagText);
 }
 
 export function isLoadedOnly(flags: string[]): boolean {
@@ -27,7 +40,7 @@ export function flowLabel(
   loadedOnly: boolean,
 ): string {
   const scope = loadedOnly ? ", по загруженным операциям" : "";
-  return `${title} за ${dateFrom} — ${dateTo}${scope}`;
+  return `${title} за ${formatDateRange(dateFrom, dateTo)}${scope}`;
 }
 
 export function balanceMoment(asOf: string): string {

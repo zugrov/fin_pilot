@@ -111,9 +111,9 @@ test.describe("P4a · ОДДС на синтетическом полигоне"
     ).toBeVisible();
 
     await expect(table.getByText("3 800,00 ₽").first()).toBeVisible();
-    await expect(table.getByText("-800,00 ₽").first()).toBeVisible();
+    await expect(table.getByText("−800,00 ₽").first()).toBeVisible();
     await expect(table.getByText("10 000,00 ₽").first()).toBeVisible();
-    await expect(table.getByText("-150,00 ₽").first()).toBeVisible();
+    await expect(table.getByText("−150,00 ₽").first()).toBeVisible();
     await expect(table.getByText("13 150,00 ₽").first()).toBeVisible();
     await expect(page.getByRole("status")).toContainText("без категории");
     await expect(page.getByText(/Итог по секциям не совпал/)).toHaveCount(0);

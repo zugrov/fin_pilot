@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { formatMoney, fromCents, moneyToNumber, percentLabel, permille, toCents } from "./money";
 
 describe("formatMoney", () => {
-  it("группирует тысячи и ставит минус U+002D", () => {
+  it("группирует тысячи и ставит минус U+2212", () => {
     expect(formatMoney("27000.00")).toBe("27 000,00 ₽");
-    expect(formatMoney("-19500.5")).toBe("-19 500,50 ₽");
+    expect(formatMoney("-19500.5")).toBe("\u221219 500,50 ₽");
   });
 
   it("null и мусор — «Нет данных», не ноль", () => {

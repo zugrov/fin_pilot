@@ -13,6 +13,8 @@ import {
 } from "../api";
 import { CompanyWritePicker } from "../components/CompanyWritePicker";
 import { Shell } from "../components/Shell";
+import { formatDate } from "../lib/dates";
+import { formatMoney } from "../lib/money";
 import {
   calendarMutationTarget,
   companyScopedData,
@@ -336,15 +338,16 @@ export function CalendarPage() {
         {events?.map((event) => (
           <li key={event.id} className="rounded-card border bg-white p-4 text-sm">
             <p>
-              {directionLabel(event.direction === "in" ? "in" : "out")}: ожидание {event.expected_date},
-              остаток {event.remaining}, срок {event.due_date}
+              {directionLabel(event.direction === "in" ? "in" : "out")}: ожидание{" "}
+              {formatDate(event.expected_date)}, остаток {formatMoney(event.remaining)}, срок{" "}
+              {formatDate(event.due_date)}
               {event.overdue ? ", просрочено" : ""}
             </p>
             {event.match_links?.length ? (
               <ul className="mt-2 list-disc pl-5">
                 {event.match_links.map((link) => (
                   <li key={`${link.cash_transaction_id}-${link.amount}`}>
-                    {link.label}: {link.amount}
+                    {link.label}: {formatMoney(link.amount)}
                   </li>
                 ))}
               </ul>
@@ -433,8 +436,9 @@ export function CalendarPage() {
               ?.filter((event) => event.status !== "cancelled")
               .map((event) => (
                 <option key={event.id} value={event.id}>
-                  {event.expected_date} · {directionLabel(event.direction === "in" ? "in" : "out")} ·
-                  остаток {event.remaining}
+                  {formatDate(event.expected_date)} ·{" "}
+                  {directionLabel(event.direction === "in" ? "in" : "out")} · остаток{" "}
+                  {formatMoney(event.remaining)}
                 </option>
               ))}
           </select>

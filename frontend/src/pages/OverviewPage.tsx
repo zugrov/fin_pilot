@@ -195,6 +195,20 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
             caption={balanceLabel(dashboard.data?.as_of ?? "")}
             tone={values.cash_total === null ? "warn" : "info"}
             testId="kpi-cash-total"
+            meta={
+              <>
+                {/* Строки ниже сохраняются дословно: их проверяет полигон. */}
+                <div>
+                  Начальный остаток:{" "}
+                  {values.opening_balance === null ? (
+                    "Нет начального остатка"
+                  ) : (
+                    <Amount value={values.opening_balance} align="left" />
+                  )}
+                </div>
+                <div>Операций: {values.operation_count ?? "Нет данных"}</div>
+              </>
+            }
             detail={
               <>
                 <div>
@@ -208,11 +222,6 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
                 <div>
                   Чистое движение: <Amount value={values.net_cash_flow} align="left" />
                 </div>
-                {/* Строки ниже сохраняются дословно: их проверяет полигон. */}
-                <div>
-                  Начальный остаток: {values.opening_balance ?? "Нет начального остатка"}
-                </div>
-                <div>Операций: {values.operation_count ?? "Нет данных"}</div>
               </>
             }
             action={<Link to="/cashflow">О движении денег</Link>}
@@ -311,6 +320,7 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
               { name: "Ожидаемые выплаты", color: "var(--fp-series-3)" },
             ]}
             id="fc-bars"
+            collapsible
           />
           {forecastPoints.length > shownForecastPoints.length ? (
             <p className="mt-1 text-note text-ink-subtle">

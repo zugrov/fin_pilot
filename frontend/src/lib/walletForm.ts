@@ -1,3 +1,6 @@
+import { formatMoney } from "./money";
+import { formatDate } from "./dates";
+
 const AMOUNT_RE = /^\d+\.\d{2}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
@@ -60,7 +63,7 @@ export function parseAmountInput(raw: string): AmountParseResult {
 
 export function balanceLabel(balance: string | null, qualityFlags: string[]): string {
   if (balance !== null) {
-    return balance;
+    return formatMoney(balance);
   }
   if (qualityFlags.includes("missing_anchor")) {
     return "Нет начального остатка";
@@ -74,7 +77,8 @@ export function openingSummary(
   if (!opening) {
     return "Не задан";
   }
-  return `${opening.amount} с ${opening.effective_at}`;
+  // Пункт е: сумма и дата — в пользовательском виде, без «1000.00» и ISO.
+  return `${formatMoney(opening.amount)} с ${formatDate(opening.effective_at.slice(0, 10))}`;
 }
 
 export function offsetForTimeZone(

@@ -1,3 +1,6 @@
+import { formatDate } from "./dates";
+import { formatMoney } from "./money";
+
 export const COMPANY_TIMEZONE_FALLBACK = "Europe/Moscow";
 
 export function companyDate(timeZone: string, now = new Date()): string {
@@ -31,7 +34,7 @@ export function matchesSelection(
 }
 
 export function forecastCaption(asOf: string): string {
-  return `Расчёт на ${asOf}`;
+  return `Расчёт на ${formatDate(asOf)}`;
 }
 
 export function gapDisplay(amount: string | null, status: string): string {
@@ -45,11 +48,11 @@ export function gapDisplay(amount: string | null, status: string): string {
 }
 
 export function closingLabel(day: string, closing: string): string {
-  return `Прогнозный остаток на ${day}: ${closing}`;
+  return `Прогнозный остаток на ${formatDate(day)}: ${formatMoney(closing)}`;
 }
 
 export function unpaidLabel(amount: string, day: string): string {
-  return `Неоплаченная выплата ${amount} на ${day}`;
+  return `Неоплаченная выплата ${formatMoney(amount)} на ${formatDate(day)}`;
 }
 
 export function forecastErrorText(): string {

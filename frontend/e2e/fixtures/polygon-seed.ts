@@ -71,3 +71,22 @@ export function loadPolygonOracle(): PolygonOracle {
 }
 
 export const POLYGON_CLOCK_ISO = "2026-11-01T06:00:00.000Z";
+
+/**
+ * Денежная строка из oracle → regex её отображения на экране.
+ * Значение в oracle остаётся источником истины, но сумма печатается
+ * через форматтер: «50000.00» → «50 000,00 ₽». Проверяются оба.
+ */
+export function moneyPattern(amount: string): string {
+  const [whole, fraction = "00"] = amount.split(".");
+  const grouped = whole.replace(/^-/, "").replace(/\B(?=(\d{3})+(?!\d))/g, "[\\s\\u00a0]");
+  const sign = amount.startsWith("-") ? "\\u2212" : "";
+  // Валюта необязательна: подпись может быть и без «₽».
+  return `${sign}${grouped},${fraction}`;
+}
+
+/** Полная подпись с меткой: `${label}: ${moneyPattern}`. */
+export function labeledMoneyPattern(label: string, amount: string): RegExp {
+  const safeLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`${safeLabel}: ${moneyPattern(amount)}`);
+}

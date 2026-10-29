@@ -16,6 +16,8 @@ type Props = {
   id?: string;
   /** Таблица-дублёр нужна, если на странице числа не продублированы иначе. */
   showTable?: boolean;
+  /** Таблица свёрнута по умолчанию: длинные ряды не растягивают экран. */
+  collapsible?: boolean;
 };
 
 /**
@@ -29,6 +31,7 @@ export function GroupedBarChart({
   unit = "руб.",
   id = "gbar",
   showTable = true,
+  collapsible = false,
 }: Props) {
   const numbers = data.map((item) => item.values.map((value) => moneyToNumber(value)));
   const known = numbers.flat().filter((value): value is number => value !== null);
@@ -41,6 +44,41 @@ export function GroupedBarChart({
   const groupWidth = series.length * barWidth + (series.length - 1) * 4;
   const width = Math.max(data.length * (groupWidth + gap), 120);
   const baseline = height - 24;
+
+  // Таблица-дублёр: те же числа, доступна всем и без SVG.
+  const renderTable = () => (
+    <table className="mt-2 w-full text-note">
+      <caption className="sr-only">
+        {title}: значения по группам и сериям в {unit}
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col" className="py-1 text-left font-medium text-ink-muted">
+            Период
+          </th>
+          {series.map((item) => (
+            <th key={item.name} scope="col" className="py-1 text-right font-medium text-ink-muted">
+              {item.name}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {data.map((item) => (
+          <tr key={item.label} className="border-t border-line">
+            <th scope="row" className="py-1 text-left font-normal text-ink-muted">
+              {item.label}
+            </th>
+            {item.values.map((value, seriesIndex) => (
+              <td key={seriesIndex} className="py-1 text-right fp-num">
+                {formatMoney(value)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 
   const description = hasData
     ? data
@@ -131,39 +169,15 @@ export function GroupedBarChart({
       ) : null}
 
       {/* Дублёр: те же числа таблицей, доступен всем и без SVG. */}
-      {showTable ? (
-        <table className="mt-2 w-full text-note">
-        <caption className="sr-only">
-          {title}: значения по группам и сериям в {unit}
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col" className="py-1 text-left font-medium text-ink-muted">
-              Период
-            </th>
-            {series.map((item) => (
-              <th key={item.name} scope="col" className="py-1 text-right font-medium text-ink-muted">
-                {item.name}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((item) => (
-            <tr key={item.label} className="border-t border-line">
-              <th scope="row" className="py-1 text-left font-normal text-ink-muted">
-                {item.label}
-              </th>
-              {item.values.map((value, seriesIndex) => (
-                <td key={seriesIndex} className="py-1 text-right fp-num">
-                  {formatMoney(value)}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-        </table>
+      {showTable && collapsible ? (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-note text-ink-muted">
+            Показать таблицу значений
+          </summary>
+          {renderTable()}
+        </details>
       ) : null}
+      {showTable && !collapsible ? renderTable() : null}
     </figure>
   );
 }

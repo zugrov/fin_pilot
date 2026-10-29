@@ -34,7 +34,7 @@ describe("formatMoney", () => {
   });
 
   it("сохраняет отрицательные суммы", () => {
-    expect(formatMoney("-19500.50")).toBe("-19 500,50 ₽");
+    expect(formatMoney("-19500.50")).toBe("\u221219 500,50 ₽");
     expect(formatMoney("-0.00")).toBe("0,00 ₽");
   });
 
@@ -81,7 +81,7 @@ describe("денежная арифметика на строках", () => {
   it("считает итог секции", () => {
     expect(netOf("20000.00", "3000.00")).toBe("17000.00");
     expect(netOf("4800.00", "0.00")).toBe("4800.00");
-    expect(sectionNetText("0.00", "150.00")).toBe("-150,00 ₽");
+    expect(sectionNetText("0.00", "150.00")).toBe("\u2212150,00 ₽");
     expect(sectionNetText("5000.00", "1200.00")).toBe("3 800,00 ₽");
   });
 

@@ -1,4 +1,6 @@
 import { companyDate } from "./forecast";
+import { formatDate } from "./dates";
+import { formatMoney } from "./money";
 
 export function planFactPath(companyId: string, reportDate: string): string {
   const query = new URLSearchParams({ report_date: reportDate });
@@ -20,7 +22,7 @@ export function matchesPlanFact(
 }
 
 export function calculationCaption(reportDate: string): string {
-  return `Расчёт на ${reportDate}`;
+  return `Расчёт на ${formatDate(reportDate)}`;
 }
 
 export function basisLabel(basis: string): string {
@@ -67,7 +69,7 @@ export function amountText(value: string | null | undefined): string {
   if (!value) {
     return "—";
   }
-  return value;
+  return formatMoney(value);
 }
 
 export function cashBudgetNote(cashStatus: string | undefined): string {

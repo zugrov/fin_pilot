@@ -128,9 +128,9 @@ export function DonutChart({ title, data, centerLabel, centerValue, unit = "ру
                 <span className="truncate">{item.label}</span>
               </span>
               <span className="fp-num shrink-0 text-ink">
-                {cents[index] !== null && (cents[index] as bigint) > 0n
-                  ? `${formatMoney(item.value)} (${percentLabelOf(cents[index] as bigint)})`
-                  : "Нет данных"}
+                {cents[index] === null
+                  ? formatMoney(null)
+                  : `${formatMoney(item.value)} (${percentLabelOf(cents[index] as bigint)})`}
               </span>
             </li>
           ))}
@@ -150,9 +150,7 @@ export function DonutChart({ title, data, centerLabel, centerValue, unit = "ру
               </th>
               <td className="py-1 text-right fp-num">{formatMoney(item.value)}</td>
               <td className="py-1 text-right fp-num text-ink-muted">
-                {cents[index] !== null && (cents[index] as bigint) > 0n
-                  ? percentLabelOf(cents[index] as bigint)
-                  : "—"}
+                {cents[index] === null ? "—" : percentLabelOf(cents[index] as bigint)}
               </td>
             </tr>
           ))}

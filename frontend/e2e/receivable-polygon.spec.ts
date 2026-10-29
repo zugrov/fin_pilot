@@ -86,7 +86,7 @@ test.describe("P4b · дебиторка на полигоне", () => {
     await expect(page.getByText("Возвраты без связанной продажи")).toHaveCount(0);
 
     // Дата среза из ORACLE видна в подписи.
-    await expect(page.getByText("Долги на 2026-10-31")).toBeVisible();
+    await expect(page.getByText("Долги на 31.10.2026")).toBeVisible();
     await expect(page.getByText(oracle.revenue_label)).toHaveCount(0);
   });
 
@@ -111,7 +111,7 @@ test.describe("P4b · дебиторка на полигоне", () => {
 
     await expect(page.getByText("Возвраты без связанной продажи")).toBeVisible();
     await expect(page.getByText(/продажа не найдена или отменена/i)).toBeVisible();
-    await expect(page.getByText("-2 000,00 ₽").first()).toBeVisible();
+    await expect(page.getByText("−2 000,00 ₽").first()).toBeVisible();
     await expect(page.getByText("39 506,00 ₽").first()).toBeVisible();
   });
 

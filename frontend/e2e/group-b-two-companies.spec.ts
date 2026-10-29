@@ -20,7 +20,7 @@ test.describe("FA-R01.4 · B · две фирмы", () => {
     await expect(addBtn).toBeEnabled();
     await page.getByLabel("Номер документа").fill("FIRM-A-MARKER");
     await addBtn.click();
-    await expect(page.getByText(/2026-10-18: 1\.00 без НДС/)).toBeVisible();
+    await expect(page.getByText(/18\.10\.2026: 1,00 ₽ без НДС/)).toBeVisible();
 
     let resolveSlow: () => void = () => undefined;
     const slowGate = new Promise<void>((resolve) => {
@@ -40,16 +40,16 @@ test.describe("FA-R01.4 · B · две фирмы", () => {
     await page.getByLabel("Сумма с НДС").fill("3.00");
     await page.getByLabel("Без НДС").fill("3.00");
     await page.getByRole("button", { name: "Добавить продажу" }).click();
-    await expect(page.getByText(/2026-10-18: 3\.00 без НДС/)).toBeVisible();
-    await expect(page.getByText(/2026-10-18: 1\.00 без НДС/)).not.toBeVisible();
+    await expect(page.getByText(/18\.10\.2026: 3,00 ₽ без НДС/)).toBeVisible();
+    await expect(page.getByText(/18\.10\.2026: 1,00 ₽ без НДС/)).not.toBeVisible();
 
     resolveSlow();
     await page.waitForTimeout(300);
-    await expect(page.getByText(/2026-10-18: 1\.00 без НДС/)).not.toBeVisible();
+    await expect(page.getByText(/18\.10\.2026: 1,00 ₽ без НДС/)).not.toBeVisible();
 
     await page.reload();
     await page.getByRole("link", { name: "Продажи" }).click();
     await selectCompany(page, meta.companyBName);
-    await expect(page.getByText(/2026-10-18: 3\.00 без НДС/)).toBeVisible();
+    await expect(page.getByText(/18\.10\.2026: 3,00 ₽ без НДС/)).toBeVisible();
   });
 });

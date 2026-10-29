@@ -18,7 +18,8 @@ test.describe("FA-R01.4 · A · основной путь одной фирмы"
     await page.getByLabel("Код (для импорта)").fill("main");
     await page.getByRole("button", { name: "Создать счёт" }).click();
     await setOpeningBalance(page, "Расчётный (main)", "2026-10-01", "1000.00");
-    await expect(page.getByText(/Начальный остаток: 1000\.00/)).toBeVisible();
+    // Значение задаётся в API-формате, на экране печатается через форматтер.
+    await expect(page.getByText(/Начальный остаток: 1[\s\u00a0]000,00/)).toBeVisible();
 
     await page.getByRole("link", { name: "Импорт" }).click();
     await page.getByRole("button", { name: "Деньги" }).click();
@@ -38,13 +39,13 @@ test.describe("FA-R01.4 · A · основной путь одной фирмы"
     await page.getByLabel("Без НДС").fill("2.00");
     await page.getByLabel("НДС", { exact: true }).fill("0.00");
     await page.getByRole("button", { name: "Добавить продажу" }).click();
-    await expect(page.getByText(/2026-10-18: 2\.00 без НДС/)).toBeVisible();
+    await expect(page.getByText(/18\.10\.2026: 2,00 ₽ без НДС/)).toBeVisible();
 
     await page.getByLabel("Продажа").selectOption({ index: 1 });
     await page.getByLabel("Поступление (posted, in, RUB)").selectOption({ label: "2026-10-10 · доступно 1500.00 — Поступление" });
     await page.getByLabel("Сумма связи").fill("0.50");
     await page.getByRole("button", { name: "Сопоставить" }).click();
-    await expect(page.locator("ul.mb-6").getByText(/остаток 1\.50/)).toBeVisible();
+    await expect(page.locator("ul.mb-6").getByText(/остаток 1,50 ₽/)).toBeVisible();
 
     await page.getByRole("link", { name: "Календарь" }).click();
     await expect(page.getByLabel("Сумма, ₽")).toHaveValue("");
@@ -68,7 +69,10 @@ test.describe("FA-R01.4 · A · основной путь одной фирмы"
     await page.getByLabel("Срок оплаты").fill("2026-10-25");
     await page.getByLabel("Ожидаемая дата оплаты").fill("2026-10-27");
     await page.getByRole("button", { name: "Добавить в план" }).click();
-    await expect(page.locator("ul.mb-6").getByText(/2026-10-27.*остаток 2\.00/)).toBeVisible();
+    // Календарь печатает дату как ДД.ММ.ГГГГ, остаток — через форматтер.
+    await expect(
+      page.locator("ul.mb-6").getByText(/27\.10\.2026.*остаток 2,00 ₽/),
+    ).toBeVisible();
 
     await page.getByLabel("Плановая выплата").selectOption({ index: 1 });
     await page.getByLabel("Фактическая операция").selectOption({
@@ -76,14 +80,17 @@ test.describe("FA-R01.4 · A · основной путь одной фирмы"
     });
     await page.getByLabel("Сумма связи, ₽").fill("0.50");
     await page.getByRole("button", { name: "Связать с операцией" }).click();
-    await expect(page.locator("ul.mb-6").getByText(/остаток 1\.50/)).toBeVisible();
+    await expect(page.locator("ul.mb-6").getByText(/остаток 1,50 ₽/)).toBeVisible();
 
     await page.reload();
     await selectCompany(page, meta.companyAName);
-    await expect(page.locator("ul.mb-6").getByText(/остаток 1\.50/)).toBeVisible();
+    await expect(page.locator("ul.mb-6").getByText(/остаток 1,50 ₽/)).toBeVisible();
 
     await page.getByRole("link", { name: "Обзор" }).click();
-    await expect(page.getByText(/Выручка без НДС: 2\.00/)).toBeVisible();
+    // Выручка приходит как «2.00», на экране печатается форматтером.
+    // Проверяем оба: исходное значение в data-value и его отображение.
+    await expect(page.getByText(/Выручка без НДС: 2,00/)).toBeVisible();
+    await expect(page.getByTestId("kpi-cash-total")).toHaveAttribute("data-value", "3200.00");
     await expect(page.getByText(/Операций: 3/)).toBeVisible();
     // Суммы на экране печатаются с разделителями: 3200.00 -> «3 200,00 ₽».
     await expect(page.getByText(/3[\s\u00a0]200,00/).first()).toBeVisible();

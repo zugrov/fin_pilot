@@ -4,6 +4,7 @@ import { useState } from "react";
 import { listCompanies, loadForecast, loadGroupForecast } from "../api";
 import { Shell } from "../components/Shell";
 import { KpiCard } from "../components/system/KpiCard";
+import { formatMoney } from "../lib/money";
 import {
   closingLabel,
   companyDate,
@@ -125,7 +126,9 @@ export function ForecastPage() {
       {group.data && group.data.as_of === asOf && !group.isFetching && !group.isError ? (
         <section>
           <h2 className="mb-2 font-semibold">Фирмы</h2>
-          <p className="mb-2 text-sm">Группа: {group.data.group_opening ?? "нет данных"}</p>
+          <p className="mb-2 text-sm">
+            Группа: {group.data.group_opening === null ? "нет данных" : formatMoney(group.data.group_opening)}
+          </p>
           <ul className="space-y-2">
             {group.data.company_risks.map((item) => (
               <li key={item.company_id} className="rounded-control border bg-white p-3 text-sm">

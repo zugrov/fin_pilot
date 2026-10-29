@@ -44,7 +44,7 @@ test.describe("FA-R01.4 · C · unknown-result и replay", () => {
     expect(auditBefore).toBe(1);
 
     await page.getByRole("button", { name: "Повторить отправку" }).click();
-    await expect(page.getByText(/2026-10-18: 5\.00 без НДС/)).toHaveCount(1);
+    await expect(page.getByText(/18\.10\.2026: 5,00 ₽ без НДС/)).toHaveCount(1);
 
     expect(countRevenueByDocument(meta.companyAId, doc)).toBe(1);
     expect(countCompanyRevenue(meta.companyAId)).toBe(baselineTotal + 1);
@@ -76,13 +76,13 @@ test.describe("FA-R01.4 · C · unknown-result и replay", () => {
     await page.getByLabel("Без НДС").fill("4.00");
     await page.getByLabel("НДС", { exact: true }).fill("0.00");
     await page.getByRole("button", { name: "Добавить продажу" }).click();
-    await expect(page.getByText(/2026-10-18: 4\.00 без НДС/)).toBeVisible();
+    await expect(page.getByText(/18\.10\.2026: 4,00 ₽ без НДС/)).toBeVisible();
 
     const saleId = revenueEntryIdByDocument(meta.companyAId, saleDoc);
     expect(saleId).toBeTruthy();
     expect(countMatchesForRevenue(saleId!)).toBe(0);
 
-    await page.getByLabel("Продажа").selectOption({ label: "2026-10-18 · остаток 4.00" });
+    await page.getByLabel("Продажа").selectOption({ label: "18.10.2026 · остаток 4,00 ₽" });
     await page.getByLabel("Поступление (posted, in, RUB)").selectOption({
       label: "2026-10-10 · доступно 1500.00 — IDEM-IN-ONLY",
     });
@@ -100,8 +100,8 @@ test.describe("FA-R01.4 · C · unknown-result и replay", () => {
     expect(matchAuditBefore).toBe(1);
 
     await page.getByRole("button", { name: "Повторить сопоставление" }).click();
-    const saleRow = page.locator("ul.mb-6 li").filter({ hasText: "2026-10-18: 4.00 без НДС" });
-    await expect(saleRow.getByText(/остаток 3\.50/)).toBeVisible({ timeout: 30_000 });
+    const saleRow = page.locator("ul.mb-6 li").filter({ hasText: "18.10.2026: 4,00 ₽ без НДС" });
+    await expect(saleRow.getByText(/остаток 3,50 ₽/)).toBeVisible({ timeout: 30_000 });
     await expect(saleRow.locator("ul.list-disc li")).toHaveCount(1);
 
     expect(countMatchesForRevenue(saleId!)).toBe(1);

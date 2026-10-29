@@ -30,7 +30,8 @@ export function formatMoney(value: string | null | undefined, missing = MISSING_
     return missing;
   }
   const isZero = /^0+$/.test(parts.whole) && parts.fraction === "00";
-  const sign = parts.negative && !isZero ? "-" : "";
+  // Минус U+2212, а не ASCII-дефис: так его находит Amount и так его видят скринридеры.
+  const sign = parts.negative && !isZero ? "\u2212" : "";
   return `${sign}${groupThousands(parts.whole)},${parts.fraction} ₽`;
 }
 

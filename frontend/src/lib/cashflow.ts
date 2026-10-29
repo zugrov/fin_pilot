@@ -79,6 +79,7 @@ export function hasUnclassified(flags: readonly string[]): boolean {
 }
 
 import { formatMoney, messageOf, MISSING_VALUE, statusOf, sumMoney, toCents } from "./money";
+import { formatDateRange } from "./dates";
 
 export {
   formatMoney,
@@ -110,7 +111,7 @@ export function emptyStateText(): string {
 }
 
 export function periodCaption(from: string, to: string): string {
-  return `Период: ${from} — ${to}`;
+  return `Период: ${formatDateRange(from, to)}`;
 }
 
 export function cashflowErrorText(error: unknown): string {

@@ -12,6 +12,8 @@ import {
 import { CompanyWritePicker } from "../components/CompanyWritePicker";
 import { Shell } from "../components/Shell";
 import { companyDate } from "../lib/forecast";
+import { formatDate } from "../lib/dates";
+import { formatMoney } from "../lib/money";
 import {
   companyScopedData,
   salesMutationTarget,
@@ -246,11 +248,13 @@ export function SalesPage() {
         {entries?.map((entry) => (
           <li key={entry.id} className="rounded-card border bg-white p-4 text-sm">
             <p>
-              {entry.recognition_date}: {entry.amount_ex_vat ?? entry.amount_inc_vat} без НДС,{" "}
+              {formatDate(entry.recognition_date)}:{" "}
+              {formatMoney(entry.amount_ex_vat ?? entry.amount_inc_vat)} без НДС,{" "}
               {entry.entry_type === "return" ? "возврат" : "продажа"}
             </p>
             <p>
-              Связано {entry.matched_amount ?? "0.00"}, остаток {entry.unallocated_amount ?? "—"}
+              Связано {formatMoney(entry.matched_amount ?? "0.00")}, остаток{" "}
+              {entry.unallocated_amount ? formatMoney(entry.unallocated_amount) : "—"}
             </p>
             {entry.match_links?.length ? (
               <ul className="mt-2 list-disc pl-5">
@@ -351,7 +355,8 @@ export function SalesPage() {
               ?.filter((e) => e.entry_type === "sale" && e.status === "posted")
               .map((entry) => (
                 <option key={entry.id} value={entry.id}>
-                  {entry.recognition_date} · остаток {entry.unallocated_amount ?? entry.amount_inc_vat}
+                  {formatDate(entry.recognition_date)} · остаток{" "}
+                  {formatMoney(entry.unallocated_amount ?? entry.amount_inc_vat)}
                 </option>
               ))}
           </select>

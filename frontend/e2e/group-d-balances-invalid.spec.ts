@@ -18,7 +18,7 @@ test.describe("FA-R01.4 · D · невалидный balances batch", () => {
     await page.getByRole("button", { name: "Создать счёт" }).click();
     const walletCard = page.locator("li").filter({ hasText: "Для balances D" });
     await setOpeningBalance(page, "Для balances D (bdmain)", "2026-10-01", "500.00");
-    await expect(walletCard.getByText(/Начальный остаток: 500\.00/)).toBeVisible();
+    await expect(walletCard.getByText(/Начальный остаток: 500,00/)).toBeVisible();
 
     await page.getByRole("link", { name: "Импорт" }).click();
     await page.getByRole("button", { name: "Остатки" }).click();
@@ -36,6 +36,6 @@ test.describe("FA-R01.4 · D · невалидный balances batch", () => {
     await expect(page.getByText(/ошибки строк/)).toBeVisible();
 
     await page.getByRole("link", { name: "Кошельки" }).click();
-    await expect(walletCard.getByText(/Начальный остаток: 500\.00/)).toBeVisible();
+    await expect(walletCard.getByText(/Начальный остаток: 500,00/)).toBeVisible();
   });
 });

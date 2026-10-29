@@ -74,12 +74,12 @@ describe("показатели бюджета", () => {
     expect(basisLabel("revenue")).toBe("Выручка без НДС");
     expect(basisLabel("revenue")).not.toContain("Поступления");
     expect(versionStatusLabel("approved")).toBe("утверждён");
-    expect(amountText("25000.00")).toBe("25000.00");
-    expect(amountText("12903.20")).toBe("12903.20");
+    expect(amountText("25000.00")).toBe("25 000,00 ₽");
+    expect(amountText("12903.20")).toBe("12 903,20 ₽");
     expect(amountText("25000.00")).not.toBe(amountText("12903.20"));
-    expect(amountText("7096.80")).toBe("7096.80");
-    expect(amountText("55.00")).toBe("55.00");
-    expect(calculationCaption("2026-10-16")).toBe("Расчёт на 2026-10-16");
+    expect(amountText("7096.80")).toBe("7 096,80 ₽");
+    expect(amountText("55.00")).toBe("55,00 ₽");
+    expect(calculationCaption("2026-10-16")).toBe("Расчёт на 16.10.2026");
   });
 
   it("не заменяет отсутствие данных нулём", () => {
