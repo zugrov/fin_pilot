@@ -14,13 +14,22 @@ type Props = {
   series: ChartSeries[];
   unit?: string;
   id?: string;
+  /** Таблица-дублёр нужна, если на странице числа не продублированы иначе. */
+  showTable?: boolean;
 };
 
 /**
  * Сгруппированные столбцы без библиотек: серии рядом внутри каждой группы.
  * Смысл продублирован легендой, описанием и таблицей для скринридера.
  */
-export function GroupedBarChart({ title, data, series, unit = "руб.", id = "gbar" }: Props) {
+export function GroupedBarChart({
+  title,
+  data,
+  series,
+  unit = "руб.",
+  id = "gbar",
+  showTable = true,
+}: Props) {
   const numbers = data.map((item) => item.values.map((value) => moneyToNumber(value)));
   const known = numbers.flat().filter((value): value is number => value !== null);
   const hasData = known.length > 0;
@@ -122,7 +131,8 @@ export function GroupedBarChart({ title, data, series, unit = "руб.", id = "g
       ) : null}
 
       {/* Дублёр: те же числа таблицей, доступен всем и без SVG. */}
-      <table className="mt-2 w-full text-note">
+      {showTable ? (
+        <table className="mt-2 w-full text-note">
         <caption className="sr-only">
           {title}: значения по группам и сериям в {unit}
         </caption>
@@ -152,7 +162,8 @@ export function GroupedBarChart({ title, data, series, unit = "руб.", id = "g
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      ) : null}
     </figure>
   );
 }

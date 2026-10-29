@@ -8,6 +8,8 @@ import {
 } from "../api";
 import { CompanyWritePicker } from "../components/CompanyWritePicker";
 import { Shell } from "../components/Shell";
+import { KpiCard } from "../components/system/KpiCard";
+import { StatusChip } from "../components/system/StatusChip";
 import { companyScopedData, useWritableCompanySelection } from "../lib/companySelection";
 import { formatMoney, sumMoney, toCents } from "../lib/money";
 import {
@@ -37,21 +39,30 @@ import {
   unallocatedTitle,
 } from "../lib/receivable";
 
+/* Ступени тепловой карты: различаются рамкой и текстом, не только заливкой
+   (4 ступени с шагом 3:1 физически невозможны, см. lib/palette.test.ts). */
+const HEAT_CLASS = [
+  "bg-[color:var(--fp-heat-1)] text-ink border-[color:var(--fp-heat-border-1)]",
+  "bg-[color:var(--fp-heat-2)] text-ink border-[color:var(--fp-heat-border-2)]",
+  "bg-[color:var(--fp-heat-3)] text-surface border-[color:var(--fp-heat-border-3)]",
+  "bg-[color:var(--fp-heat-4)] text-surface border-[color:var(--fp-heat-border-4)]",
+];
+
 function heatClass(percent: string): string {
   const value = Number(percent.replace(",", "."));
   if (!Number.isFinite(value) || value <= 0) {
-    return "bg-canvas";
+    return "bg-canvas border-line";
   }
   if (value < 15) {
-    return "bg-warn-soft";
+    return HEAT_CLASS[0];
   }
   if (value < 40) {
-    return "bg-warn-soft";
+    return HEAT_CLASS[1];
   }
   if (value < 70) {
-    return "bg-warn-soft";
+    return HEAT_CLASS[2];
   }
-  return "bg-warn-soft";
+  return HEAT_CLASS[3];
 }
 
 function BucketTiles({
@@ -216,6 +227,7 @@ export function ReceivablePage() {
 
   return (
     <Shell
+      title="Дебиторка"
       header={
         <div className="flex flex-wrap items-end gap-3">
           <CompanyWritePicker
@@ -241,7 +253,6 @@ export function ReceivablePage() {
         </div>
       }
     >
-      <h1 className="mb-2 text-title font-semibold">Дебиторка</h1>
       <p className="mb-4 text-body text-ink-muted">{debtBasisNote()}</p>
 
       {!asOfValid && asOf ? (
@@ -261,19 +272,25 @@ export function ReceivablePage() {
 
       {current && !unavailable ? (
         <>
-          <section className="mb-4 rounded-card border bg-white p-4">
-            <p className="text-sm text-ink-muted">{asOfCaption(current.as_of)}</p>
-            <p className="mt-1 text-3xl font-semibold tabular-nums">
-              {formatMoney(current.total_balance)}
-            </p>
-            <p className="mt-1 text-sm text-ink-muted">
-              Столько покупатели должны вам на эту дату.
-            </p>
-            <p className="mt-3 text-sm text-ink-muted">
-              Состояние данных: <strong>{completenessLabel(current.completeness)}</strong>
-            </p>
-            <p className="mt-1 text-sm text-ink-muted">{completenessNote(current.completeness)}</p>
-          </section>
+          <div className="mb-4 grid gap-4 sm:grid-cols-2">
+            <KpiCard
+              title="Всего долгов"
+              value={current.total_balance}
+              caption="Столько покупатели должны вам на эту дату."
+              tone="warn"
+              testId="receivable-total"
+            />
+            <section className="rounded-card border border-line bg-surface p-card shadow-card">
+              <h2 className="text-label text-ink-muted">Состояние данных</h2>
+              <p className="mt-2 text-body">
+                <StatusChip tone={current.completeness === "full" ? "ok" : "warn"}>
+                  {completenessLabel(current.completeness)}
+                </StatusChip>
+              </p>
+              <p className="mt-2 text-body text-ink-muted">{completenessNote(current.completeness)}</p>
+              <p className="mt-2 text-note text-ink-subtle">{asOfCaption(current.as_of)}</p>
+            </section>
+          </div>
 
           {noRevenueSource ? (
             <div

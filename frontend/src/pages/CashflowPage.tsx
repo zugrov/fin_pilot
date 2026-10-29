@@ -5,6 +5,8 @@ import { Link } from "react-router-dom";
 import { listCompanies, loadCashflowWithStatus, type CashflowSection } from "../api";
 import { CompanyWritePicker } from "../components/CompanyWritePicker";
 import { Shell } from "../components/Shell";
+import { GroupedBarChart } from "../components/system/GroupedBarChart";
+import { KpiCard } from "../components/system/KpiCard";
 import {
   cashflowErrorText,
   completenessLabel,
@@ -173,6 +175,7 @@ export function CashflowPage() {
 
   return (
     <Shell
+      title="Движение денег"
       header={
         <div className="flex flex-wrap items-end gap-3">
           <CompanyWritePicker
@@ -204,7 +207,6 @@ export function CashflowPage() {
         </div>
       }
     >
-      <h1 className="mb-2 text-title font-semibold">Движение денег</h1>
       <p className="mb-4 text-body text-ink-muted">
         Поступления и списания по счетам за период. Это движение денег, а не прибыль:
         прибыль считается отдельно, по выручке и расходам.
@@ -258,6 +260,47 @@ export function CashflowPage() {
               ))}
             </ul>
           ) : null}
+
+          <div className="mb-4 grid gap-4 sm:grid-cols-3">
+            <KpiCard
+              title="Поступило всего"
+              value={totalIn}
+              caption="за период"
+              tone="inflow"
+              testId="cashflow-total-in"
+            />
+            <KpiCard
+              title="Списано всего"
+              value={totalOut}
+              caption="за период"
+              tone="outflow"
+              testId="cashflow-total-out"
+            />
+            <KpiCard
+              title="Чистое движение"
+              value={current.net_external}
+              caption="поступления минус списания"
+              tone="info"
+              testId="cashflow-net"
+            />
+          </div>
+
+          <div className="mb-4">
+            <GroupedBarChart
+              title="Движение денег по секциям"
+              data={sections.map((section) => ({
+                label: sectionLabel(section.code),
+                values: [section.in, section.out],
+              }))}
+              series={[
+                { name: "Поступления", color: "var(--fp-inflow)" },
+                { name: "Списания", color: "var(--fp-outflow)" },
+              ]}
+              id="cf-page"
+              /* Числа продублированы таблицей ниже: второй таблицей дублировать не нужно. */
+              showTable={false}
+            />
+          </div>
 
           <section className="mb-2 rounded-card border bg-white p-4">
             <h2 className="mb-2 text-sm font-medium text-ink">По видам деятельности</h2>
