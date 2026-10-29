@@ -42,9 +42,8 @@ export function BudgetsPage() {
   const cash = current?.bases.find((item) => item.basis === "cash");
 
   return (
-    <Shell>
-      <h1 className="mb-2 text-xl font-semibold">Бюджет</h1>
-      <p className="mb-4 text-sm text-slate-600">
+    <Shell title="Бюджет">
+      <p className="mb-4 text-sm text-ink-muted">
         Это план, не движение денег и не прогноз.
       </p>
       <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -52,7 +51,7 @@ export function BudgetsPage() {
           <label className="text-sm">
             Фирма
             <select
-              className="mt-1 block rounded border px-3 py-1"
+              className="mt-1 block rounded-control border px-3 py-1"
               value={company?.id ?? ""}
               onChange={(event) => setPickedId(event.target.value)}
             >
@@ -67,7 +66,7 @@ export function BudgetsPage() {
         <label className="text-sm">
           Дата среза
           <input
-            className="mt-1 block rounded border px-3 py-1"
+            className="mt-1 block rounded-control border px-3 py-1"
             type="date"
             value={reportDate}
             onChange={(event) => setPickedDate(event.target.value)}
@@ -75,18 +74,18 @@ export function BudgetsPage() {
         </label>
       </div>
       {reportDate ? (
-        <p className="mb-3 text-sm text-slate-600">{calculationCaption(reportDate)}</p>
+        <p className="mb-3 text-sm text-ink-muted">{calculationCaption(reportDate)}</p>
       ) : null}
       {fact.isLoading || fact.isFetching ? <p>Загрузка</p> : null}
-      {fact.isError ? <p className="text-red-700">Не удалось посчитать план-факт.</p> : null}
+      {fact.isError ? <p className="text-danger">Не удалось посчитать план-факт.</p> : null}
       {current && !fact.isFetching && !fact.isError ? (
         <>
           {cashBudgetNote(cash?.status) ? (
             <p className="mb-3 text-sm">{cashBudgetNote(cash?.status)}</p>
           ) : null}
           {current.bases.map((basis) => (
-            <section key={basis.basis} className="mb-4 rounded-xl border bg-white p-4">
-              <p className="text-sm text-slate-600">{basisLabel(basis.basis)}</p>
+            <section key={basis.basis} className="mb-4 rounded-card border bg-white p-4">
+              <p className="text-sm text-ink-muted">{basisLabel(basis.basis)}</p>
               {basis.status === "unavailable" && basis.basis !== "cash" ? (
                 <p>Нет утверждённого бюджета</p>
               ) : null}
@@ -123,8 +122,8 @@ export function BudgetsPage() {
           ))}
         </>
       ) : null}
-      <p className="mb-3 text-sm text-slate-600">{draftDisabledReason()}</p>
-      <button type="button" className="rounded border px-3 py-2" disabled>
+      <p className="mb-3 text-sm text-ink-muted">{draftDisabledReason()}</p>
+      <button type="button" className="rounded-control border px-3 py-2" disabled>
         Создать черновик
       </button>
     </Shell>

@@ -456,8 +456,7 @@ export function ClassificationPage() {
   }, [companyId, periodOk, summary.isLoading, summary.isError, summaryData, unclassifiedRows.length]);
 
   return (
-    <Shell>
-      <h1 className="mb-2 text-title font-semibold">Классификация</h1>
+    <Shell title="Классификация">
       <p className="mb-4 text-sm text-ink-muted">
         Неклассифицированные операции и правила автоматической категории для отчёта о движении денег.
       </p>
@@ -795,7 +794,7 @@ export function ClassificationPage() {
           </label>
           <button
             type="submit"
-            className="rounded-control bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+            className="rounded-control bg-brand px-4 py-2 text-white disabled:opacity-50"
             disabled={!selection.canWrite || createRule.isPending}
           >
             {createAttempt?.phase === "unknown" ? "Повторить отправку" : "Создать правило"}
@@ -839,7 +838,7 @@ export function ClassificationPage() {
               {applyPaused ? (
                 <button
                   type="button"
-                  className="rounded-control bg-slate-900 px-3 py-1 text-white"
+                  className="rounded-control bg-brand px-3 py-1 text-white"
                   onClick={() => void runApplyLoop(applyDialog.id, applyCursor)}
                 >
                   Продолжить
@@ -847,7 +846,7 @@ export function ClassificationPage() {
               ) : (
                 <button
                   type="button"
-                  className="rounded-control bg-slate-900 px-3 py-1 text-white disabled:opacity-50"
+                  className="rounded-control bg-brand px-3 py-1 text-white disabled:opacity-50"
                   disabled={applyRunning}
                   onClick={() => void runApplyLoop(applyDialog.id, null)}
                 >

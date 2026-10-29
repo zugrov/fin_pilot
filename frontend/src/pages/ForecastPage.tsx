@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { listCompanies, loadForecast, loadGroupForecast } from "../api";
 import { Shell } from "../components/Shell";
+import { KpiCard } from "../components/system/KpiCard";
 import {
   closingLabel,
   companyDate,
@@ -40,14 +41,13 @@ export function ForecastPage() {
   const outflows = (current?.contributions ?? []).filter((item) => item.direction === "out");
 
   return (
-    <Shell>
-      <h1 className="mb-4 text-xl font-semibold">Прогноз</h1>
+    <Shell title="Прогноз">
       <div className="mb-4 flex flex-wrap items-end gap-3">
         {list.length > 0 ? (
           <label className="text-sm">
             Фирма
             <select
-              className="mt-1 block rounded border px-3 py-1"
+              className="mt-1 block rounded-control border px-3 py-1"
               value={company?.id ?? ""}
               onChange={(event) => setPickedId(event.target.value)}
             >
@@ -62,7 +62,7 @@ export function ForecastPage() {
         <label className="text-sm">
           Дата расчёта
           <input
-            className="mt-1 block rounded border px-3 py-1"
+            className="mt-1 block rounded-control border px-3 py-1"
             type="date"
             value={asOf}
             onChange={(event) => setPickedDate(event.target.value)}
@@ -72,44 +72,63 @@ export function ForecastPage() {
           <button
             key={item}
             type="button"
-            className="rounded border px-3 py-1"
+            className="rounded-control border px-3 py-1"
             onClick={() => setScenario(item)}
           >
             {item}
           </button>
         ))}
       </div>
-      {asOf ? <p className="mb-3 text-sm text-slate-600">{forecastCaption(asOf)}</p> : null}
+      {asOf ? <p className="mb-3 text-sm text-ink-muted">{forecastCaption(asOf)}</p> : null}
       {forecast.isLoading || forecast.isFetching ? <p>Загрузка</p> : null}
-      {forecast.isError ? <p className="text-red-700">{forecastErrorText()}</p> : null}
+      {forecast.isError ? <p className="text-danger">{forecastErrorText()}</p> : null}
       {current && !forecast.isFetching && !forecast.isError ? (
-        <section className="mb-6 rounded-xl border bg-white p-4">
-          <p className="text-sm text-slate-600">
-            {current.status === "preliminary" ? "Предварительно" : "Готово"}
-          </p>
-          <p className="text-xl font-semibold">{gapDisplay(current.gap_amount, current.status)}</p>
-          {current.gap_date ? (
-            <p className="text-sm">Первый день отрицательного остатка: {current.gap_date}</p>
-          ) : null}
-          <p className="text-sm">Остаток на старт: {current.opening ?? "нет данных"}</p>
-          {outflows.map((item) => (
-            <p key={`${item.date}-${item.amount}`} className="text-sm">
-              {unpaidLabel(item.amount, item.date)}
-            </p>
-          ))}
+        <>
+          <div className="mb-4 grid gap-4 sm:grid-cols-2">
+            <KpiCard
+              title="Остаток на старт"
+              value={current.opening}
+              caption="на дату расчёта"
+              chip={
+                current.status === "preliminary"
+                  ? { label: "Предварительно", tone: "warn" }
+                  : { label: "Готово", tone: "ok" }
+              }
+              testId="forecast-opening"
+            />
+            <KpiCard
+              title="Ближайший разрыв"
+              value={current.gap_amount}
+              caption={current.gap_date ?? "Разрыва не видно"}
+              tone={current.gap_amount === null ? "neutral" : "outflow"}
+              testId="forecast-gap"
+            />
+          </div>
           {current.gap_date && point ? (
-            <p className="text-sm">{closingLabel(current.gap_date, point.closing)}</p>
+            <p className="mb-3 text-sm text-ink-muted">
+              {closingLabel(current.gap_date, point.closing)}
+            </p>
           ) : null}
-        </section>
+          {outflows.length > 0 ? (
+            <section className="mb-6 rounded-card border border-line bg-surface p-card">
+              <h2 className="mb-2 text-label text-ink-muted">Ожидаемые выплаты</h2>
+              {outflows.map((item) => (
+                <p key={`${item.date}-${item.amount}`} className="text-sm">
+                  {unpaidLabel(item.amount, item.date)}
+                </p>
+              ))}
+            </section>
+          ) : null}
+        </>
       ) : null}
-      {group.isError ? <p className="text-red-700">Группа не посчитана.</p> : null}
+      {group.isError ? <p className="text-danger">Группа не посчитана.</p> : null}
       {group.data && group.data.as_of === asOf && !group.isFetching && !group.isError ? (
         <section>
           <h2 className="mb-2 font-semibold">Фирмы</h2>
           <p className="mb-2 text-sm">Группа: {group.data.group_opening ?? "нет данных"}</p>
           <ul className="space-y-2">
             {group.data.company_risks.map((item) => (
-              <li key={item.company_id} className="rounded border bg-white p-3 text-sm">
+              <li key={item.company_id} className="rounded-control border bg-white p-3 text-sm">
                 {gapDisplay(item.gap_amount, item.status)}
                 {item.gap_date ? `, ${item.gap_date}` : ""}
               </li>

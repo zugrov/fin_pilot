@@ -307,8 +307,7 @@ export function WalletsPage() {
   }
 
   return (
-    <Shell>
-      <h1 className="mb-4 text-xl font-semibold">Кошельки</h1>
+    <Shell title="Кошельки">
       <CompanyWritePicker
         listPhase={selection.listPhase}
         list={selection.list}
@@ -318,21 +317,21 @@ export function WalletsPage() {
         onSelect={handleCompanySelect}
       />
       {company?.timezone ? (
-        <p className="mb-3 text-sm text-slate-600">Часовой пояс фирмы: {company.timezone}</p>
+        <p className="mb-3 text-sm text-ink-muted">Часовой пояс фирмы: {company.timezone}</p>
       ) : (
-        <p className="mb-3 text-sm text-amber-800">
+        <p className="mb-3 text-sm text-warn">
           Пояс фирмы неизвестен — для начального остатка укажите смещение UTC вручную.
         </p>
       )}
       {createUnknown || openingUnknown ? (
-        <p className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+        <p className="mb-3 rounded-control border border-warn-line bg-warn-soft p-3 text-sm text-warn">
           {UNKNOWN_OUTCOME_MESSAGE}
         </p>
       ) : null}
-      {formError ? <p className="mb-3 text-red-700">{formError}</p> : null}
+      {formError ? <p className="mb-3 text-danger">{formError}</p> : null}
       {companyId && wallets.isLoading ? <p>Загрузка</p> : null}
       {companyId && wallets.isError ? (
-        <p className="text-red-700">Не удалось загрузить кошельки.</p>
+        <p className="text-danger">Не удалось загрузить кошельки.</p>
       ) : null}
       {list?.length === 0 ? <p className="mb-4">Кошельков нет.</p> : null}
       <ul className="mb-8 space-y-3">
@@ -342,7 +341,7 @@ export function WalletsPage() {
       </ul>
 
       {selection.canWrite && companyId ? (
-        <section className="mb-8 max-w-lg rounded-xl border bg-white p-4">
+        <section className="mb-8 max-w-lg rounded-card border bg-white p-4">
           <h2 className="mb-3 font-medium">Новый счёт</h2>
           <form
             className="space-y-3"
@@ -354,7 +353,7 @@ export function WalletsPage() {
             <label className="block text-sm">
               Название
               <input
-                className="mt-1 w-full rounded border px-2 py-1 disabled:bg-slate-100"
+                className="mt-1 w-full rounded-control border px-2 py-1 disabled:bg-canvas"
                 value={createName}
                 disabled={createFieldsLocked}
                 onChange={(event) => setCreateName(event.target.value)}
@@ -363,7 +362,7 @@ export function WalletsPage() {
             <label className="block text-sm">
               Код (для импорта)
               <input
-                className="mt-1 w-full rounded border px-2 py-1 disabled:bg-slate-100"
+                className="mt-1 w-full rounded-control border px-2 py-1 disabled:bg-canvas"
                 value={createCode}
                 disabled={createFieldsLocked}
                 onChange={(event) => setCreateCode(event.target.value)}
@@ -372,7 +371,7 @@ export function WalletsPage() {
             <label className="block text-sm">
               Тип
               <select
-                className="mt-1 w-full rounded border px-2 py-1 disabled:bg-slate-100"
+                className="mt-1 w-full rounded-control border px-2 py-1 disabled:bg-canvas"
                 value={createType}
                 disabled={createFieldsLocked}
                 onChange={(event) => setCreateType(event.target.value)}
@@ -386,7 +385,7 @@ export function WalletsPage() {
             </label>
             <button
               type="submit"
-              className="rounded bg-slate-900 px-3 py-2 text-white disabled:opacity-50"
+              className="rounded-control bg-brand px-3 py-2 text-white disabled:opacity-50"
               disabled={mutating}
             >
               {createWalletMutation.isPending
@@ -400,7 +399,7 @@ export function WalletsPage() {
       ) : null}
 
       {selection.canWrite && companyId && (list?.length ?? 0) > 0 ? (
-        <section className="max-w-lg rounded-xl border bg-white p-4">
+        <section className="max-w-lg rounded-card border bg-white p-4">
           <h2 className="mb-3 font-medium">Начальный остаток</h2>
           <form
             className="space-y-3"
@@ -412,7 +411,7 @@ export function WalletsPage() {
             <label className="block text-sm">
               Счёт
               <select
-                className="mt-1 w-full rounded border px-2 py-1 disabled:bg-slate-100"
+                className="mt-1 w-full rounded-control border px-2 py-1 disabled:bg-canvas"
                 value={openingWalletId}
                 disabled={openingFieldsLocked}
                 onChange={(event) => setOpeningWalletId(event.target.value)}
@@ -430,7 +429,7 @@ export function WalletsPage() {
               Дата
               <input
                 type="date"
-                className="mt-1 w-full rounded border px-2 py-1 disabled:bg-slate-100"
+                className="mt-1 w-full rounded-control border px-2 py-1 disabled:bg-canvas"
                 value={openingDate}
                 disabled={openingFieldsLocked}
                 onChange={(event) => setOpeningDate(event.target.value)}
@@ -440,7 +439,7 @@ export function WalletsPage() {
               Время
               <input
                 type="time"
-                className="mt-1 w-full rounded border px-2 py-1 disabled:bg-slate-100"
+                className="mt-1 w-full rounded-control border px-2 py-1 disabled:bg-canvas"
                 value={openingTime}
                 disabled={openingFieldsLocked}
                 onChange={(event) => setOpeningTime(event.target.value)}
@@ -450,7 +449,7 @@ export function WalletsPage() {
               <label className="block text-sm">
                 Смещение UTC (например +03:00)
                 <input
-                  className="mt-1 w-full rounded border px-2 py-1 disabled:bg-slate-100"
+                  className="mt-1 w-full rounded-control border px-2 py-1 disabled:bg-canvas"
                   value={manualOffset}
                   disabled={openingFieldsLocked}
                   placeholder="+03:00"
@@ -461,7 +460,7 @@ export function WalletsPage() {
             <label className="block text-sm">
               Сумма (RUB)
               <input
-                className="mt-1 w-full rounded border px-2 py-1 disabled:bg-slate-100"
+                className="mt-1 w-full rounded-control border px-2 py-1 disabled:bg-canvas"
                 value={openingAmount}
                 disabled={openingFieldsLocked}
                 onChange={(event) => setOpeningAmount(event.target.value)}
@@ -469,7 +468,7 @@ export function WalletsPage() {
             </label>
             <button
               type="submit"
-              className="rounded bg-slate-900 px-3 py-2 text-white disabled:opacity-50"
+              className="rounded-control bg-brand px-3 py-2 text-white disabled:opacity-50"
               disabled={mutating}
             >
               {openingUnknown ? "Продолжить подтверждение" : "Проверить и подтвердить"}
@@ -480,7 +479,7 @@ export function WalletsPage() {
 
       {pendingOpening ? (
         <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-w-md rounded-xl bg-white p-5 shadow-lg">
+          <div className="max-w-md rounded-card bg-white p-5 shadow-lg">
             <h3 className="mb-3 text-lg font-medium">Подтвердите начальный остаток</h3>
             <ul className="mb-4 space-y-1 text-sm">
               <li>Фирма: {company?.name ?? companyId}</li>
@@ -491,14 +490,14 @@ export function WalletsPage() {
               <li>Момент: {pendingOpening.effectiveAt}</li>
               <li>Часовой пояс / смещение: {pendingOpening.offsetUsed}</li>
             </ul>
-            <p className="mb-4 text-sm text-slate-600">
+            <p className="mb-4 text-sm text-ink-muted">
               Повторная отправка с тем же ключом не создаст второй остаток. Замена существующего
               active остатка пометит прежний как replaced.
             </p>
             <div className="flex gap-2">
               <button
                 type="button"
-                className="rounded border px-3 py-2"
+                className="rounded-control border px-3 py-2"
                 disabled={confirmOpeningMutation.isPending}
                 onClick={cancelOpeningConfirm}
               >
@@ -506,7 +505,7 @@ export function WalletsPage() {
               </button>
               <button
                 type="button"
-                className="rounded bg-slate-900 px-3 py-2 text-white disabled:opacity-50"
+                className="rounded-control bg-brand px-3 py-2 text-white disabled:opacity-50"
                 disabled={confirmOpeningMutation.isPending}
                 onClick={confirmOpeningSubmit}
               >
@@ -523,12 +522,12 @@ export function WalletsPage() {
 function WalletCard({ wallet }: { wallet: Wallet }) {
   const flags = wallet.quality_flags ?? [];
   return (
-    <li className="rounded-xl border bg-white p-4">
+    <li className="rounded-card border bg-white p-4">
       <div className="font-medium">
         {wallet.name}
-        {wallet.code ? <span className="ml-2 text-sm text-slate-600">{wallet.code}</span> : null}
+        {wallet.code ? <span className="ml-2 text-sm text-ink-muted">{wallet.code}</span> : null}
       </div>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         Тип: {wallet.type}; валюта: {wallet.currency ?? "RUB"}
       </p>
       <p className="text-sm">

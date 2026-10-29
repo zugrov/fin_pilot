@@ -46,8 +46,7 @@ export function AlertsPage() {
   const completeness = completenessCaption(alertPayload?.completeness);
 
   return (
-    <Shell>
-      <h1 className="mb-4 text-xl font-semibold">Алерты</h1>
+    <Shell title="Алерты">
       <CompanyWritePicker
         listPhase={selection.listPhase}
         list={selection.list}
@@ -57,13 +56,13 @@ export function AlertsPage() {
         onSelect={selection.onSelect}
       />
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           {savedCalculationCaption(alertPayload?.report_date ?? null)}
         </p>
-        {completeness ? <p className="text-sm text-slate-600">{completeness}</p> : null}
+        {completeness ? <p className="text-sm text-ink-muted">{completeness}</p> : null}
         <button
           type="button"
-          className="rounded border px-3 py-1 disabled:opacity-50"
+          className="rounded-control border px-3 py-1 disabled:opacity-50"
           disabled={!selection.canWrite || recalc.isPending}
           onClick={() => {
             if (alertsRecalcTarget(companyId).allowed) {
@@ -74,9 +73,9 @@ export function AlertsPage() {
           Пересчитать
         </button>
       </div>
-      {recalc.isError ? <p className="mb-3 text-red-700">Не удалось пересчитать сигналы.</p> : null}
+      {recalc.isError ? <p className="mb-3 text-danger">Не удалось пересчитать сигналы.</p> : null}
       {companyId && alerts.isLoading ? <p>Загрузка</p> : null}
-      {companyId && alerts.isError ? <p className="text-red-700">Не удалось загрузить сигналы.</p> : null}
+      {companyId && alerts.isError ? <p className="text-danger">Не удалось загрузить сигналы.</p> : null}
       {alertPayload ? (
         <p className="mb-3 text-sm">{alertEmpty(alertPayload.status, openCount)}</p>
       ) : null}
@@ -84,11 +83,11 @@ export function AlertsPage() {
         {alertPayload?.alerts
           .filter((item) => item.status !== "resolved")
           .map((item) => (
-            <li key={item.id} className="rounded-xl border bg-white p-4">
+            <li key={item.id} className="rounded-card border bg-white p-4">
               <p className="font-medium">
                 {item.type}, {item.status}
               </p>
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-ink-muted">
                 {Object.entries(item.evidence)
                   .map(([key, value]) => `${key}: ${value ?? "—"}`)
                   .join("; ")}
@@ -96,7 +95,7 @@ export function AlertsPage() {
               {item.status === "open" ? (
                 <button
                   type="button"
-                  className="mt-2 rounded border px-3 py-1 disabled:opacity-50"
+                  className="mt-2 rounded-control border px-3 py-1 disabled:opacity-50"
                   disabled={!selection.canWrite || ack.isPending}
                   onClick={() => ack.mutate(item.id)}
                 >

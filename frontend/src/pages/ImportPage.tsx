@@ -208,9 +208,8 @@ export function ImportPage() {
     checkMailbox.isPending;
 
   return (
-    <Shell>
-      <h1 className="mb-4 text-title font-semibold">Импорт</h1>
-      <CompanyWritePicker
+    <Shell title="Импорт">
+<CompanyWritePicker
         listPhase={selection.listPhase}
         list={selection.list}
         value={selection.selectValue}
@@ -314,7 +313,7 @@ export function ImportPage() {
       {error ? <p className="mb-3 text-sm text-danger">{error}</p> : null}
       <button
         type="button"
-        className="rounded-control bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+        className="rounded-control bg-brand px-4 py-2 text-white disabled:opacity-50"
         disabled={
           !previewId ||
           commit.isPending ||

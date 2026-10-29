@@ -315,9 +315,8 @@ export function CalendarPage() {
   const anyWritePending = save.isPending || shift.isPending || matchSave.isPending;
 
   return (
-    <Shell>
-      <h1 className="mb-2 text-xl font-semibold">Календарь</h1>
-      <p className="mb-4 text-sm text-slate-600">
+    <Shell title="Календарь">
+      <p className="mb-4 text-sm text-ink-muted">
         Здесь плановые выплаты и поступления: это не фактическое движение денег и не банковский платёж.
       </p>
       <CompanyWritePicker
@@ -330,12 +329,12 @@ export function CalendarPage() {
       />
       {companyId && calendar.isLoading ? <p>Загрузка календаря…</p> : null}
       {companyId && calendar.isError ? (
-        <p className="text-red-700">Не удалось загрузить календарь.</p>
+        <p className="text-danger">Не удалось загрузить календарь.</p>
       ) : null}
       {events?.length === 0 ? <p className="mb-4">Плановых событий пока нет.</p> : null}
       <ul className="mb-6 space-y-2">
         {events?.map((event) => (
-          <li key={event.id} className="rounded-xl border bg-white p-4 text-sm">
+          <li key={event.id} className="rounded-card border bg-white p-4 text-sm">
             <p>
               {directionLabel(event.direction === "in" ? "in" : "out")}: ожидание {event.expected_date},
               остаток {event.remaining}, срок {event.due_date}
@@ -352,7 +351,7 @@ export function CalendarPage() {
             ) : null}
             <button
               type="button"
-              className="mt-2 rounded border px-3 py-1 disabled:opacity-50"
+              className="mt-2 rounded-control border px-3 py-1 disabled:opacity-50"
               disabled={!selection.canWrite || shift.isPending}
               onClick={() => openMoveDialog(event)}
             >
@@ -363,21 +362,21 @@ export function CalendarPage() {
       </ul>
 
       <form
-        className="mb-8 max-w-md space-y-3 rounded-xl border bg-white p-4"
+        className="mb-8 max-w-md space-y-3 rounded-card border bg-white p-4"
         onSubmit={(event) => {
           event.preventDefault();
           submitCreate();
         }}
       >
         <h2 className="text-lg font-semibold">Новая плановая выплата</h2>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           Срок — когда платёж должен быть исполнен по договору. Ожидаемая дата — когда вы планируете
           увидеть деньги на счёте (может отличаться от срока).
         </p>
         <label className="block text-sm">
           Сумма, ₽
           <input
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={amount}
             disabled={createLocked || save.isPending}
             onChange={(event) => setAmount(event.target.value)}
@@ -387,7 +386,7 @@ export function CalendarPage() {
           Срок оплаты
           <input
             type="date"
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={dueDate}
             disabled={createLocked || save.isPending}
             onChange={(event) => setDueDate(event.target.value)}
@@ -397,14 +396,14 @@ export function CalendarPage() {
           Ожидаемая дата оплаты
           <input
             type="date"
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={expectedDate}
             disabled={createLocked || save.isPending}
             onChange={(event) => setExpectedDate(event.target.value)}
           />
         </label>
         <button
-          className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+          className="rounded-control bg-brand px-4 py-2 text-white disabled:opacity-50"
           type="submit"
           disabled={!selection.canWrite || save.isPending}
         >
@@ -414,14 +413,14 @@ export function CalendarPage() {
 
       <section className="max-w-md space-y-3 border-t pt-4">
         <h2 className="text-lg font-semibold">Связать с фактической оплатой</h2>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           Можно выбрать только проведённые операции в рублях с тем же направлением (поступление или
           списание), что и у плановой выплаты.
         </p>
         <label className="block text-sm">
           Плановая выплата
           <select
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={matchEventId}
             disabled={matchLocked || matchSave.isPending}
             onChange={(event) => {
@@ -443,7 +442,7 @@ export function CalendarPage() {
         <label className="block text-sm">
           Фактическая операция
           <select
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={matchCashId}
             disabled={matchLocked || matchSave.isPending || !matchEventId}
             onChange={(event) => setMatchCashId(event.target.value)}
@@ -457,23 +456,23 @@ export function CalendarPage() {
           </select>
         </label>
         {matchEventId && transactions.isLoading ? (
-          <p className="text-sm text-slate-600">Загружаем проведённые операции…</p>
+          <p className="text-sm text-ink-muted">Загружаем проведённые операции…</p>
         ) : null}
         {matchEventId && transactions.isError ? (
-          <p className="text-sm text-red-700">Не удалось загрузить операции для сопоставления.</p>
+          <p className="text-sm text-danger">Не удалось загрузить операции для сопоставления.</p>
         ) : null}
         {matchEventId &&
         !transactions.isLoading &&
         !transactions.isError &&
         cashOptions.length === 0 ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             Нет подходящих проведённых операций в рублях с нужным направлением.
           </p>
         ) : null}
         <label className="block text-sm">
           Сумма связи, ₽
           <input
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={matchAmount}
             disabled={matchLocked || matchSave.isPending}
             onChange={(event) => setMatchAmount(event.target.value)}
@@ -481,7 +480,7 @@ export function CalendarPage() {
         </label>
         <button
           type="button"
-          className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+          className="rounded-control bg-brand px-4 py-2 text-white disabled:opacity-50"
           disabled={!selection.canWrite || matchSave.isPending || !matchEventId || !matchCashId}
           onClick={submitMatch}
         >
@@ -496,11 +495,11 @@ export function CalendarPage() {
           aria-modal="true"
           aria-labelledby="move-dialog-title"
         >
-          <div className="w-full max-w-md space-y-3 rounded-xl bg-white p-4 shadow-lg">
+          <div className="w-full max-w-md space-y-3 rounded-card bg-white p-4 shadow-lg">
             <h2 id="move-dialog-title" className="text-lg font-semibold">
               Перенос ожидания
             </h2>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               Сумма {moveTarget.amount}, срок {moveTarget.due_date}, текущая ожидаемая дата{" "}
               {moveTarget.expected_date}. Срок оплаты не изменится.
             </p>
@@ -508,7 +507,7 @@ export function CalendarPage() {
               Новая ожидаемая дата оплаты
               <input
                 type="date"
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="mt-1 w-full rounded-control border px-3 py-2"
                 value={moveNewExpected}
                 disabled={shift.isPending}
                 onChange={(event) => setMoveNewExpected(event.target.value)}
@@ -517,7 +516,7 @@ export function CalendarPage() {
             <div className="flex gap-2">
               <button
                 type="button"
-                className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+                className="rounded-control bg-brand px-4 py-2 text-white disabled:opacity-50"
                 disabled={shift.isPending}
                 onClick={submitMove}
               >
@@ -525,7 +524,7 @@ export function CalendarPage() {
               </button>
               <button
                 type="button"
-                className="rounded border px-4 py-2 disabled:opacity-50"
+                className="rounded-control border px-4 py-2 disabled:opacity-50"
                 disabled={shift.isPending}
                 onClick={() => {
                   setMoveTarget(null);
@@ -539,7 +538,7 @@ export function CalendarPage() {
         </div>
       ) : null}
 
-      {error ? <p className="mt-4 text-sm text-red-700">{error}</p> : null}
+      {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
     </Shell>
   );
 }

@@ -140,7 +140,7 @@ export function BillingPage() {
   return (
     <Card>
       <h1 className="mb-2 text-xl font-semibold">Тариф и оплата</h1>
-      <p className="mb-4 text-sm text-slate-600">
+      <p className="mb-4 text-sm text-ink-muted">
         Скидка за год: {tariff.data?.annual_discount_percent ?? "—"}%. Цена приходит с сервера.
       </p>
       {subscription.data ? (
@@ -154,14 +154,14 @@ export function BillingPage() {
         </div>
       ) : null}
       <div className="mb-4 flex flex-wrap gap-2">
-        <button type="button" className="rounded border px-3 py-1" onClick={() => setInterval("month")}>Месяц</button>
-        <button type="button" className="rounded border px-3 py-1" onClick={() => setInterval("year")}>Год</button>
+        <button type="button" className="rounded-control border px-3 py-1" onClick={() => setInterval("month")}>Месяц</button>
+        <button type="button" className="rounded-control border px-3 py-1" onClick={() => setInterval("year")}>Год</button>
       </div>
       {paid ? null : (
         <label className="mb-4 block text-sm">
           Фирм в подписке
           <input
-            className="mt-1 w-full rounded border px-3 py-2"
+            className="mt-1 w-full rounded-control border px-3 py-2"
             type="number"
             min={1}
             max={5}
@@ -175,7 +175,7 @@ export function BillingPage() {
           Без скидки {example.annual_list} ₽, к оплате {example.annual_payable} ₽, экономия {example.savings} ₽.
         </p>
       ) : null}
-      {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
+      {error ? <p className="mb-3 text-sm text-danger">{error}</p> : null}
       <Button type="button" disabled={!example || (!tariff.data?.annual_billing_enabled && interval === "year")} onClick={pay}>
         {label}
       </Button>
@@ -191,14 +191,14 @@ export function BillingPage() {
               onChange={(event) => setName(event.target.value)}
             />
           )}
-          {assignError ? <p className="mb-3 text-sm text-red-600">{assignError}</p> : null}
+          {assignError ? <p className="mb-3 text-sm text-danger">{assignError}</p> : null}
           <Button type="button" disabled={isCreating} onClick={createFirm}>
             {waitingId ? "Назначить в слот" : "Создать фирму"}
           </Button>
         </div>
       ) : null}
       <Link
-        className="mt-4 block w-full rounded-md border border-slate-900 px-4 py-2 text-center text-sm"
+        className="mt-4 block w-full rounded-control border border-brand px-4 py-2 text-center text-sm"
         to="/overview"
       >
         В основное меню
@@ -267,13 +267,13 @@ export function BillingReturnPage() {
       <h1 className="mb-2 text-xl font-semibold">
         {subscription ? "Подписка активна" : "Платёж ожидает проверки"}
       </h1>
-      <p className="text-sm text-slate-600">{message}</p>
+      <p className="text-sm text-ink-muted">{message}</p>
       {subscription ? (
         <p className="mt-3 text-sm">
           Оплачено до {paidUntil(subscription.paid_through)}. Свободных слотов: {subscription.free_slots}.
         </p>
       ) : (
-        <p className="mt-3 text-sm text-slate-600">
+        <p className="mt-3 text-sm text-ink-muted">
           Возврат со страницы оплаты не открывает доступ. Статус подтвердит сервер.
         </p>
       )}

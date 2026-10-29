@@ -61,7 +61,7 @@ export function LoginPage() {
       >
         <Field label="Почта" type="email" {...form.register("email")} error={form.formState.errors.email?.message} />
         <Field label="Пароль" type="password" {...form.register("password")} error={form.formState.errors.password?.message} />
-        {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
+        {error ? <p className="mb-3 text-sm text-danger">{error}</p> : null}
         <Button type="submit">Войти</Button>
       </form>
       <Link className="mt-4 block text-sm" to="/forgot-password">Забыли пароль</Link>
@@ -141,7 +141,7 @@ export function ResetPage() {
         })}
       >
         <Field label="Новый пароль" type="password" {...form.register("password")} />
-        {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
+        {error ? <p className="mb-3 text-sm text-danger">{error}</p> : null}
         <Button type="submit">Сохранить</Button>
       </form>
     </Card>

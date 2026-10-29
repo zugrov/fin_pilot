@@ -178,8 +178,6 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
         </div>
       }
     >
-      <h1 className="mb-4 text-title">Обзор</h1>
-
       {companies.isLoading || dashboard.isLoading ? <p className="mb-4">Загрузка</p> : null}
       {companies.isError || dashboard.isError ? (
         <p className="mb-4 text-body text-danger">Не удалось загрузить обзор. Проверьте вход.</p>

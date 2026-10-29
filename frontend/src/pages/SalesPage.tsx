@@ -224,9 +224,8 @@ export function SalesPage() {
     selection.pickerDisabled || save.isPending || matchSave.isPending || Boolean(lockedCompany);
 
   return (
-    <Shell>
-      <h1 className="mb-2 text-xl font-semibold">Продажи</h1>
-      <p className="mb-4 text-sm text-slate-600">Это не таблица поступлений.</p>
+    <Shell title="Продажи">
+      <p className="mb-4 text-sm text-ink-muted">Это не таблица поступлений.</p>
       <CompanyWritePicker
         listPhase={selection.listPhase}
         list={selection.list}
@@ -236,16 +235,16 @@ export function SalesPage() {
         onSelect={onSelectCompany}
       />
       {company?.timezone ? (
-        <p className="mb-3 text-sm text-slate-600">Часовой пояс фирмы: {company.timezone}</p>
+        <p className="mb-3 text-sm text-ink-muted">Часовой пояс фирмы: {company.timezone}</p>
       ) : companyId ? (
-        <p className="mb-3 text-sm text-amber-800">Часовой пояс фирмы неизвестен — укажите дату вручную.</p>
+        <p className="mb-3 text-sm text-warn">Часовой пояс фирмы неизвестен — укажите дату вручную.</p>
       ) : null}
       {companyId && sales.isLoading ? <p>Загрузка</p> : null}
-      {companyId && sales.isError ? <p className="text-red-700">Не удалось загрузить продажи.</p> : null}
+      {companyId && sales.isError ? <p className="text-danger">Не удалось загрузить продажи.</p> : null}
       {entries?.length === 0 ? <p className="mb-4">Продаж нет.</p> : null}
       <ul className="mb-6 space-y-2">
         {entries?.map((entry) => (
-          <li key={entry.id} className="rounded-xl border bg-white p-4 text-sm">
+          <li key={entry.id} className="rounded-card border bg-white p-4 text-sm">
             <p>
               {entry.recognition_date}: {entry.amount_ex_vat ?? entry.amount_inc_vat} без НДС,{" "}
               {entry.entry_type === "return" ? "возврат" : "продажа"}
@@ -276,7 +275,7 @@ export function SalesPage() {
           Дата признания
           <input
             type="date"
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={recognitionDate}
             disabled={createLocked || save.isPending}
             onChange={(event) => setRecognitionDate(event.target.value)}
@@ -286,7 +285,7 @@ export function SalesPage() {
         <label className="block text-sm">
           Номер документа
           <input
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={documentNumber}
             disabled={createLocked || save.isPending}
             onChange={(event) => setDocumentNumber(event.target.value)}
@@ -295,7 +294,7 @@ export function SalesPage() {
         <label className="block text-sm">
           Внешний ID (не ключ идемпотентности)
           <input
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={externalId}
             disabled={createLocked || save.isPending}
             onChange={(event) => setExternalId(event.target.value)}
@@ -304,7 +303,7 @@ export function SalesPage() {
         <label className="block text-sm">
           Сумма с НДС
           <input
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={inc}
             disabled={createLocked || save.isPending}
             onChange={(event) => setInc(event.target.value)}
@@ -313,7 +312,7 @@ export function SalesPage() {
         <label className="block text-sm">
           Без НДС
           <input
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={ex}
             disabled={createLocked || save.isPending}
             onChange={(event) => setEx(event.target.value)}
@@ -322,14 +321,14 @@ export function SalesPage() {
         <label className="block text-sm">
           НДС
           <input
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={vat}
             disabled={createLocked || save.isPending}
             onChange={(event) => setVat(event.target.value)}
           />
         </label>
         <button
-          className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+          className="rounded-control bg-brand px-4 py-2 text-white disabled:opacity-50"
           type="submit"
           disabled={!selection.canWrite || save.isPending || !recognitionDate}
         >
@@ -342,7 +341,7 @@ export function SalesPage() {
         <label className="block text-sm">
           Продажа
           <select
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={matchEntryId}
             disabled={matchLocked || matchSave.isPending}
             onChange={(event) => setMatchEntryId(event.target.value)}
@@ -360,7 +359,7 @@ export function SalesPage() {
         <label className="block text-sm">
           Поступление (posted, in, RUB)
           <select
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={matchCashId}
             disabled={matchLocked || matchSave.isPending}
             onChange={(event) => setMatchCashId(event.target.value)}
@@ -376,7 +375,7 @@ export function SalesPage() {
         <label className="block text-sm">
           Сумма связи
           <input
-            className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+            className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
             value={matchAmount}
             disabled={matchLocked || matchSave.isPending}
             onChange={(event) => setMatchAmount(event.target.value)}
@@ -384,14 +383,14 @@ export function SalesPage() {
         </label>
         <button
           type="button"
-          className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+          className="rounded-control bg-brand px-4 py-2 text-white disabled:opacity-50"
           disabled={!selection.canWrite || matchSave.isPending || !matchEntryId || !matchCashId}
           onClick={submitMatch}
         >
           {matchAttempt?.phase === "unknown" ? "Повторить сопоставление" : "Сопоставить"}
         </button>
       </section>
-      {error ? <p className="mt-4 text-sm text-red-700">{error}</p> : null}
+      {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
     </Shell>
   );
 }
