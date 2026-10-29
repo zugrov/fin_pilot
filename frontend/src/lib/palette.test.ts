@@ -54,6 +54,26 @@ describe("контраст текста ≥ 4,5:1", () => {
   });
 });
 
+describe("светлое боковое меню и бренд-акцент", () => {
+  const BRAND = "#0f766e";
+  const BRAND_SOFT = "#ccfbf1";
+  const RAIL_TEXT = "#475569";
+
+  it("текст пунктов меню читается на белом фоне", () => {
+    expect(contrast(RAIL_TEXT, SURFACE)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(INK, SURFACE)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("активный пункт: бренд-текст на мягкой подложке", () => {
+    expect(contrast(BRAND, BRAND_SOFT)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(BRAND, SURFACE)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("логотип: белый знак на бренд-плашке", () => {
+    expect(contrast(SURFACE, BRAND)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
 describe("ступени тепловой карты дебиторки", () => {
   const steps = [
     { fill: "#f0fdf4", border: "#047857", text: INK },

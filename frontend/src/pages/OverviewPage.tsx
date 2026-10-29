@@ -121,6 +121,7 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
 
   return (
     <Shell
+      title="Обзор"
       header={
         <div className="flex flex-wrap items-center gap-3">
           {companies.data && companies.data.companies.length > 1 ? (

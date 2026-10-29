@@ -2,6 +2,7 @@ import { NavLink, Link } from "react-router-dom";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { NAV_GROUPS } from "../lib/navigation";
+import { NavIcon } from "./system/NavIcon";
 
 function MenuIcon() {
   return (
@@ -21,7 +22,7 @@ function NavGroups({ onNavigate }: { onNavigate?: () => void }) {
     <nav aria-label="Основная навигация" className="flex flex-col gap-4">
       {NAV_GROUPS.map((group) => (
         <div key={group.title}>
-          <p className="px-3 pb-1 text-note uppercase tracking-wide text-slate-500">
+          <p className="px-3 pb-1 text-note uppercase tracking-wide text-ink-subtle">
             {group.title}
           </p>
           <ul>
@@ -32,13 +33,14 @@ function NavGroups({ onNavigate }: { onNavigate?: () => void }) {
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     [
-                      "flex min-h-tap items-center rounded-control px-3 text-body",
+                      "flex min-h-tap items-center gap-2 rounded-control px-3 text-body",
                       isActive
-                        ? "bg-rail-active font-medium text-rail-strong"
-                        : "text-rail-text hover:bg-rail-hover hover:text-rail-strong",
+                        ? "bg-brand-soft font-medium text-brand"
+                        : "text-rail-text hover:bg-rail-hover hover:text-ink",
                     ].join(" ")
                   }
                 >
+                  <NavIcon name={item.icon} />
                   {item.label}
                 </NavLink>
               </li>
@@ -50,7 +52,30 @@ function NavGroups({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function Shell({ children, header }: { children: ReactNode; header?: ReactNode }) {
+function Logo() {
+  return (
+    <span className="flex items-center gap-2">
+      <span
+        aria-hidden="true"
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-control bg-brand text-body font-bold text-white"
+      >
+        F
+      </span>
+      <span className="text-lg font-semibold text-ink">FinPilot</span>
+    </span>
+  );
+}
+
+export function Shell({
+  children,
+  header,
+  title,
+}: {
+  children: ReactNode;
+  header?: ReactNode;
+  /** Заголовок страницы: рендерится в шапке, чтобы действия периода стояли рядом. */
+  title?: ReactNode;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -76,10 +101,10 @@ export function Shell({ children, header }: { children: ReactNode; header?: Reac
         Перейти к содержимому
       </a>
 
-      {/* Тёмное боковое меню: только десктоп. */}
-      <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-rail-border bg-rail px-2 py-4 lg:flex">
-        <Link to="/overview" className="mb-6 px-3 text-lg font-semibold text-rail-strong">
-          FinPilot
+      {/* Светлое боковое меню: только десктоп. */}
+      <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col overflow-y-auto border-r border-line bg-surface px-2 py-4 lg:flex">
+        <Link to="/overview" className="mb-6 px-3" aria-label="FinPilot, на главную">
+          <Logo />
         </Link>
         <NavGroups />
       </aside>
@@ -97,10 +122,11 @@ export function Shell({ children, header }: { children: ReactNode; header?: Reac
             >
               <MenuIcon />
             </button>
-            <Link to="/overview" className="text-body font-semibold lg:hidden">
-              FinPilot
+            <Link to="/overview" className="lg:hidden" aria-label="FinPilot, на главную">
+              <Logo />
             </Link>
-            <div className="min-w-0 flex-1">{header}</div>
+            {title ? <h1 className="text-title">{title}</h1> : null}
+            <div className="ml-auto min-w-0 flex-1">{header}</div>
           </div>
         </header>
 
@@ -109,16 +135,16 @@ export function Shell({ children, header }: { children: ReactNode; header?: Reac
             <button
               type="button"
               aria-label="Закрыть меню"
-              className="fixed inset-0 z-40 bg-rail/40 lg:hidden"
+              className="fixed inset-0 z-40 bg-ink/40 lg:hidden"
               onClick={() => setMenuOpen(false)}
             />
             <div
               id="fp-mobile-menu"
               ref={panelRef}
-              className="fixed inset-y-0 left-0 z-50 w-64 overflow-y-auto bg-rail px-2 py-4 shadow-pop lg:hidden"
+              className="fixed inset-y-0 left-0 z-50 w-64 overflow-y-auto bg-surface px-2 py-4 shadow-pop lg:hidden"
             >
               <div className="mb-4 flex items-center justify-between px-3">
-                <span className="text-lg font-semibold text-rail-strong">FinPilot</span>
+                <Logo />
                 <button
                   type="button"
                   className="flex min-h-tap min-w-tap items-center justify-center rounded-control text-rail-text"

@@ -20,14 +20,25 @@ export default {
         danger: { DEFAULT: "#b91c1c", soft: "#fef2f2", line: "#fecaca" },
         info: { DEFAULT: "#1d4ed8", soft: "#eff6ff", line: "#bfdbfe" },
         focus: "#2563eb",
-        // Тёмное боковое меню.
+        // Бренд-акцент: бирюзово-тёмный, для активного пункта меню и логотипа.
+        brand: { DEFAULT: "#0f766e", soft: "#ccfbf1", line: "#99f6e4" },
+        // Светлое боковое меню (как в референсе Equinox): белый фон, тёмный текст.
         rail: {
-          DEFAULT: "#0f172a",
-          hover: "#1e293b",
-          active: "#1e293b",
-          text: "#cbd5e1",
-          strong: "#f8fafc",
-          border: "#1e293b",
+          DEFAULT: "#ffffff",
+          hover: "#f1f5f9",
+          active: "#ccfbf1",
+          text: "#475569",
+          strong: "#0f172a",
+          border: "#e2e8f0",
+        },
+        // Серии графиков: различимые оттенки для легенд и долей кольца.
+        series: {
+          "1": "#0f766e",
+          "2": "#1d4ed8",
+          "3": "#b45309",
+          "4": "#b91c1c",
+          "5": "#6d28d9",
+          "6": "#475569",
         },
       },
       fontFamily: {
