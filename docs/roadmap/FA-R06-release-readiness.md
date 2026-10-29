@@ -1013,3 +1013,76 @@ bash /var/tmp/finpilot-rel0-artifacts/rel0-backup-verify.sh \
 **Откат** (не потребовался): rollback-override на образ `9819768` и `up -d --no-deps --no-build --pull never frontend`; восстановление БД не нужно, данные не менялись.
 
 **Реальные данные клиента на staging не загружались.**
+## REL1 · окно frontend FinPilot v2 (2026-10-29, закрыто)
+
+**Статус:** **закрыто**; дизайн FinPilot v2 принят владельцем 2026-10-29. Замена контейнера выполнена
+в тот же день, откат **не потребовался**.
+
+| Слой | Значение после окна |
+| --- | --- |
+| **frontend** | `finpilot-frontend:release-candidate-42d3e6f272c0d8784e40635d3b74d677d4b02982` · `.Id` `sha256:7bd88438ae4a…` · контейнер `5bdaf2f537ac` · started `2026-10-29T18:29:26Z` |
+| **api / worker / beat** | `finpilot-api:release-candidate-ebd391228a76846f1c805f568467ea8f846e6aa5` — **не перезапускались**: `6a952bda96c7`, `249b61bf9375`, `a2ae6e6bd616`, `StartedAt` `2026-10-28T08:20:49Z` (все три без сдвига) |
+| **schema** | **`20261027_0017`** — без изменений |
+| **бэкап БД** | не повторялся: данные и схема не менялись, окно только про frontend |
+
+| Поле | Значение |
+| --- | --- |
+| Product SHA | `42d3e6f272c0d8784e40635d3b74d677d4b02982` |
+| Artifact run | [40926427236](https://github.com/zugrov/fin_pilot/actions/runs/40926427236) |
+| Artifact name | `finpilot-frontend-release-candidate-42d3e6f…-run-40926427236-linux-amd64` |
+| Tarball sha256 | `00109c46ac3c1330023ddb051654abb14d046ac176e7267bdca1ded1f2aa35cb` |
+| Retention | 21 день (до 2026-11-19) |
+| Allowlist | отдельный ci-коммит `5a9c2bd`; `ALEMBIC_HEAD` оставлен `20261027_0017` |
+| Rollback image | `finpilot-frontend:release-candidate-f147092…` (`.Id` `sha256:582bd01c8c31…`) — **сохранён** |
+
+**Смоук:**
+
+| Проверка | Результат |
+| --- | --- |
+| `health/live`, `health/ready` | **200 / 200** |
+| `GET /` | **200**, `text/html` |
+| `GET /assets/index-BQFxxjlx.js` | **200**, `application/javascript`, **502 020 байт** |
+| `GET /assets/index-GNuvJ094.css` | **200**, `text/css`, **18 342 байта** |
+| `GET /cashflow`, `GET /receivables` | **200** |
+| API cashflow «Топ» октябрь | поступления **27 000,00**, списания **46 500,50**, чистое **−19 500,50** |
+| API receivable-aging `as_of=2026-10-31` | **8 001,50** |
+| Схема в контейнере | `alembic_version = 20261027_0017` |
+| Логи frontend/api/worker/beat | **0 traceback**; 5xx в api — **0** |
+
+**Идентификаторы: `.Id` объяснено.**
+
+В отчёте сборки `frontend_image_id` = `sha256:f457ff4d70ef…`, на VPS `.Id` = `sha256:7bd88438ae4a…`.
+Это **не** расхождение содержимого:
+
+- отчёт печатает `docker image inspect .Id`; на раннере GitHub Actions включён legacy image store, где `.Id` равен **config digest**;
+- на VPS включён **containerd image store** (`Storage Driver: overlayfs`, `snapshotter.io.containerd.snapshotter.v1`), где `.Id` равен **manifest digest**;
+- в архиве `index.json` → манифест `sha256:7bd88438ae4a…` (1761 байт), а его `config.digest` = `sha256:f457ff4d70ef…` (11 811 байт). Пересчёт sha256 конфиг-блоба из архива дал ровно `f457ff4d70ef…`.
+
+Сверка архива с образом на VPS: config digest совпал, manifest digest совпал, `RootFS.Layers` — те же **10** diff_id
+в том же порядке, `created` `2026-10-29T17:59:20.260959989Z` совпал побайтово, лейбл
+`org.opencontainers.image.revision=42d3e6f…` совпал, содержимое `dist` (`index-BQFxxjlx.js`, `index-GNuvJ094.css`) совпало.
+
+**Браузерная проверка (SSH-туннель `127.0.0.1:8091`):**
+
+| Проверка | Результат |
+| --- | --- |
+| Обзор, десктоп 1440×900 | KPI `80 499,50 ₽`, 2 SVG-графика (секции ОДДС, кольцо долгов) |
+| Деньги, десктоп | `27 000,00` / `46 500,50`, график секций, таблица, drill-down |
+| Дебиторка, десктоп | `8 001,50 ₽`, корзина 0–30 = 100 %, таблица долгов |
+| Мобильный 390×844 | все три экрана отрисованы |
+| Мобильное меню | бургер открывает панель, переход закрывает, **Esc** закрывает |
+| Смена периода | данные перезапрашиваются, суммы сохраняются |
+| Консоль | **0** ошибок JS, **0** `pageerror`, **0** неудавшихся запросов |
+
+**Ограничения проверки (честно):**
+
+- Сессия создана **серверным механизмом** (`_open_session`), cookie передана в браузер; файл с cookie удалён
+  с обоих хостов после проверки. **Вход через форму логина не проверялся** — страница входа дизайном не менялась.
+- **Смена фирмы не проверялась**: на стенде одна фирма (`ООО «Топ»`), выбирать не из чего. Контрол присутствует и активен.
+
+**Откат** (не потребовался): override на тег `f147092` + `up -d --no-deps frontend`. База и backend не откатывались
+и не перезапускались.
+
+**Запреты соблюдены:** `classification_packs_enabled` выключен (переменная не задана, дефолт `false`);
+реальные данные клиента на staging не переносились; полировка из backlog не выполнялась.
+

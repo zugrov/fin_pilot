@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.2",
   "status": "in_progress",
-  "allowed_next_action": "Визуальное направление FinPilot v2 принято владельцем 2026-10-29 и слито в main (42d3e6f), ci и e2e на main зелёные, полигон 14 + 4. Staging НЕ обновлён: там frontend f147092, backend ebd3912, schema 0017. Дальше: отдельное решение на окно замены только frontend. Параллельно: FA-R03.2b сверка S1/S2/S3; FA-R03.1 S9–S11 и 8.3.x — ждём клиента. Набор правил v1 в коде, в tenant не устанавливался.",
+  "allowed_next_action": "Окно frontend FinPilot v2 закрыто 2026-10-29: staging frontend 42d3e6f, backend ebd3912, schema 20261027_0017; откатный образ f147092 сохранён; откат не потребовался. Дальше: фаза полировки design/polish-v1 (backlog а–з) — ветка, без слияния и без деплоя. Параллельно: FA-R03.2b сверка S1/S2/S3; FA-R03.1 S9–S11 и 8.3.x — ждём клиента. Набор правил v1 в коде, в tenant не устанавливался.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -2251,8 +2251,9 @@
       "reason": "решение владельца 2026-10-29 по приложенным примерам удачного дизайна"
     },
     "staging": {
-      "updated": false,
-      "note": "staging остаётся на frontend f147092 (backend ebd3912, schema 20261027_0017); окно замены только frontend не открывалось"
+      "updated": true,
+      "performed_at": "2026-10-29",
+      "note": "frontend заменён на 42d3e6f; backend ebd3912 и схема 20261027_0017 без изменений; откат не потребовался — см. staging_window_frontend_v2_2026_10_29"
     },
     "out_of_scope": {
       "billing_page": "осталась вне выполненного объёма: только замена классов на токены, структура и платёжный сценарий не менялись",
@@ -2266,13 +2267,96 @@
       "real_client_data": false
     },
     "backlog_not_implemented": [
-      "уменьшить высоту KPI-карточек, подробности перенести в раскрываемый блок",
-      "сворачиваемая таблица прогноза",
-      "пользовательские подписи вместо сырых quality_flags",
-      "все видимые денежные значения через существующий Amount/форматтер",
-      "согласовать нулевые корзины в легенде кольца и таблице: подтверждённый ноль — 0,00 ₽, неизвестное значение — «Нет данных»"
+      "а) уменьшить высоту KPI-карточек, подробности перенести в раскрываемый блок",
+      "б) сворачиваемая таблица прогноза",
+      "в) пользовательские подписи вместо сырых quality_flags",
+      "г) все видимые денежные значения через существующий Amount/форматтер",
+      "д) согласовать нулевые корзины в легенде кольца и таблице: подтверждённый ноль — 0,00 ₽, неизвестное значение — «Нет данных»",
+      "е) сырые даты и числа в тексте экранов (ISO-даты, «100000.00», «20002.00») — единый формат дат и общий форматтер денег",
+      "ж) технический код quality_flag (например partial_period) — пользовательская формулировка",
+      "з) боковое меню закрепить на всю высоту окна на длинных страницах; проверять прокруткой в реальном браузере, не по скриншоту всей страницы"
     ],
     "backlog_test_rule": "при будущих исправлениях тесты проверяют и корректное значение, и пользовательское отображение",
+    "polish_v1": {
+      "status": "in_progress_branch_only",
+      "branch": "design/polish-v1",
+      "base": "main",
+      "scope": "пункты а–з",
+      "constraints": "не сливать в main, не деплоить, тексты ссылок и подписей и data-testid не менять, API и backend не менять",
+      "screenshots": "var/design-polish-v1/ (до/после, вне git)"
+    },
     "docs_commit_note": "docs-коммит идёт после кода; SHA реализации — 42d3e6f, фактический SHA docs-коммита — HEAD после push (см. git log)"
+  },
+  "staging_window_frontend_v2_2026_10_29": {
+    "status": "completed_and_closed",
+    "performed_at": "2026-10-29",
+    "rollback_needed": false,
+    "product_sha": "42d3e6f272c0d8784e40635d3b74d677d4b02982",
+    "frontend_image": "finpilot-frontend:release-candidate-42d3e6f272c0d8784e40635d3b74d677d4b02982",
+    "frontend_container": "5bdaf2f537ac",
+    "frontend_started_at": "2026-10-29T18:29:26Z",
+    "frontend_image_id_vps": "sha256:7bd88438ae4a9bebcb8153762dbf8c1c5d9610ccdffc798f3b3645ef78dbb7b4",
+    "artifact_run": 40926427236,
+    "artifact_name": "finpilot-frontend-release-candidate-42d3e6f272c0d8784e40635d3b74d677d4b02982-run-40926427236-linux-amd64",
+    "artifact_sha256": "00109c46ac3c1330023ddb051654abb14d046ac176e7267bdca1ded1f2aa35cb",
+    "artifact_retention": "21 день, до 2026-11-19",
+    "allowlist_commit": "5a9c2bd6d27970b96ca33b00dbd9544a14340fd1",
+    "alembic_head": "20261027_0017",
+    "backend_unchanged": {
+      "api": "6a952bda96c7",
+      "worker": "249b61bf9375",
+      "beat": "a2ae6e6bd616",
+      "started_at": "2026-10-28T08:20:49Z",
+      "note": "ID и StartedAt не изменились; restart_count=0 у всех трёх"
+    },
+    "rollback_image_kept": {
+      "tag": "finpilot-frontend:release-candidate-f1470927045f05c5e35a158baf434006aa0db46b",
+      "image_id": "sha256:582bd01c8c31f0734af40254822e6b12a8554e86aad383192afac3860ffc0714",
+      "previous_container": "34d1873ac688"
+    },
+    "image_id_mismatch_explained": {
+      "report_value": "sha256:f457ff4d70ef43407af523f2c709605a6790d58658b6176de3864cac024bfa65",
+      "vps_value": "sha256:7bd88438ae4a9bebcb8153762dbf8c1c5d9610ccdffc798f3b3645ef78dbb7b4",
+      "reason": "отчёт печатает docker image inspect .Id: на раннере legacy image store даёт config digest, на VPS containerd image store даёт manifest digest",
+      "vps_image_store": "containerd snapshotter, storage driver overlayfs",
+      "config_digest": "sha256:f457ff4d70ef43407af523f2c709605a6790d58658b6176de3864cac024bfa65",
+      "manifest_digest": "sha256:7bd88438ae4a9bebcb8153762dbf8c1c5d9610ccdffc798f3b3645ef78dbb7b4",
+      "config_size_bytes": 11811,
+      "manifest_size_bytes": 1761,
+      "verified": "config digest из архива пересчитан и совпал; RootFS.Layers 10/10 в том же порядке; created совпал побайтово; лейбл revision=42d3e6f совпал; содержимое dist совпало"
+    },
+    "smoke": {
+      "health_live_ready": "200 / 200",
+      "root": "200, text/html",
+      "js": "/assets/index-BQFxxjlx.js 200 application/javascript 502020 байт",
+      "css": "/assets/index-GNuvJ094.css 200 text/css 18342 байта",
+      "spa_routes": {"/cashflow": 200, "/receivables": 200},
+      "api_cashflow_oct": {"in": "27000.00", "out": "46500.50", "net": "-19500.50"},
+      "api_receivable_aging_2026_10_31": "8001.50",
+      "schema_in_container": "20261027_0017",
+      "logs_traceback": false,
+      "api_5xx": 0
+    },
+    "browser_check": {
+      "tunnel": "127.0.0.1:8091 → staging 8090",
+      "viewports": ["1440x900", "390x844"],
+      "screens": ["Обзор", "Деньги", "Дебиторка"],
+      "overview_kpi_cash_total": "80499.50",
+      "cashflow_in_out": ["27000.00", "46500.50"],
+      "receivable_total": "8001.50",
+      "mobile_menu": "бургер открывает, переход закрывает, Esc закрывает",
+      "period_change": "данные перезапрашиваются, суммы сохраняются",
+      "console_errors": 0,
+      "page_errors": 0,
+      "failed_requests": 0,
+      "screenshots": "var/staging-ui-42d3e6f/ (8 PNG, вне git)"
+    },
+    "browser_check_limitations": {
+      "login_form_not_tested": "сессия создана серверным механизмом _open_session; cookie передана в браузер; файл cookie удалён с обоих хостов. Вход через форму логина не проверялся — страница входа дизайном не менялась",
+      "company_switch_not_tested": "на стенде одна фирма ООО «Топ», выбирать не из чего; контрол присутствует и активен"
+    },
+    "classification_packs_enabled": false,
+    "real_client_data_on_staging": false,
+    "polish_from_backlog": "не выполнялась"
   }
 }
