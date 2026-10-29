@@ -2,6 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Токены времени выполнения: нужны там, где Tailwind-класса недостаточно
+   (SVG-заливки, кольцо фокуса). Значения совпадают с tailwind.config.js. */
+:root {
+  --fp-ink: #0f172a;
+  --fp-ink-muted: #475569;
+  --fp-canvas: #f8fafc;
+  --fp-surface: #ffffff;
+  --fp-line: #e2e8f0;
+  --fp-inflow: #047857;
+  --fp-inflow-soft: #ecfdf5;
+  --fp-outflow: #b91c1c;
+  --fp-outflow-soft: #fef2f2;
+  --fp-warn: #b45309;
+  --fp-warn-soft: #fffbeb;
+  --fp-info: #1d4ed8;
+  --fp-focus: #2563eb;
+  /* Ступени тепловой карты. 4 ступени с шагом 3:1 невозможны в принципе
+     (нужен диапазон 27:1, максимум ч/б = 21:1), поэтому различимость
+     ступеней обеспечивается контрастной рамкой каждой плитки:
+     заливка -> рамка 3.60–9.06:1, см. lib/palette.test.ts. */
+  --fp-heat-1: #f0fdf4;
+  --fp-heat-2: #6ee7b7;
+  --fp-heat-3: #047857;
+  --fp-heat-4: #134e4a;
+  --fp-heat-border-1: #047857;
+  --fp-heat-border-2: #047857;
+  --fp-heat-border-3: #f8fafc;
+  --fp-heat-border-4: #f8fafc;
+}
+
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-canvas text-ink antialiased;
+}
+
+/* Табличные цифры для всех сумм и дат: колонки не «пляшут». */
+@layer utilities {
+  .fp-num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+}
+
+/* Кольцо фокуса одинаковое на всех интерактивных элементах. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--fp-focus);
+    outline-offset: 2px;
+  }
 }

@@ -40,18 +40,18 @@ import {
 function heatClass(percent: string): string {
   const value = Number(percent.replace(",", "."));
   if (!Number.isFinite(value) || value <= 0) {
-    return "bg-slate-50";
+    return "bg-canvas";
   }
   if (value < 15) {
-    return "bg-amber-50";
+    return "bg-warn-soft";
   }
   if (value < 40) {
-    return "bg-amber-100";
+    return "bg-warn-soft";
   }
   if (value < 70) {
-    return "bg-amber-200";
+    return "bg-warn-soft";
   }
-  return "bg-amber-300";
+  return "bg-warn-soft";
 }
 
 function BucketTiles({
@@ -75,12 +75,12 @@ function BucketTiles({
           <li
             key={slice.code}
             data-testid={`bucket-${slice.code}`}
-            className={`rounded-xl border p-3 ${heatClass(percent)}`}
+            className={`rounded-card border p-3 ${heatClass(percent)}`}
           >
-            <p className="text-xs text-slate-700">{bucketLabel(slice.code)}</p>
+            <p className="text-xs text-ink">{bucketLabel(slice.code)}</p>
             <p className="mt-1 text-lg font-medium tabular-nums">{formatMoney(slice.total)}</p>
-            <p className="text-sm text-slate-900 tabular-nums">{bucketPercentText(percent)}</p>
-            <p className="mt-1 text-xs text-slate-700">{bucketHint(slice.code)}</p>
+            <p className="text-sm text-ink tabular-nums">{bucketPercentText(percent)}</p>
+            <p className="mt-1 text-xs text-ink">{bucketHint(slice.code)}</p>
           </li>
         );
       })}
@@ -101,19 +101,19 @@ function DebtRows({ rows }: { rows: readonly ReceivableAgingRow[] }) {
             </p>
             <dl className="mt-2 grid grid-cols-2 gap-2 text-sm">
               <div>
-                <dt className="text-xs text-slate-600">Дата</dt>
+                <dt className="text-xs text-ink-muted">Дата</dt>
                 <dd>{row.recognition_date}</dd>
               </div>
               <div>
-                <dt className="text-xs text-slate-600">Документ</dt>
+                <dt className="text-xs text-ink-muted">Документ</dt>
                 <dd className="break-all">{documentLabel(row.document)}</dd>
               </div>
               <div>
-                <dt className="text-xs text-slate-600">Сумма</dt>
+                <dt className="text-xs text-ink-muted">Сумма</dt>
                 <dd className="tabular-nums font-medium">{formatMoney(row.balance)}</dd>
               </div>
               <div>
-                <dt className="text-xs text-slate-600">Корзина · дней</dt>
+                <dt className="text-xs text-ink-muted">Корзина · дней</dt>
                 <dd>
                   {bucketLabel(row.bucket)} · {ageDaysLabel(row.age_days)}
                 </dd>
@@ -128,7 +128,7 @@ function DebtRows({ rows }: { rows: readonly ReceivableAgingRow[] }) {
           Задолженность покупателей: строки с датой, контрагентом, документом, суммой и сроком
         </caption>
         <thead>
-          <tr className="bg-slate-100 text-left">
+          <tr className="bg-canvas text-left">
             <th scope="col" className="py-2 pr-3 pl-2">
               Дата
             </th>
@@ -215,76 +215,77 @@ export function ReceivablePage() {
   const truncated = current ? isRowsTruncated(rows, current.rows_truncated) : false;
 
   return (
-    <Shell>
-      <h1 className="mb-2 text-xl font-semibold">Дебиторка</h1>
-      <p className="mb-4 text-sm text-slate-600">{debtBasisNote()}</p>
-
-      <CompanyWritePicker
-        listPhase={selection.listPhase}
-        list={selection.list}
-        value={selection.selectValue}
-        needsPlaceholder={selection.needsPlaceholder}
-        disabled={selection.pickerDisabled}
-        onSelect={selection.onSelect}
-      />
-
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <label className="text-sm">
-          Дата среза
-          <input
-            className="mt-1 block rounded border px-3 py-1"
-            type="date"
-            value={asOf}
-            onChange={(event) => {
-              setAsOfTouched(true);
-              setAsOf(event.target.value);
-            }}
+    <Shell
+      header={
+        <div className="flex flex-wrap items-end gap-3">
+          <CompanyWritePicker
+            listPhase={selection.listPhase}
+            list={selection.list}
+            value={selection.selectValue}
+            needsPlaceholder={selection.needsPlaceholder}
+            disabled={selection.pickerDisabled}
+            onSelect={selection.onSelect}
           />
-        </label>
-      </div>
+          <label className="text-note text-ink-muted">
+            Дата среза
+            <input
+              className="mt-1 block min-h-tap rounded-control border border-line px-2 text-body fp-num"
+              type="date"
+              value={asOf}
+              onChange={(event) => {
+                setAsOfTouched(true);
+                setAsOf(event.target.value);
+              }}
+            />
+          </label>
+        </div>
+      }
+    >
+      <h1 className="mb-2 text-title font-semibold">Дебиторка</h1>
+      <p className="mb-4 text-body text-ink-muted">{debtBasisNote()}</p>
 
       {!asOfValid && asOf ? (
-        <p className="mb-4 text-red-700">Дата среза в формате ГГГГ-ММ-ДД.</p>
+        <p className="mb-4 text-danger">Дата среза в формате ГГГГ-ММ-ДД.</p>
       ) : null}
 
       {!companyId && selection.listPhase === "ready" ? (
-        <p className="mb-4 text-sm text-amber-800">Выберите фирму, чтобы посчитать долги.</p>
+        <p className="mb-4 text-sm text-warn">Выберите фирму, чтобы посчитать долги.</p>
       ) : null}
 
       {report.isLoading ? <p className="mb-4">Загрузка отчёта…</p> : null}
       {report.isError ? (
-        <p className="mb-4 text-red-700" role="alert">
+        <p className="mb-4 text-danger" role="alert">
           {receivableErrorText(report.error)}
         </p>
       ) : null}
 
       {current && !unavailable ? (
         <>
-          <section className="mb-4 rounded-xl border bg-white p-4">
-            <p className="text-sm text-slate-600">{asOfCaption(current.as_of)}</p>
+          <section className="mb-4 rounded-card border bg-white p-4">
+            <p className="text-sm text-ink-muted">{asOfCaption(current.as_of)}</p>
             <p className="mt-1 text-3xl font-semibold tabular-nums">
               {formatMoney(current.total_balance)}
             </p>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-ink-muted">
               Столько покупатели должны вам на эту дату.
             </p>
-            <p className="mt-3 text-sm text-slate-600">
+            <p className="mt-3 text-sm text-ink-muted">
               Состояние данных: <strong>{completenessLabel(current.completeness)}</strong>
             </p>
-            <p className="mt-1 text-sm text-slate-600">{completenessNote(current.completeness)}</p>
+            <p className="mt-1 text-sm text-ink-muted">{completenessNote(current.completeness)}</p>
           </section>
 
           {noRevenueSource ? (
             <div
               role="status"
-              className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+              className="mb-4 rounded-card border border-warn-line bg-warn-soft p-4 text-sm text-warn"
             >
               {flagNotes(["missing_revenue_source"])[0]}
             </div>
           ) : null}
 
           {notes.length > 0 ? (
-            <ul className="mb-4 list-inside list-disc text-sm text-slate-700">
+            <ul className="mb-4 list-inside list-disc text-sm text-ink">
               {notes.map((note, index) => (
                 <li key={`${note}-${index}`}>{note}</li>
               ))}
@@ -292,30 +293,30 @@ export function ReceivablePage() {
           ) : null}
 
           <section className="mb-4">
-            <h2 className="mb-2 text-sm font-medium text-slate-700">По срокам</h2>
+            <h2 className="mb-2 text-sm font-medium text-ink">По срокам</h2>
             <BucketTiles totals={current.totals_by_bucket} total={current.total_balance} />
           </section>
 
           {truncated ? (
-            <p className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="mb-4 rounded-card border border-warn-line bg-warn-soft p-3 text-sm text-warn">
               {truncatedNotice(500)}
             </p>
           ) : null}
 
-          <section className="mb-4 rounded-xl border bg-white p-4">
-            <h2 className="mb-2 text-sm font-medium text-slate-700">Долги покупателей</h2>
+          <section className="mb-4 rounded-card border bg-white p-4">
+            <h2 className="mb-2 text-sm font-medium text-ink">Долги покупателей</h2>
             {debtRows.length === 0 ? (
-              <p className="text-sm text-slate-600">{emptyStateText()}</p>
+              <p className="text-sm text-ink-muted">{emptyStateText()}</p>
             ) : (
               <DebtRows rows={debtRows} />
             )}
           </section>
 
           {orphanRows.length > 0 ? (
-            <section className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4">
-              <h2 className="text-sm font-medium text-amber-900">{orphanTitle()}</h2>
-              <p className="mt-1 text-sm text-amber-900">{orphanNote()}</p>
-              <ul className="mt-2 space-y-1 text-sm text-amber-900">
+            <section className="mb-4 rounded-card border border-warn-line bg-warn-soft p-4">
+              <h2 className="text-sm font-medium text-warn">{orphanTitle()}</h2>
+              <p className="mt-1 text-sm text-warn">{orphanNote()}</p>
+              <ul className="mt-2 space-y-1 text-sm text-warn">
                 {orphanRows.map((row, index) => (
                   <li key={`orphan-${row.document.external_id ?? index}`} className="tabular-nums">
                     {row.recognition_date} · {counterpartyLabel(row.counterparty)} ·{" "}
@@ -327,9 +328,9 @@ export function ReceivablePage() {
           ) : null}
 
           {unallocated.length > 0 ? (
-            <section className="mb-4 rounded-xl border bg-white p-4">
-              <h2 className="text-sm font-medium text-slate-700">{unallocatedTitle()}</h2>
-              <p className="mt-1 text-sm text-slate-600">{unallocatedNote()}</p>
+            <section className="mb-4 rounded-card border bg-white p-4">
+              <h2 className="text-sm font-medium text-ink">{unallocatedTitle()}</h2>
+              <p className="mt-1 text-sm text-ink-muted">{unallocatedNote()}</p>
               <ul className="mt-2 space-y-1 text-sm">
                 {unallocated.map((item) => (
                   <li key={item.cash_transaction_id} className="tabular-nums">
@@ -338,7 +339,7 @@ export function ReceivablePage() {
                   </li>
                 ))}
               </ul>
-              <p className="mt-2 text-sm text-slate-700">
+              <p className="mt-2 text-sm text-ink">
                 Всего без привязки:{" "}
                 <strong className="tabular-nums">
                   {formatMoney(sumMoney(unallocated.map((item) => item.amount)))}
@@ -348,13 +349,13 @@ export function ReceivablePage() {
           ) : null}
 
           {bucketMismatch || rowsMismatch ? (
-            <p className="mb-4 text-sm text-amber-800">
+            <p className="mb-4 text-sm text-warn">
               Итог не совпал с суммой частей. Обновите страницу; если расхождение осталось —
               сообщите в поддержку.
             </p>
           ) : null}
 
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-subtle">
             Суммы показаны с НДС, по проведённым продажам. Оплата уменьшает долг только после
             привязки к продаже.
           </p>
@@ -362,11 +363,11 @@ export function ReceivablePage() {
       ) : null}
 
       {current && unavailable ? (
-        <section className="mb-4 rounded-xl border bg-white p-4">
+        <section className="mb-4 rounded-card border bg-white p-4">
           <p className="text-sm font-medium">{completenessLabel(current.completeness)}</p>
-          <p className="mt-1 text-sm text-slate-600">{completenessNote(current.completeness)}</p>
+          <p className="mt-1 text-sm text-ink-muted">{completenessNote(current.completeness)}</p>
           {noRevenueSource ? (
-            <p className="mt-2 text-sm text-slate-600">
+            <p className="mt-2 text-sm text-ink-muted">
               {flagNotes(["missing_revenue_source"])[0]}
             </p>
           ) : null}

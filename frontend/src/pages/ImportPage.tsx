@@ -209,7 +209,7 @@ export function ImportPage() {
 
   return (
     <Shell>
-      <h1 className="mb-4 text-xl font-semibold">Импорт</h1>
+      <h1 className="mb-4 text-title font-semibold">Импорт</h1>
       <CompanyWritePicker
         listPhase={selection.listPhase}
         list={selection.list}
@@ -219,21 +219,21 @@ export function ImportPage() {
         onSelect={selection.onSelect}
       />
       {companyId && sources.isLoading ? <p>Загрузка</p> : null}
-      {companyId && sources.isError ? <p className="text-red-700">Не удалось загрузить источники.</p> : null}
+      {companyId && sources.isError ? <p className="text-danger">Не удалось загрузить источники.</p> : null}
       <div className="mb-4 flex flex-wrap gap-2">
-        <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("cash")}>
+        <button type="button" className="rounded-control border px-3 py-1" onClick={() => setDataset("cash")}>
           Деньги
         </button>
-        <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("revenue")}>
+        <button type="button" className="rounded-control border px-3 py-1" onClick={() => setDataset("revenue")}>
           Продажи
         </button>
-        <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("plan")}>
+        <button type="button" className="rounded-control border px-3 py-1" onClick={() => setDataset("plan")}>
           План
         </button>
-        <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("budget")}>
+        <button type="button" className="rounded-control border px-3 py-1" onClick={() => setDataset("budget")}>
           Бюджет
         </button>
-        <button type="button" className="rounded border px-3 py-1" onClick={() => setDataset("balances")}>
+        <button type="button" className="rounded-control border px-3 py-1" onClick={() => setDataset("balances")}>
           Остатки
         </button>
       </div>
@@ -245,7 +245,7 @@ export function ImportPage() {
       ) : null}
       <button
         type="button"
-        className="mb-4 rounded border px-3 py-2 disabled:opacity-50"
+        className="mb-4 rounded-control border px-3 py-2 disabled:opacity-50"
         disabled={!selection.canWrite || ensure.isPending}
         onClick={() => {
           if (guardWriteRequest(companyId).allowed) {
@@ -297,24 +297,24 @@ export function ImportPage() {
             </ul>
           ) : null}
           {uploadPreview.commit_blocked ? (
-            <p className="text-red-700">Проведение заблокировано: исправьте файл и загрузите снова.</p>
+            <p className="text-danger">Проведение заблокировано: исправьте файл и загрузите снова.</p>
           ) : null}
         </div>
       ) : null}
       {dataset === "balances" && previewId && uploadPreview?.status === "preview_ready" ? (
         <button
           type="button"
-          className="mb-3 mr-3 rounded border px-3 py-2 disabled:opacity-50"
+          className="mb-3 mr-3 rounded-control border px-3 py-2 disabled:opacity-50"
           disabled={refreshPreview.isPending}
           onClick={() => refreshPreview.mutate()}
         >
           Обновить preview
         </button>
       ) : null}
-      {error ? <p className="mb-3 text-sm text-red-700">{error}</p> : null}
+      {error ? <p className="mb-3 text-sm text-danger">{error}</p> : null}
       <button
         type="button"
-        className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+        className="rounded-control bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
         disabled={
           !previewId ||
           commit.isPending ||
@@ -332,7 +332,7 @@ export function ImportPage() {
       <section className="mt-8 max-w-xl border-t pt-4">
         <h2 className="mb-3 text-lg font-semibold">Почта</h2>
         {companyId && sources.isLoading ? <p>Загрузка ящика</p> : null}
-        {companyId && sources.isError ? <p className="text-red-700">Не удалось загрузить ящик.</p> : null}
+        {companyId && sources.isError ? <p className="text-danger">Не удалось загрузить ящик.</p> : null}
         {companyId && sources.isSuccess && mailbox == null ? <p>{mailboxCaption(null)}</p> : null}
         {mailbox ? (
           <div className="mb-4 text-sm">
@@ -346,7 +346,7 @@ export function ImportPage() {
             {mailbox.last_error ? <p>Проблема: {mailbox.last_error}</p> : null}
             <button
               type="button"
-              className="mt-3 rounded border px-3 py-2 disabled:opacity-50"
+              className="mt-3 rounded-control border px-3 py-2 disabled:opacity-50"
               disabled={!selection.canWrite || checkMailbox.isPending}
               onClick={() => {
                 if (guardWriteRequest(companyId).allowed) {
@@ -371,7 +371,7 @@ export function ImportPage() {
             <label className="grid gap-1 text-sm">
               Сервер
               <input
-                className="rounded border px-2 py-1"
+                className="rounded-control border px-2 py-1"
                 value={host}
                 onChange={(event) => setHost(event.target.value)}
               />
@@ -379,7 +379,7 @@ export function ImportPage() {
             <label className="grid gap-1 text-sm">
               Логин ящика
               <input
-                className="rounded border px-2 py-1"
+                className="rounded-control border px-2 py-1"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
               />
@@ -387,7 +387,7 @@ export function ImportPage() {
             <label className="grid gap-1 text-sm">
               Папка
               <input
-                className="rounded border px-2 py-1"
+                className="rounded-control border px-2 py-1"
                 value={folder}
                 onChange={(event) => setFolder(event.target.value)}
               />
@@ -395,7 +395,7 @@ export function ImportPage() {
             <label className="grid gap-1 text-sm">
               Отправитель
               <input
-                className="rounded border px-2 py-1"
+                className="rounded-control border px-2 py-1"
                 value={sender}
                 onChange={(event) => setSender(event.target.value)}
               />
@@ -403,7 +403,7 @@ export function ImportPage() {
             <label className="grid gap-1 text-sm">
               Пароль
               <input
-                className="rounded border px-2 py-1"
+                className="rounded-control border px-2 py-1"
                 type="password"
                 autoComplete="new-password"
                 value={password}
@@ -415,14 +415,14 @@ export function ImportPage() {
             ) : null}
             <button
               type="submit"
-              className="w-fit rounded border px-3 py-2 disabled:opacity-50"
+              className="w-fit rounded-control border px-3 py-2 disabled:opacity-50"
               disabled={!selection.canWrite || !walletId || saveMailbox.isPending}
             >
               Сохранить ящик
             </button>
           </form>
         ) : null}
-        {mailError ? <p className="mt-3 text-sm text-red-700">{mailError}</p> : null}
+        {mailError ? <p className="mt-3 text-sm text-danger">{mailError}</p> : null}
         {mailNote ? <p className="mt-3 text-sm">{mailNote}</p> : null}
       </section>
     </Shell>

@@ -9,7 +9,7 @@ import {
   loadPolygonOracle,
   POLYGON_CLOCK_ISO,
 } from "./fixtures/polygon-seed";
-import { openAppShell, selectCompany } from "./helpers/auth";
+import { gotoSection, openAppShell, selectCompany } from "./helpers/auth";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -60,7 +60,7 @@ test.describe("P4b · дебиторка на полигоне", () => {
 
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), company.id);
     await selectCompany(page, company.name);
-    await page.getByRole("link", { name: "Дебиторка" }).click();
+    await gotoSection(page, "Дебиторка");
     await page.getByLabel("Дата среза").fill("2026-10-31");
 
     await expect(page.getByText(ORACLE_TOTAL)).toBeVisible();
@@ -106,7 +106,7 @@ test.describe("P4b · дебиторка на полигоне", () => {
 
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), company.id);
     await selectCompany(page, company.name);
-    await page.getByRole("link", { name: "Дебиторка" }).click();
+    await gotoSection(page, "Дебиторка");
     await page.getByLabel("Дата среза").fill("2026-10-31");
 
     await expect(page.getByText("Возвраты без связанной продажи")).toBeVisible();
@@ -129,7 +129,7 @@ test.describe("P4b · дебиторка на полигоне", () => {
 
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), company.id);
     await selectCompany(page, company.name);
-    await page.getByRole("link", { name: "Дебиторка" }).click();
+    await gotoSection(page, "Дебиторка");
     await page.getByLabel("Дата среза").fill("2026-10-31");
 
     await expect(page.getByText("Показаны не все строки (лимит 500). Сузьте дату среза.")).toBeVisible();
@@ -160,7 +160,7 @@ test.describe("P4b · дебиторка на полигоне", () => {
 
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), company.id);
     await selectCompany(page, company.name);
-    await page.getByRole("link", { name: "Дебиторка" }).click();
+    await gotoSection(page, "Дебиторка");
     await page.getByLabel("Дата среза").fill("2026-10-31");
 
     await expect(page.getByText("Нет данных о продажах", { exact: true })).toBeVisible();

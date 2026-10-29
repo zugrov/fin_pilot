@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { loadSeedMeta } from "./fixtures/seed";
-import { openAppShell, selectCompany } from "./helpers/auth";
+import { gotoSection, openAppShell, selectCompany } from "./helpers/auth";
 
 function agingUrl(companyId: string): RegExp {
   return new RegExp(`/api/v1/companies/${companyId}/reports/receivable-aging`);
@@ -12,7 +12,7 @@ test.describe("P4b · экран «Дебиторка» без данных", ()
     const meta = loadSeedMeta();
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
-    await page.getByRole("link", { name: "Дебиторка" }).click();
+    await gotoSection(page, "Дебиторка");
 
     await expect(page.getByRole("heading", { name: "Дебиторка" })).toBeVisible();
     await expect(page.getByText(/задолженность покупателей.*не деньги на счёте/i)).toBeVisible();
@@ -29,7 +29,7 @@ test.describe("P4b · экран «Дебиторка» без данных", ()
     const meta = loadSeedMeta();
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
-    await page.getByRole("link", { name: "Дебиторка" }).click();
+    await gotoSection(page, "Дебиторка");
 
     const field = page.getByLabel("Дата среза");
     await expect(field).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
@@ -47,7 +47,7 @@ test.describe("P4b · экран «Дебиторка» без данных", ()
 
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
-    await page.getByRole("link", { name: "Дебиторка" }).click();
+    await gotoSection(page, "Дебиторка");
 
     const alert = page.getByRole("alert");
     await expect(alert).toBeVisible();
@@ -102,7 +102,7 @@ test.describe("P4b · экран «Дебиторка» без данных", ()
 
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
-    await page.getByRole("link", { name: "Дебиторка" }).click();
+    await gotoSection(page, "Дебиторка");
 
     const field = page.getByLabel("Дата среза");
     await field.focus();
@@ -163,7 +163,7 @@ test.describe("P4b · экран «Дебиторка» без данных", ()
     await page.setViewportSize({ width: 390, height: 844 });
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
-    await page.getByRole("link", { name: "Дебиторка" }).click();
+    await gotoSection(page, "Дебиторка");
 
     await expect(page.getByTestId("debt-table")).toBeHidden();
     const cards = page.getByTestId("debt-cards");

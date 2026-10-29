@@ -457,8 +457,8 @@ export function ClassificationPage() {
 
   return (
     <Shell>
-      <h1 className="mb-2 text-xl font-semibold">Классификация</h1>
-      <p className="mb-4 text-sm text-slate-600">
+      <h1 className="mb-2 text-title font-semibold">Классификация</h1>
+      <p className="mb-4 text-sm text-ink-muted">
         Неклассифицированные операции и правила автоматической категории для отчёта о движении денег.
       </p>
       <CompanyWritePicker
@@ -469,16 +469,16 @@ export function ClassificationPage() {
         disabled={selection.pickerDisabled || applyRunning || Boolean(lockedCompany)}
         onSelect={onSelectCompany}
       />
-      {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
+      {error ? <p className="mb-4 text-sm text-danger">{error}</p> : null}
 
-      <section className="mb-8 rounded-xl border bg-white p-4" data-testid="unclassified-block">
+      <section className="mb-8 rounded-card border bg-white p-4" data-testid="unclassified-block">
         <h2 className="mb-3 text-lg font-semibold">Неклассифицированные операции</h2>
         <div className="mb-4 flex flex-wrap gap-3 text-sm">
           <label>
             С
             <input
               type="date"
-              className="ml-2 rounded border px-2 py-1"
+              className="ml-2 rounded-control border px-2 py-1"
               value={periodFrom}
               onChange={(event) => setPeriodFrom(event.target.value)}
             />
@@ -487,19 +487,19 @@ export function ClassificationPage() {
             По
             <input
               type="date"
-              className="ml-2 rounded border px-2 py-1"
+              className="ml-2 rounded-control border px-2 py-1"
               value={periodTo}
               onChange={(event) => setPeriodTo(event.target.value)}
             />
           </label>
         </div>
         {unclassifiedState === "loading" ? (
-          <p className="text-sm text-slate-600" data-testid="unclassified-loading">
+          <p className="text-sm text-ink-muted" data-testid="unclassified-loading">
             Загрузка сводки…
           </p>
         ) : null}
         {unclassifiedState === "error" ? (
-          <p className="text-sm text-red-700" data-testid="unclassified-error">
+          <p className="text-sm text-danger" data-testid="unclassified-error">
             Не удалось загрузить сводку.
           </p>
         ) : null}
@@ -510,7 +510,7 @@ export function ClassificationPage() {
           </p>
         ) : null}
         {unclassifiedState === "empty" ? (
-          <p className="text-sm text-slate-600" data-testid="unclassified-empty">
+          <p className="text-sm text-ink-muted" data-testid="unclassified-empty">
             Нет операций без категории за выбранный период.
           </p>
         ) : null}
@@ -543,7 +543,7 @@ export function ClassificationPage() {
                     <td className="py-2 pr-2">{row.description || "—"}</td>
                     <td className="py-2">
                       <select
-                        className="rounded border px-2 py-1 disabled:opacity-50"
+                        className="rounded-control border px-2 py-1 disabled:opacity-50"
                         value={pendingCategory[row.id] ?? ""}
                         disabled={!selection.canWrite || classifyTx.isPending}
                         onChange={(event) =>
@@ -559,7 +559,7 @@ export function ClassificationPage() {
                       </select>
                       <button
                         type="button"
-                        className="ml-2 rounded border px-2 py-1 text-xs disabled:opacity-50"
+                        className="ml-2 rounded-control border px-2 py-1 text-xs disabled:opacity-50"
                         disabled={
                           !selection.canWrite ||
                           !pendingCategory[row.id] ||
@@ -585,7 +585,7 @@ export function ClassificationPage() {
         {unclassifiedHasMore ? (
           <button
             type="button"
-            className="mt-3 rounded border px-3 py-1 text-sm"
+            className="mt-3 rounded-control border px-3 py-1 text-sm"
             onClick={() => void loadMoreUnclassified().catch((exc) => setError(failureMessage(exc)))}
           >
             Показать ещё
@@ -593,13 +593,13 @@ export function ClassificationPage() {
         ) : null}
       </section>
 
-      <section className="rounded-xl border bg-white p-4" data-testid="rules-block">
+      <section className="rounded-card border bg-white p-4" data-testid="rules-block">
         <h2 className="mb-3 text-lg font-semibold">Правила классификации</h2>
-        {rules.isLoading ? <p className="text-sm text-slate-600">Загрузка правил…</p> : null}
-        {rules.isError ? <p className="text-sm text-red-700">Не удалось загрузить правила.</p> : null}
+        {rules.isLoading ? <p className="text-sm text-ink-muted">Загрузка правил…</p> : null}
+        {rules.isError ? <p className="text-sm text-danger">Не удалось загрузить правила.</p> : null}
         <ul className="mb-6 space-y-3">
           {(ruleList ?? []).map((rule) => (
-            <li key={rule.id} className="rounded border p-3 text-sm">
+            <li key={rule.id} className="rounded-control border p-3 text-sm">
               <p className="font-medium">{rule.name}</p>
               <p>Приоритет: {rule.priority}</p>
               <p>Условия: {formatRuleConditionsHuman(rule.conditions)}</p>
@@ -611,7 +611,7 @@ export function ClassificationPage() {
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="rounded border px-2 py-1 disabled:opacity-50"
+                  className="rounded-control border px-2 py-1 disabled:opacity-50"
                   disabled={!selection.canWrite || patchRule.isPending || applyRunning}
                   onClick={() => {
                     if (
@@ -630,7 +630,7 @@ export function ClassificationPage() {
                 </button>
                 <button
                   type="button"
-                  className="rounded border px-2 py-1 disabled:opacity-50"
+                  className="rounded-control border px-2 py-1 disabled:opacity-50"
                   disabled={!selection.canWrite || patchRule.isPending}
                   onClick={() => {
                     const raw = window.prompt("Новый приоритет (1–1000):", String(rule.priority));
@@ -649,7 +649,7 @@ export function ClassificationPage() {
                 </button>
                 <button
                   type="button"
-                  className="rounded border px-2 py-1 disabled:opacity-50"
+                  className="rounded-control border px-2 py-1 disabled:opacity-50"
                   disabled={previewLoadingId === rule.id}
                   onClick={() => void runPreview(rule.id)}
                 >
@@ -657,7 +657,7 @@ export function ClassificationPage() {
                 </button>
                 <button
                   type="button"
-                  className="rounded border px-2 py-1 disabled:opacity-50"
+                  className="rounded-control border px-2 py-1 disabled:opacity-50"
                   disabled={!selection.canWrite || applyRunning}
                   onClick={() => void openApplyDialog(rule)}
                 >
@@ -665,7 +665,7 @@ export function ClassificationPage() {
                 </button>
               </div>
               {previewRuleId === rule.id && previewResult ? (
-                <pre className="mt-2 whitespace-pre-wrap rounded bg-slate-50 p-2 text-xs">
+                <pre className="mt-2 whitespace-pre-wrap rounded-control bg-canvas p-2 text-xs">
                   {previewResult}
                 </pre>
               ) : null}
@@ -674,7 +674,7 @@ export function ClassificationPage() {
         </ul>
 
         {createRuleWarning ? (
-          <p className="mb-3 text-sm text-amber-800" data-testid="create-rule-warning">
+          <p className="mb-3 text-sm text-warn" data-testid="create-rule-warning">
             {createRuleWarning}
           </p>
         ) : null}
@@ -683,7 +683,7 @@ export function ClassificationPage() {
           <label className="block text-sm">
             Название
             <input
-              className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+              className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
               value={ruleDraft.name}
               disabled={createLocked || createRule.isPending}
               onChange={(event) => setRuleDraft((d) => ({ ...d, name: event.target.value }))}
@@ -692,7 +692,7 @@ export function ClassificationPage() {
           <label className="block text-sm">
             Приоритет
             <input
-              className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+              className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
               value={ruleDraft.priority}
               disabled={createLocked || createRule.isPending}
               onChange={(event) => setRuleDraft((d) => ({ ...d, priority: event.target.value }))}
@@ -701,7 +701,7 @@ export function ClassificationPage() {
           <label className="block text-sm">
             Текст в назначении
             <input
-              className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+              className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
               value={ruleDraft.conditions.descriptionContains}
               disabled={createLocked || createRule.isPending}
               onChange={(event) =>
@@ -715,7 +715,7 @@ export function ClassificationPage() {
           <label className="block text-sm">
             ИНН контрагента
             <input
-              className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+              className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
               value={ruleDraft.conditions.counterpartyInn}
               disabled={createLocked || createRule.isPending}
               onChange={(event) =>
@@ -729,7 +729,7 @@ export function ClassificationPage() {
           <label className="block text-sm">
             Направление
             <select
-              className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+              className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
               value={ruleDraft.conditions.direction}
               disabled={createLocked || createRule.isPending}
               onChange={(event) =>
@@ -751,7 +751,7 @@ export function ClassificationPage() {
             <label className="block flex-1 text-sm">
               Сумма от
               <input
-                className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+                className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
                 value={ruleDraft.conditions.amountMin}
                 disabled={createLocked || createRule.isPending}
                 onChange={(event) =>
@@ -765,7 +765,7 @@ export function ClassificationPage() {
             <label className="block flex-1 text-sm">
               Сумма до
               <input
-                className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+                className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
                 value={ruleDraft.conditions.amountMax}
                 disabled={createLocked || createRule.isPending}
                 onChange={(event) =>
@@ -780,7 +780,7 @@ export function ClassificationPage() {
           <label className="block text-sm">
             Категория
             <select
-              className="mt-1 w-full rounded border px-3 py-2 disabled:opacity-50"
+              className="mt-1 w-full rounded-control border px-3 py-2 disabled:opacity-50"
               value={ruleDraft.categoryCode}
               disabled={createLocked || createRule.isPending}
               onChange={(event) => setRuleDraft((d) => ({ ...d, categoryCode: event.target.value }))}
@@ -795,7 +795,7 @@ export function ClassificationPage() {
           </label>
           <button
             type="submit"
-            className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
+            className="rounded-control bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
             disabled={!selection.canWrite || createRule.isPending}
           >
             {createAttempt?.phase === "unknown" ? "Повторить отправку" : "Создать правило"}
@@ -805,7 +805,7 @@ export function ClassificationPage() {
 
       {applyDialog ? (
         <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/40 p-4" role="dialog">
-          <div className="max-w-md rounded-xl bg-white p-4 text-sm shadow-lg">
+          <div className="max-w-md rounded-card bg-white p-4 text-sm shadow-lg">
             <h3 className="mb-2 text-lg font-semibold">Применить правило «{applyDialog.name}»</h3>
             {applyPreview ? (
               <>
@@ -815,19 +815,19 @@ export function ClassificationPage() {
                   другой приоритет {applyPreview.skipped_higher_priority}.
                 </p>
                 {applyPreview.warning ? (
-                  <p className="mb-2 text-amber-800">{applyPreview.warning}</p>
+                  <p className="mb-2 text-warn">{applyPreview.warning}</p>
                 ) : null}
               </>
             ) : null}
-            <p className="mb-2 text-amber-900">Массово отменить нельзя.</p>
+            <p className="mb-2 text-warn">Массово отменить нельзя.</p>
             {applyProgress ? (
               <p className="mb-2">Применено: {applyProgress.applied}…</p>
             ) : null}
-            {applyError ? <p className="mb-2 text-red-700">{applyError}</p> : null}
+            {applyError ? <p className="mb-2 text-danger">{applyError}</p> : null}
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                className="rounded border px-3 py-1 disabled:opacity-50"
+                className="rounded-control border px-3 py-1 disabled:opacity-50"
                 disabled={applyRunning}
                 onClick={() => {
                   setApplyDialog(null);
@@ -839,7 +839,7 @@ export function ClassificationPage() {
               {applyPaused ? (
                 <button
                   type="button"
-                  className="rounded bg-slate-900 px-3 py-1 text-white"
+                  className="rounded-control bg-slate-900 px-3 py-1 text-white"
                   onClick={() => void runApplyLoop(applyDialog.id, applyCursor)}
                 >
                   Продолжить
@@ -847,7 +847,7 @@ export function ClassificationPage() {
               ) : (
                 <button
                   type="button"
-                  className="rounded bg-slate-900 px-3 py-1 text-white disabled:opacity-50"
+                  className="rounded-control bg-slate-900 px-3 py-1 text-white disabled:opacity-50"
                   disabled={applyRunning}
                   onClick={() => void runApplyLoop(applyDialog.id, null)}
                 >

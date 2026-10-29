@@ -85,6 +85,7 @@ test.describe("FA-R01.4 · A · основной путь одной фирмы"
     await page.getByRole("link", { name: "Обзор" }).click();
     await expect(page.getByText(/Выручка без НДС: 2\.00/)).toBeVisible();
     await expect(page.getByText(/Операций: 3/)).toBeVisible();
-    await expect(page.getByText(/3200\.00/)).toBeVisible();
+    // Суммы на экране печатаются с разделителями: 3200.00 -> «3 200,00 ₽».
+    await expect(page.getByText(/3[\s\u00a0]200,00/).first()).toBeVisible();
   });
 });

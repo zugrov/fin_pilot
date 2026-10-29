@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { loadSeedMeta } from "./fixtures/seed";
-import { openAppShell, selectCompany } from "./helpers/auth";
+import { gotoSection, openAppShell, selectCompany } from "./helpers/auth";
 
 function cashflowUrl(companyId: string): RegExp {
   return new RegExp(`/api/v1/companies/${companyId}/cashflow`);
@@ -12,7 +12,7 @@ test.describe("P4a · экран «Движение денег» без данн
     const meta = loadSeedMeta();
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
-    await page.getByRole("link", { name: "Деньги" }).click();
+    await gotoSection(page, "Деньги");
 
     await expect(page.getByRole("heading", { name: "Движение денег" })).toBeVisible();
     await expect(page.getByText(/движение денег, а не прибыль/i)).toBeVisible();
@@ -31,7 +31,7 @@ test.describe("P4a · экран «Движение денег» без данн
     const meta = loadSeedMeta();
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
-    await page.getByRole("link", { name: "Деньги" }).click();
+    await gotoSection(page, "Деньги");
 
     const inputs = page.locator('input[type="date"]');
     await inputs.nth(0).fill("2026-10-31");
@@ -51,7 +51,7 @@ test.describe("P4a · экран «Движение денег» без данн
 
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
-    await page.getByRole("link", { name: "Деньги" }).click();
+    await gotoSection(page, "Деньги");
 
     const alert = page.getByRole("alert");
     await expect(alert).toBeVisible();
@@ -92,7 +92,7 @@ test.describe("P4a · экран «Движение денег» без данн
 
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
-    await page.getByRole("link", { name: "Деньги" }).click();
+    await gotoSection(page, "Деньги");
 
     await expect(page.getByRole("status")).toContainText("без категории");
     await expect(page.getByRole("link", { name: "Перейти к классификации" })).toBeVisible();
@@ -145,7 +145,7 @@ test.describe("P4a · экран «Движение денег» без данн
     await page.setViewportSize({ width: 390, height: 844 });
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
-    await page.getByRole("link", { name: "Деньги" }).click();
+    await gotoSection(page, "Деньги");
 
     await expect(page.getByRole("table")).toBeHidden();
     await expect(

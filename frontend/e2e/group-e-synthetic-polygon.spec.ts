@@ -30,7 +30,11 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
       await expect(page.getByText(`Начальный остаток: ${expected.opening_balance}`)).toBeVisible();
       await expect(page.getByText(`${oracle.revenue_label}: ${expected.revenue_net_ex_vat}`)).toBeVisible();
       await expect(page.getByText(`Операций: ${expected.operation_count}`)).toBeVisible();
-      await expect(page.getByText(expected.cash_total)).toBeVisible();
+      // Сумма на экране форматируется; исходное значение доступно в data-value.
+      await expect(page.getByTestId("kpi-cash-total")).toHaveAttribute(
+        "data-value",
+        expected.cash_total,
+      );
     });
   }
 
@@ -90,7 +94,11 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), meta.companies.services.id);
     await selectCompany(page, meta.companies.services.name);
     await page.getByRole("link", { name: "Обзор" }).click();
-    await expect(page.getByText(plan.cash_total_unchanged)).toBeVisible();
+    // Сумма на экране форматируется; исходное значение доступно в data-value.
+    await expect(page.getByTestId("kpi-cash-total")).toHaveAttribute(
+      "data-value",
+      plan.cash_total_unchanged,
+    );
 
     await page.getByRole("link", { name: "Прогноз" }).click();
     await expect(page.getByText(plan.forecast_unpaid_before)).toBeVisible();
@@ -152,6 +160,10 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     await expect(page.getByText(plan.forecast_unpaid_after)).toBeVisible();
 
     await page.getByRole("link", { name: "Обзор" }).click();
-    await expect(page.getByText(plan.cash_total_unchanged)).toBeVisible();
+    // Сумма на экране форматируется; исходное значение доступно в data-value.
+    await expect(page.getByTestId("kpi-cash-total")).toHaveAttribute(
+      "data-value",
+      plan.cash_total_unchanged,
+    );
   });
 });

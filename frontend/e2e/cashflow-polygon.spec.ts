@@ -5,7 +5,7 @@ import {
   loadPolygonOracle,
   POLYGON_CLOCK_ISO,
 } from "./fixtures/polygon-seed";
-import { openAppShell, selectCompany } from "./helpers/auth";
+import { gotoSection, openAppShell, selectCompany } from "./helpers/auth";
 
 test.describe("P4a · ОДДС на синтетическом полигоне", () => {
   test.beforeEach(async ({ page, context }) => {
@@ -20,7 +20,7 @@ test.describe("P4a · ОДДС на синтетическом полигоне"
 
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), company.id);
     await selectCompany(page, company.name);
-    await page.getByRole("link", { name: "Деньги" }).click();
+    await gotoSection(page, "Деньги");
 
     await page.locator('input[type="date"]').nth(0).fill(oracle.period_from);
     await page.locator('input[type="date"]').nth(1).fill(oracle.period_to);
@@ -49,7 +49,7 @@ test.describe("P4a · ОДДС на синтетическом полигоне"
 
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), company.id);
     await selectCompany(page, company.name);
-    await page.getByRole("link", { name: "Деньги" }).click();
+    await gotoSection(page, "Деньги");
 
     await page.locator('input[type="date"]').nth(0).fill(oracle.period_from);
     await page.locator('input[type="date"]').nth(1).fill(oracle.period_to);
@@ -97,7 +97,7 @@ test.describe("P4a · ОДДС на синтетическом полигоне"
 
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), company.id);
     await selectCompany(page, company.name);
-    await page.getByRole("link", { name: "Деньги" }).click();
+    await gotoSection(page, "Деньги");
 
     const table = page.getByRole("table");
     await expect(table).toBeVisible();
