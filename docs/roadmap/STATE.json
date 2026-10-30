@@ -465,16 +465,15 @@
           "deidentification_required": false,
           "owner_consent": "confirmed_by_owner_2026-10-27",
           "packages_on_disk": ["S1", "S2", "S3", "S9", "S12"],
-          "hold_out_2026_08_local": "var/fa-r03-client-samples-2026-08/ (S1, S9, S12, S13; без S2 — блокер точности набора)",
+          "hold_out_2026_08_local": "var/fa-r03-client-samples-2026-08/ (S1, S3, S9, S9a, S9b, S12, S13; без S2 — блокер точности набора)",
           "blocking_inputs": [
-            "S2 карточка 51 за 2026-08 (блокер точности набора на hold-out)",
-            "S3 полная ОСВ за 2026-08 (сверка 91.02 и пр.)",
+            "S2 карточка 51 за 2026-08 (блокер точности набора на hold-out; 91.02 — остаток под комиссии банка до S2)",
             "S10: карточка 62",
             "S11: журнал реализаций",
             "релиз платформы 1С:Предприятие 8.3.x (TBD)",
             "FA-R03.1_samples_analysis_LOCAL.md в var/ (если ещё не добавлен владельцем)"
           ],
-          "receivable_vs_osv62_note": "ОСВ 62 в 1С — чистый остаток по контрагенту (авансы зачтены против долга); отчёт дебиторки продукта авансы не зачитывает — итоги концептуально различны; требуется объяснение клиенту",
+          "receivable_vs_osv62_note": "ОСВ 62 по контрагентам — чистый остаток (аванс vs долг одного контрагента). Отчёт дебиторки продукта сверять с 62.01 и 62.02 отдельно, не с ОСВ 62 по контрагентам",
           "evidence": [
             "docs/roadmap/FA-R03.1-sample-matrix.md",
             "var/fa-r03-client-samples/MANIFEST.txt (local only)"
@@ -2183,17 +2182,18 @@
     },
     "tool": {
       "commit": "3112ff4",
-      "entrypoint": "python -m app.tools.fa_r03_check <папка> --month ГГГГ-ММ [--next-s1] [--prior-s9]",
+      "entrypoint": "python -m app.tools.fa_r03_check <папка> --month ГГГГ-ММ [--next-s1] [--next-s3] [--prior-s9]",
       "ci": false,
       "readme": "backend/app/tools/README-fa-r03-check.md",
-      "extensions_2026_10_30": "S13 дневная ОСВ 51; S9 контрагенты 62; S12 любой месяц; режим охвата без S2; депозиты investing"
+      "extensions_2026_10_30": "S13 дневная ОСВ 51; S9/S9a/S9b; S3 полная ОСВ (--next-s3); S12 любой месяц; режим охвата без S2; депозиты; 91.02 без S2"
     },
     "hold_out_august_2026": {
-      "status": "samples_on_disk_pending_s2",
+      "status": "s3_s9_subaccounts_received_pending_s2",
       "local_folder": "var/fa-r03-client-samples-2026-08/",
-      "files": ["S1", "S9", "S12", "S13"],
+      "files": ["S1", "S3", "S9", "S9a", "S9b", "S12", "S13"],
       "rule_pack_accuracy": "blocked_no_s2",
-      "coverage_only": true
+      "coverage_only": true,
+      "osv_s3_cross_checks": "local_fa_r03_check_2026-10-30"
     },
     "september_2026_run": {
       "month": "2026-09",
