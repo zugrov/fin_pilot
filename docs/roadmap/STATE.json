@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.2",
   "status": "in_progress",
-  "allowed_next_action": "Окно frontend FinPilot v2 закрыто 2026-10-29: staging frontend 42d3e6f, backend ebd3912, schema 20261027_0017; откатный образ f147092 сохранён; откат не потребовался. Дальше: фаза полировки design/polish-v1 (backlog а–з) — ветка, без слияния и без деплоя. Параллельно: FA-R03.2b сверка S1/S2/S3; FA-R03.1 S9–S11 и 8.3.x — ждём клиента. Набор правил v1 в коде, в tenant не устанавливался.",
+  "allowed_next_action": "Полировка v1 (design/polish-v1) принята и слита в main 2026-10-30 (SHA b37492d); staging frontend по-прежнему 42d3e6f до отдельного окна замены frontend. Backlog полировки: подписи option в календаре и продажах (нужна правка тестов), нативные поля даты, прогноз с одним ненулевым днём. Параллельно: FA-R03.2b сверка S1/S2/S3; FA-R03.1 S9–S11 и 8.3.x — ждём клиента. Набор правил v1 в коде, в tenant не устанавливался.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -1691,7 +1691,7 @@
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
   "note": "REL1 2026-10-29: P4a+P4b приняты и задеплоены на staging (только frontend f147092); backend ebd3912, schema 20261027_0017 без изменений. Окно 2026-10-28 (backend+0017) закрыто ранее. Pack v1 выключен. Q6 → набор-шаблон v1; проценты по депозитам → investing.",
-  "updated_at": "2026-10-29",
+  "updated_at": "2026-10-30",
   "owner_decisions_2026_10_27": {
     "clientbank_external_id_slice_2a": "accepted_no_identity_migration_real_cb_never_committed",
     "revenue_return_linked_sale_entry_id": "nullable_fk_no_backfill",
@@ -2266,26 +2266,46 @@
       "classification_packs_enabled": false,
       "real_client_data": false
     },
-    "backlog_not_implemented": [
-      "а) уменьшить высоту KPI-карточек, подробности перенести в раскрываемый блок",
-      "б) сворачиваемая таблица прогноза",
-      "в) пользовательские подписи вместо сырых quality_flags",
-      "г) все видимые денежные значения через существующий Amount/форматтер",
-      "д) согласовать нулевые корзины в легенде кольца и таблице: подтверждённый ноль — 0,00 ₽, неизвестное значение — «Нет данных»",
-      "е) сырые даты и числа в тексте экранов (ISO-даты, «100000.00», «20002.00») — единый формат дат и общий форматтер денег",
-      "ж) технический код quality_flag (например partial_period) — пользовательская формулировка",
-      "з) боковое меню закрепить на всю высоту окна на длинных страницах; проверять прокруткой в реальном браузере, не по скриншоту всей страницы"
+    "backlog_v2_implemented_in_polish_v1": [
+      "а) компактные KPI, подробности в «Подробнее»",
+      "б) сворачиваемая таблица прогноза (GroupedBarChart collapsible)",
+      "в) пользовательские подписи quality_flags на обзоре",
+      "г) видимые суммы через Amount/formatMoney",
+      "д) нулевые корзины: 0,00 ₽ vs «Нет данных»",
+      "е) formatDate и formatMoney на экранах полировки",
+      "ж) пользовательские формулировки quality_flag",
+      "з) боковое меню на всю высоту (Shell)"
+    ],
+    "backlog_after_polish_v1": [
+      "подписи option в календаре и продажах — даты и «доступно» через formatDate/formatMoney; e2e и полигонные тесты нужно обновить",
+      "нативные поля type=date — единый вид и локаль без сырого ISO в UI",
+      "прогноз с одним ненулевым днём — масштаб и читаемость графика"
     ],
     "backlog_test_rule": "при будущих исправлениях тесты проверяют и корректное значение, и пользовательское отображение",
     "polish_v1": {
-      "status": "in_progress_branch_only",
-      "branch": "design/polish-v1",
-      "base": "main",
-      "scope": "пункты а–з",
-      "constraints": "не сливать в main, не деплоить, тексты ссылок и подписей и data-testid не менять, API и backend не менять",
+      "status": "accepted_by_owner_2026_10_30",
+      "owner_acceptance": "полировка v1 принята владельцем 2026-10-30",
+      "implementation_sha": "b37492d1ac4840bb64cebd0dc1e3265e1d108b26",
+      "branch": "design/polish-v1 (слита в main fast-forward от 072f15e, история не переписывалась)",
+      "scope": "только frontend: пункты backlog а–з",
+      "defect_fixed": "окраска отрицательных сумм: formatMoney выводит минус U+2212 (не ASCII-дефис), Amount распознаёт U+2212 для tone auto",
+      "staging": {
+        "updated": false,
+        "frontend_sha": "42d3e6f272c0d8784e40635d3b74d677d4b02982",
+        "note": "до отдельного окна замены только frontend"
+      },
+      "test_results_on_b37492d": {
+        "backend_pytest": 707,
+        "frontend_unit": 194,
+        "e2e_default": 16,
+        "e2e_polygon_rel1": "14 + 4",
+        "ci_run_id": 41023414488,
+        "e2e_run_id": 41023414601,
+        "polygon_run_id": 41024478387
+      },
       "screenshots": "var/design-polish-v1/ (до/после, вне git)"
     },
-    "docs_commit_note": "docs-коммит идёт после кода; SHA реализации — 42d3e6f, фактический SHA docs-коммита — HEAD после push (см. git log)"
+    "docs_commit_note": "docs-коммит после слияния polish-v1; SHA реализации — b37492d; фактический SHA docs-коммита — HEAD после push (см. git log)"
   },
   "staging_window_frontend_v2_2026_10_29": {
     "status": "completed_and_closed",
@@ -2357,6 +2377,6 @@
     },
     "classification_packs_enabled": false,
     "real_client_data_on_staging": false,
-    "polish_from_backlog": "не выполнялась"
+    "polish_from_backlog": "выполнена в main (b37492d); на staging не выкатывалась — frontend остаётся 42d3e6f"
   }
 }
