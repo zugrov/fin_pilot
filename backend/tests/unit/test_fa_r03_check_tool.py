@@ -11,11 +11,13 @@ from app.tools.fa_r03_check import (
     CardAggregate,
     S1Document,
     aggregate_card,
+    deposit_operation_bucket,
     find_samples,
     match_aggregates,
     match_by_document_number,
     parse_acquiring,
     predict_section,
+    s1_document_kind_counts,
     section_for_account,
     template_description,
 )
@@ -280,12 +282,36 @@ class TestFindSamples:
         (tmp_path / "S1_bank.txt").write_text("x", encoding="utf-8")
         (tmp_path / "S2_card.xls").write_bytes(b"x")
         (tmp_path / "S3_osv.xls").write_bytes(b"x")
+        (tmp_path / "S9_osv.xls").write_bytes(b"x")
         (tmp_path / "S12_osv.xls").write_bytes(b"x")
+        (tmp_path / "S13_osv.xls").write_bytes(b"x")
         samples = find_samples(tmp_path)
         assert samples.s1 is not None and samples.s1.name == "S1_bank.txt"
         assert samples.s2 is not None and samples.s2.name == "S2_card.xls"
         assert samples.s3 is not None and samples.s3.name == "S3_osv.xls"
+        assert samples.s9 is not None and samples.s9.name == "S9_osv.xls"
         assert samples.s12 is not None and samples.s12.name == "S12_osv.xls"
+        assert samples.s13 is not None and samples.s13.name == "S13_osv.xls"
+
+
+class TestS1DocumentKindCounts:
+    def test_counts_section_document(self) -> None:
+        raw = (
+            "1CClientBankExchange\n"
+            "СекцияДокумент=Платежное поручение\n"
+            "СекцияДокумент=Банковский ордер\n"
+            "СекцияДокумент=Платежное поручение\n"
+        ).encode("cp1251")
+        counts = s1_document_kind_counts(raw, "cp1251")
+        assert counts["Платежное поручение"] == 2
+        assert counts["Банковский ордер"] == 1
+
+
+class TestDepositBucket:
+    def test_placement_and_interest(self) -> None:
+        assert deposit_operation_bucket("РАЗМЕЩЕНИЕ ДЕПОЗИТА") == "placement"
+        assert deposit_operation_bucket("ПРОЦЕНТОВ ПО ДЕПОЗИТУ") == "interest"
+        assert deposit_operation_bucket("Обычный платёж") is None
 
     def test_missing_files_are_none(self, tmp_path) -> None:
         samples = find_samples(tmp_path)

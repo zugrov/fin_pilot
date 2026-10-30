@@ -13,6 +13,13 @@ from pathlib import Path
 
 import xlrd  # type: ignore[import-untyped]
 
+from app.domain.imports.fa_r03.osv_month import (
+    OsvCounterpartyLine,
+    OsvCounterpartySheet,
+    OsvDailyLine,
+    OsvSingleAccountSheet,
+)
+
 MAX_DECIMAL_PLACES = 2
 
 SALDO_PREFIX = "Сальдо на "
@@ -421,3 +428,132 @@ def _parse_dmy(raw: str) -> date | None:
         except ValueError:
             continue
     return None
+
+
+def _net_balance(debit: Decimal, credit: Decimal) -> Decimal:
+    return _money(debit - credit)
+
+
+def read_osv_single_account(path: Path) -> OsvSingleAccountSheet:
+    """ОСВ по одному счёту с дневными оборотами (S13: 51 и аналоги)."""
+    book, sheet = _open_book(path)
+    header = _header_row(sheet, "Счет")
+    account = ""
+    opening = Decimal("0.00")
+    turnover_in = Decimal("0.00")
+    turnover_out = Decimal("0.00")
+    closing = Decimal("0.00")
+    daily: list[OsvDailyLine] = []
+
+    for row in range(header + 2, sheet.nrows):
+        label = _text(sheet, row, 0)
+        if not label:
+            continue
+        open_debit = cell_amount(sheet.cell_value(row, 1))
+        open_credit = cell_amount(sheet.cell_value(row, 2))
+        turn_debit = cell_amount(sheet.cell_value(row, 3))
+        turn_credit = cell_amount(sheet.cell_value(row, 4))
+        close_debit = cell_amount(sheet.cell_value(row, 5))
+        close_credit = cell_amount(sheet.cell_value(row, 6))
+        indent = _indent(book, sheet, row)
+
+        if label == TOTAL_LABEL or label.startswith("Итого"):
+            turnover_in = turn_debit
+            turnover_out = turn_credit
+            opening = _net_balance(open_debit, open_credit)
+            closing = _net_balance(close_debit, close_credit)
+            continue
+
+        day = parse_day_label(label)
+        if day is not None:
+            daily.append(
+                OsvDailyLine(
+                    day=day,
+                    opening=_net_balance(open_debit, open_credit),
+                    turnover_in=turn_debit,
+                    turnover_out=turn_credit,
+                    closing=_net_balance(close_debit, close_credit),
+                )
+            )
+            continue
+
+        if indent == 0 and (_looks_like_account(label) or label.isdigit()):
+            account = label.split()[0] if " " in label else label
+            opening = _net_balance(open_debit, open_credit)
+            turnover_in = turn_debit
+            turnover_out = turn_credit
+            closing = _net_balance(close_debit, close_credit)
+
+    if not account or not daily:
+        raise XlsFormatError("ОСВ по одному счёту без счёта или дневных оборотов")
+    return OsvSingleAccountSheet(
+        account=account,
+        opening=opening,
+        turnover_in=turnover_in,
+        turnover_out=turnover_out,
+        closing=closing,
+        daily=tuple(daily),
+    )
+
+
+def read_osv_counterparties(path: Path, *, account_prefix: str = "62") -> OsvCounterpartySheet:
+    """ОСВ по счёту с разбивкой по контрагентам (S9)."""
+    book, sheet = _open_book(path)
+    header = _header_row(sheet, "Счет")
+    account = account_prefix
+    opening = Decimal("0.00")
+    turnover_in = Decimal("0.00")
+    turnover_out = Decimal("0.00")
+    closing = Decimal("0.00")
+    rows: list[OsvCounterpartyLine] = []
+
+    for row in range(header + 2, sheet.nrows):
+        label = _text(sheet, row, 0)
+        if not label:
+            continue
+        open_debit = cell_amount(sheet.cell_value(row, 1))
+        open_credit = cell_amount(sheet.cell_value(row, 2))
+        turn_debit = cell_amount(sheet.cell_value(row, 3))
+        turn_credit = cell_amount(sheet.cell_value(row, 4))
+        close_debit = cell_amount(sheet.cell_value(row, 5))
+        close_credit = cell_amount(sheet.cell_value(row, 6))
+        indent = _indent(book, sheet, row)
+
+        if label == TOTAL_LABEL or label.startswith("Итого"):
+            turnover_in = turn_debit
+            turnover_out = turn_credit
+            opening = _net_balance(open_debit, open_credit)
+            closing = _net_balance(close_debit, close_credit)
+            continue
+
+        if indent == 0 and label.startswith(account_prefix):
+            account = label
+            opening = _net_balance(open_debit, open_credit)
+            turnover_in = turn_debit
+            turnover_out = turn_credit
+            closing = _net_balance(close_debit, close_credit)
+            continue
+
+        if indent >= 1 and not parse_day_label(label):
+            rows.append(
+                OsvCounterpartyLine(
+                    name=label,
+                    opening_debit=open_debit,
+                    opening_credit=open_credit,
+                    turnover_debit=turn_debit,
+                    turnover_credit=turn_credit,
+                    closing_debit=close_debit,
+                    closing_credit=close_credit,
+                )
+            )
+
+    if not rows:
+        raise XlsFormatError("ОСВ по контрагентам без строк контрагентов")
+    return OsvCounterpartySheet(
+        account=account,
+        opening=opening,
+        turnover_in=turnover_in,
+        turnover_out=turnover_out,
+        closing=closing,
+        rows=tuple(rows),
+    )

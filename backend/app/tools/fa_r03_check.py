@@ -24,6 +24,16 @@ from pathlib import Path
 from app.catalog.classification_packs.loader import load_pack, rule_priority
 from app.domain.imports.clientbank import read_clientbank
 from app.domain.imports.fa_r03.clientbank_daily import parse_clientbank_daily_sections
+from app.domain.imports.fa_r03.osv_month import (
+    OsvCounterpartySheet,
+    OsvSingleAccountSheet,
+    carry_forward_union_breaks,
+    closing_balance_sides,
+    counterparty_turnover_consistent,
+    daily_mismatch_days,
+    osv_totals_mismatch,
+    s1_days_without_osv_daily,
+)
 from app.domain.imports.fa_r03.reconcile import (
     Account51Totals,
     daily_chain_errors,
@@ -38,6 +48,8 @@ from app.domain.imports.fa_r03.xls_reader import (
     read_card51,
     read_osv,
     read_osv_5703,
+    read_osv_counterparties,
+    read_osv_single_account,
 )
 from app.domain.imports.rules import RuleView, matching_rule
 from app.domain.money import money_str
@@ -73,7 +85,14 @@ class MonthSamples:
     s1: Path | None
     s2: Path | None
     s3: Path | None
+    s9: Path | None
     s12: Path | None
+    s13: Path | None
+
+
+DEPOSIT_PLACEMENT = ("РАЗМЕЩЕНИЕ ВКЛАД", "РАЗМЕЩЕНИЕ ДЕПОЗ", "ВО ВКЛАД", "НА ДЕПОЗ")
+DEPOSIT_RETURN = ("ВОЗВРАТ ДЕПОЗИТ", "ВОЗВРАТ ВКЛАД")
+DEPOSIT_INTEREST = ("ПРОЦЕНТОВ ПО ДЕПОЗ",)
 
 
 @dataclass(frozen=True)
@@ -114,7 +133,9 @@ def find_samples(folder: Path) -> MonthSamples:
         s1=pick("S1_", ".txt"),
         s2=pick("S2_", ".xls"),
         s3=pick("S3_", ".xls"),
+        s9=pick("S9_", ".xls"),
         s12=pick("S12_", ".xls"),
+        s13=pick("S13_", ".xls"),
     )
 
 
@@ -308,6 +329,107 @@ def _pct(part: Decimal, total: Decimal) -> str:
     return f"{part / total * 100:.2f} %"
 
 
+def s1_document_kind_counts(content: bytes, encoding: str) -> dict[str, int]:
+    """Считает типы СекцияДокумент= без вывода текстов платежей."""
+    text = content.decode(encoding)
+    counts: dict[str, int] = defaultdict(int)
+    for line in text.splitlines():
+        if line.startswith("СекцияДокумент="):
+            counts[line.split("=", 1)[1].strip()] += 1
+    return dict(counts)
+
+
+def deposit_operation_bucket(description: str) -> str | None:
+    upper = (description or "").upper()
+    if any(marker in upper for marker in DEPOSIT_PLACEMENT):
+        return "placement"
+    if any(marker in upper for marker in DEPOSIT_RETURN):
+        return "return"
+    if any(marker in upper for marker in DEPOSIT_INTEREST):
+        return "interest"
+    return None
+
+
+def report_pack_coverage(
+    docs: Sequence[S1Document],
+    rules: tuple[RuleView, ...],
+) -> None:
+    """Доля документов с правилом набора v1 и шаблоны непокрытых (без S2)."""
+    matched_cnt = 0
+    matched_sum = ZERO
+    unknown_cnt = 0
+    unknown_sum = ZERO
+    templates: dict[str, int] = defaultdict(int)
+    for doc in docs:
+        predicted = predict_section(rules, doc)
+        if predicted == "unknown":
+            unknown_cnt += 1
+            unknown_sum += doc.amount
+            templates[template_description(doc.description)] += 1
+        else:
+            matched_cnt += 1
+            matched_sum += doc.amount
+    total_cnt = matched_cnt + unknown_cnt
+    total_sum = matched_sum + unknown_sum
+    cnt_pct = _pct(Decimal(matched_cnt), Decimal(total_cnt))
+    print(f"документов с правилом: {matched_cnt} ({cnt_pct})")
+    print(f"сумма с правилом: {_money(matched_sum)} ({_pct(matched_sum, total_sum)})")
+    print(f"без правила: {unknown_cnt} на {_money(unknown_sum)}")
+    print("точность не оценена: нет S2")
+    if templates:
+        print("шаблоны непокрытых (цифры → #):")
+        for template, count in sorted(templates.items(), key=lambda item: -item[1])[:20]:
+            print(f"  {count} × «{template}»")
+
+
+def report_deposit_investing(docs: Sequence[S1Document], rules: tuple[RuleView, ...]) -> None:
+    """Депозитные операции месяца: все должны классифицироваться как investing."""
+    buckets: dict[str, int] = defaultdict(int)
+    not_investing = 0
+    for doc in docs:
+        bucket = deposit_operation_bucket(doc.description)
+        if bucket is None:
+            continue
+        buckets[bucket] += 1
+        if predict_section(rules, doc) != "investing":
+            not_investing += 1
+    print(
+        f"депозитные операции: размещение {buckets['placement']}, "
+        f"возврат {buckets['return']}, проценты {buckets['interest']}"
+    )
+    print(f"не investing по правилам: {not_investing}")
+
+
+def print_s13_reconcile(
+    s13: OsvSingleAccountSheet,
+    sections: list,
+    s1_totals: Account51Totals,
+) -> None:
+    bad_days = daily_mismatch_days(s13.daily, sections)
+    missing_osv = s1_days_without_osv_daily(s13.daily, sections)
+    totals_bad = osv_totals_mismatch(
+        s13,
+        (s1_totals.opening, s1_totals.total_in, s1_totals.total_out, s1_totals.closing),
+    )
+    print(f"дней с оборотами в S13: {len(s13.daily)} (секций S1: {len(sections)})")
+    print(f"дней S1 без строки S13: {len(missing_osv)}")
+    print(f"дней с расхождением S13 ↔ S1: {len(bad_days)}")
+    print(f"итог S13 ↔ S1: {'РАСХОЖДЕНИЕ' if totals_bad else 'совпало'}")
+
+
+def print_s9_sheet(sheet: OsvCounterpartySheet, label: str) -> None:
+    consistent = counterparty_turnover_consistent(sheet)
+    debit_side, credit_side = closing_balance_sides(sheet)
+    print(f"{label}: строк {len(sheet.rows)}")
+    print(
+        f"остаток {_money(sheet.opening)} → {_money(sheet.closing)}; "
+        f"Дт {_money(sheet.turnover_in)} Кт {_money(sheet.turnover_out)}"
+    )
+    print(f"сумма оборотов по строкам = счёт: {'да' if consistent else 'НЕТ'}")
+    print(f"дебетовые остатки на конец: {_money(debit_side)}")
+    print(f"кредитовые остатки (авансы): {_money(credit_side)}")
+
+
 def match_aggregates(docs: Sequence[S1Document], aggregates: Sequence[CardAggregate]) -> list:
     """Пары «документ S1 ↔ документ карточки» по направлению, дате и сумме."""
     pool = list(aggregates)
@@ -378,7 +500,13 @@ def _acquiring_doc(doc: S1Document, card: Card51Sheet) -> bool:
     return False
 
 
-def run(folder: Path, month_label: str) -> int:
+def run(
+    folder: Path,
+    month_label: str,
+    *,
+    next_s1: Path | None = None,
+    prior_s9: Path | None = None,
+) -> int:
     try:
         year, month = (int(part) for part in month_label.split("-"))
     except ValueError:
@@ -391,7 +519,9 @@ def run(folder: Path, month_label: str) -> int:
         ("S1", samples.s1),
         ("S2", samples.s2),
         ("S3", samples.s3),
+        ("S9", samples.s9),
         ("S12", samples.s12),
+        ("S13", samples.s13),
     ):
         print(f"{label}: {path.name if path else 'нет'}")
 
@@ -400,20 +530,56 @@ def run(folder: Path, month_label: str) -> int:
         return 2
 
     _header("1. S1 · выписка по счёту 51")
+    raw_s1 = samples.s1.read_bytes()
     encoding, docs, skipped = load_s1(samples.s1)
     total_in = sum((doc.amount for doc in docs if doc.direction == "in"), ZERO)
     total_out = sum((doc.amount for doc in docs if doc.direction == "out"), ZERO)
+    kind_counts = s1_document_kind_counts(raw_s1, encoding)
     print(f"кодировка: {encoding}")
     print(f"документов: {len(docs)} (с ошибками разбора: {skipped})")
     print(f"поступлений: {sum(1 for doc in docs if doc.direction == 'in')} на {_money(total_in)}")
     print(f"списаний: {sum(1 for doc in docs if doc.direction == 'out')} на {_money(total_out)}")
+    if kind_counts:
+        ordered = ", ".join(f"{name} {count}" for name, count in sorted(kind_counts.items()))
+        print(f"типы документов: {ordered}")
 
-    sections = parse_clientbank_daily_sections(samples.s1.read_bytes(), encoding=encoding)
+    sections = parse_clientbank_daily_sections(raw_s1, encoding=encoding)
     chain_errors = daily_chain_errors(sections)
     daily = totals_from_daily_sections(sections)
     print(f"секций по суткам: {len(sections)}")
     print(f"остаток: {_money(daily.opening)} → {_money(daily.closing)}")
     print(f"ошибок цепочки остатков: {len(chain_errors)}")
+
+    if next_s1 is not None and next_s1.is_file():
+        _header("1b. Стыковка конца месяца S1 с началом следующего")
+        _enc_next, _docs_next, _skip = load_s1(next_s1)
+        next_sections = parse_clientbank_daily_sections(next_s1.read_bytes(), encoding=_enc_next)
+        if sections and next_sections:
+            last = sorted(sections, key=lambda item: item.period_start)[-1]
+            first = sorted(next_sections, key=lambda item: item.period_start)[0]
+            gap = _money(last.closing) != _money(first.opening)
+            print(
+                f"конец {_money(last.closing)} → начало {_money(first.opening)}: "
+                f"{'РАСХОЖДЕНИЕ' if gap else 'совпало'}"
+            )
+        else:
+            print("пропущено: нет суточных секций")
+
+    _header("1c. S13 · ОСВ по счёту 51 с дневными оборотами")
+    s13: OsvSingleAccountSheet | None = None
+    if samples.s13 is None:
+        print("пропущено: нет S13")
+    else:
+        try:
+            s13 = read_osv_single_account(samples.s13)
+            print_s13_reconcile(s13, sections, s1_totals := Account51Totals(
+                opening=daily.opening,
+                total_in=total_in,
+                total_out=total_out,
+                closing=daily.closing,
+            ))
+        except XlsFormatError as exc:
+            print(f"S13 не прочитан: {exc}")
 
     _header("2. Сверка по счёту 51: S1 = S2 = S3 (допуск 0,00)")
     card: Card51Sheet | None = None
@@ -531,6 +697,7 @@ def run(folder: Path, month_label: str) -> int:
         fee_by_day: dict[date, Decimal] = defaultdict(lambda: ZERO)
         acquiring_docs = 0
         acquiring_skipped = 0
+        doc_amount_mismatch = 0
         for doc in docs:
             if doc.direction != "in":
                 continue
@@ -543,11 +710,17 @@ def run(folder: Path, month_label: str) -> int:
                 acquiring_skipped += 1
                 continue
             gross, fee = parsed
+            if gross - fee != doc.amount:
+                doc_amount_mismatch += 1
             acquiring_docs += 1
             gross_by_day[doc.business_date] += gross
             fee_by_day[doc.business_date] += fee
 
+        for index, counterparty in enumerate(s12.root.children, start=1):
+            print(f"эквайер {index} валовая {_money(counterparty.turnover_debit)}")
+
         print(f"эквайринговых поступлений в S1: {acquiring_docs}")
+        print(f"документов валовая − комиссия ≠ сумма: {doc_amount_mismatch}")
         if acquiring_skipped:
             print(f"не разобрано назначений: {acquiring_skipped}")
         print(f"валовая по назначениям: {_money(sum(gross_by_day.values(), ZERO))}")
@@ -610,11 +783,33 @@ def run(folder: Path, month_label: str) -> int:
                 print(f"ожидается по 91.02: {_money(expected)}")
                 print(f"разница: {_money(row9102.turnover_debit - expected)}")
 
-    _header("6. Точность набора правил v1 против эталона S2")
-    if not pairs:
-        print("пропущено: нет сопоставленных пар S1 ↔ S2")
+    _header("6. ОСВ 62 по контрагентам (S9)")
+    s9_sheet: OsvCounterpartySheet | None = None
+    if samples.s9 is None:
+        print("пропущено: нет S9")
     else:
-        rules = pack_rule_views()
+        try:
+            s9_sheet = read_osv_counterparties(samples.s9)
+            print_s9_sheet(s9_sheet, "S9")
+        except XlsFormatError as exc:
+            print(f"S9 не прочитан: {exc}")
+
+    if prior_s9 is not None and prior_s9.is_file() and s9_sheet is not None:
+        try:
+            prior_sheet = read_osv_counterparties(prior_s9)
+            breaks, union_size = carry_forward_union_breaks(prior_sheet, s9_sheet)
+            print(f"разрывов перехода по контрагентам: {breaks}")
+            print(f"контрагентов в объединении месяцев: {union_size}")
+        except XlsFormatError as exc:
+            print(f"пред. S9 не прочитан: {exc}")
+
+    _header("7. Набор правил v1")
+    rules = pack_rule_views()
+    if card is None or not pairs:
+        print("режим: только охват (нет S2 или нет пар S1 ↔ S2)")
+        report_pack_coverage(docs, rules)
+    else:
+        print("режим: точность против эталона S2")
         matrix_sum: dict[tuple[str, str], Decimal] = defaultdict(lambda: ZERO)
         matrix_cnt: dict[tuple[str, str], int] = defaultdict(int)
         errors: list[tuple[str, str, str, str]] = []
@@ -664,20 +859,36 @@ def run(folder: Path, month_label: str) -> int:
         else:
             print("промахов нет")
 
-    _header("7. Ожидаемые образцы")
+    _header("8. Депозитные операции (investing)")
+    report_deposit_investing(docs, rules)
+
+    _header("9. Ожидаемые образцы")
     print("S11 (журнал реализаций): ожидается образец")
-    print("S9/S10 (счёт 62): ожидается образец")
+    print("S10 (карточка 62): ожидается образец")
+    print("S2 (карточка 51): для hold-out месяца без карточки точность набора не оценивается")
     return 0
 
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Проверка месяца FA-R03: S1/S2/S3/S12 и точность набора правил.",
+        description="Проверка месяца FA-R03: S1/S2/S3/S9/S12/S13 и набор правил.",
     )
-    parser.add_argument("folder", type=Path, help="папка с образцами S1_*/S2_*/S3_*/S12_*")
+    parser.add_argument("folder", type=Path, help="папка с образцами (S1_, S2_, …)")
     parser.add_argument("--month", required=True, help="месяц в формате ГГГГ-ММ")
+    parser.add_argument(
+        "--next-s1",
+        type=Path,
+        default=None,
+        help="S1 следующего месяца для стыковки остатков",
+    )
+    parser.add_argument(
+        "--prior-s9",
+        type=Path,
+        default=None,
+        help="S9 предыдущего месяца для перехода остатков по контрагентам",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
-    return run(args.folder, args.month)
+    return run(args.folder, args.month, next_s1=args.next_s1, prior_s9=args.prior_s9)
 
 
 if __name__ == "__main__":
