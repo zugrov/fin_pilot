@@ -464,14 +464,17 @@
           "local_storage": "var/fa-r03-client-samples/",
           "deidentification_required": false,
           "owner_consent": "confirmed_by_owner_2026-10-27",
-          "packages_on_disk": ["S1", "S2", "S3", "S12"],
+          "packages_on_disk": ["S1", "S2", "S3", "S9", "S12"],
+          "hold_out_2026_08_local": "var/fa-r03-client-samples-2026-08/ (S1, S9, S12, S13; без S2 — блокер точности набора)",
           "blocking_inputs": [
-            "S9: ОСВ 62 по контрагентам и договорам",
+            "S2 карточка 51 за 2026-08 (блокер точности набора на hold-out)",
+            "S3 полная ОСВ за 2026-08 (сверка 91.02 и пр.)",
             "S10: карточка 62",
             "S11: журнал реализаций",
             "релиз платформы 1С:Предприятие 8.3.x (TBD)",
             "FA-R03.1_samples_analysis_LOCAL.md в var/ (если ещё не добавлен владельцем)"
           ],
+          "receivable_vs_osv62_note": "ОСВ 62 в 1С — чистый остаток по контрагенту (авансы зачтены против долга); отчёт дебиторки продукта авансы не зачитывает — итоги концептуально различны; требуется объяснение клиенту",
           "evidence": [
             "docs/roadmap/FA-R03.1-sample-matrix.md",
             "var/fa-r03-client-samples/MANIFEST.txt (local only)"
@@ -1692,6 +1695,12 @@
   },
   "note": "REL1 2026-10-29: P4a+P4b приняты и задеплоены на staging (только frontend f147092); backend ebd3912, schema 20261027_0017 без изменений. Окно 2026-10-28 (backend+0017) закрыто ранее. Pack v1 выключен. Q6 → набор-шаблон v1; проценты по депозитам → investing.",
   "updated_at": "2026-10-30",
+  "fa_r03_1_samples_2026_10_30": {
+    "august_hold_out_folder": "var/fa-r03-client-samples-2026-08/",
+    "september_folder": "var/fa-r03-client-samples/",
+    "new_artifact_types": ["S9_osv_62", "S13_osv_51_daily"],
+    "s2_august_blocker": "точность набора v1 на hold-out без карточки 51"
+  },
   "owner_decisions_2026_10_27": {
     "clientbank_external_id_slice_2a": "accepted_no_identity_migration_real_cb_never_committed",
     "revenue_return_linked_sale_entry_id": "nullable_fk_no_backfill",
@@ -2174,9 +2183,17 @@
     },
     "tool": {
       "commit": "3112ff4",
-      "entrypoint": "python -m app.tools.fa_r03_check <папка> --month 2026-09",
+      "entrypoint": "python -m app.tools.fa_r03_check <папка> --month ГГГГ-ММ [--next-s1] [--prior-s9]",
       "ci": false,
-      "readme": "backend/app/tools/README-fa-r03-check.md"
+      "readme": "backend/app/tools/README-fa-r03-check.md",
+      "extensions_2026_10_30": "S13 дневная ОСВ 51; S9 контрагенты 62; S12 любой месяц; режим охвата без S2; депозиты investing"
+    },
+    "hold_out_august_2026": {
+      "status": "samples_on_disk_pending_s2",
+      "local_folder": "var/fa-r03-client-samples-2026-08/",
+      "files": ["S1", "S9", "S12", "S13"],
+      "rule_pack_accuracy": "blocked_no_s2",
+      "coverage_only": true
     },
     "september_2026_run": {
       "month": "2026-09",
@@ -2222,7 +2239,7 @@
       },
       "skipped_sections": [
         "S11 (журнал реализаций) — ожидается образец",
-        "S9/S10 (счёт 62) — ожидается образец"
+        "S10 (карточка 62) — ожидается образец"
       ]
     },
     "pending": "приёмка владельцем 2b вместе с 2c после ручной проверки"
