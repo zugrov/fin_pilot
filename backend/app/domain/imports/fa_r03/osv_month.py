@@ -78,10 +78,11 @@ def daily_mismatch_days(
         by_day[section.period_start] = section
     bad: list[date] = []
     for line in osv_daily:
-        section = by_day.get(line.day)
-        if section is None:
+        section_opt = by_day.get(line.day)
+        if section_opt is None:
             bad.append(line.day)
             continue
+        section = section_opt
         pairs = (
             (line.opening, section.opening),
             (line.turnover_in, section.total_in),
