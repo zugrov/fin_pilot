@@ -34,6 +34,12 @@ from app.domain.imports.fa_r03.osv_month import (
     osv_totals_mismatch,
     s1_days_without_osv_daily,
 )
+from app.domain.imports.fa_r03.osv_s3 import (
+    first_level_totals,
+    month_carry_breaks,
+    read_osv_grand_total,
+    totals_equal,
+)
 from app.domain.imports.fa_r03.reconcile import (
     Account51Totals,
     daily_chain_errors,
@@ -43,6 +49,7 @@ from app.domain.imports.fa_r03.xls_reader import (
     Card51Row,
     Card51Sheet,
     Osv57Sheet,
+    OsvRow,
     OsvSheet,
     XlsFormatError,
     read_card51,
@@ -52,7 +59,7 @@ from app.domain.imports.fa_r03.xls_reader import (
     read_osv_single_account,
 )
 from app.domain.imports.rules import RuleView, matching_rule
-from app.domain.money import money_str
+from app.domain.money import money, money_str
 
 PACK_SLUG = "ru-bank-clientbank"
 PACK_VERSION = "1.0.0"
@@ -86,6 +93,8 @@ class MonthSamples:
     s2: Path | None
     s3: Path | None
     s9: Path | None
+    s9a: Path | None
+    s9b: Path | None
     s12: Path | None
     s13: Path | None
 
@@ -134,6 +143,8 @@ def find_samples(folder: Path) -> MonthSamples:
         s2=pick("S2_", ".xls"),
         s3=pick("S3_", ".xls"),
         s9=pick("S9_", ".xls"),
+        s9a=pick("S9A_", ".xls"),
+        s9b=pick("S9B_", ".xls"),
         s12=pick("S12_", ".xls"),
         s13=pick("S13_", ".xls"),
     )
@@ -417,6 +428,151 @@ def print_s13_reconcile(
     print(f"итог S13 ↔ S1: {'РАСХОЖДЕНИЕ' if totals_bad else 'совпало'}")
 
 
+def deposit_flows_from_s1(docs: Sequence[S1Document]) -> tuple[Decimal, Decimal, Decimal]:
+    """Размещение (исход), возврат и проценты (вход) по маркерам в назначении."""
+    placed = ZERO
+    returned = ZERO
+    interest = ZERO
+    for doc in docs:
+        bucket = deposit_operation_bucket(doc.description)
+        if bucket == "placement" and doc.direction == "out":
+            placed += doc.amount
+        elif bucket == "return" and doc.direction == "in":
+            returned += doc.amount
+        elif bucket == "interest" and doc.direction == "in":
+            interest += doc.amount
+    return money(placed), money(returned), money(interest)
+
+
+def _osv_net(row: OsvRow) -> Decimal:
+    return money(row.closing_debit - row.closing_credit)
+
+
+def _osv_opening_net(row: OsvRow) -> Decimal:
+    return money(row.opening_debit - row.opening_credit)
+
+
+def _compare_money(label: str, left: Decimal, right: Decimal) -> None:
+    diff = money(left - right)
+    status = "совпало" if diff == ZERO else f"РАСХОЖДЕНИЕ ({_money(diff)})"
+    print(f"{label}: {_money(left)} vs {_money(right)} — {status}")
+
+
+def print_s3_full_osv(
+    path: Path,
+    *,
+    s1_totals: Account51Totals | None,
+    s13: OsvSingleAccountSheet | None,
+    s12_gross: Decimal | None,
+    s9_closing: Decimal | None,
+    s9a_closing: Decimal | None,
+    s9b_closing: Decimal | None,
+    docs: Sequence[S1Document],
+    next_s3: Path | None,
+    acquiring_fee: Decimal | None,
+) -> OsvSheet | None:
+    try:
+        sheet = read_osv(path)
+        grand = read_osv_grand_total(path)
+        level1 = first_level_totals(sheet)
+    except XlsFormatError as exc:
+        print(f"S3 не прочитан: {exc}")
+        return None
+
+    print(
+        f"итог «Итого»: начало Дт/Кт {_money(grand.opening_debit)}/"
+        f"{_money(grand.opening_credit)}; "
+        f"оборот {_money(grand.turnover_debit)}/{_money(grand.turnover_credit)}; "
+        f"конец {_money(grand.closing_debit)}/{_money(grand.closing_credit)}"
+    )
+    balanced = grand.balanced_opening() and grand.balanced_turnover() and grand.balanced_closing()
+    print(f"уравновешенность Дт/Кт (начало, оборот, конец): {'да' if balanced else 'НЕТ'}")
+    print(f"сумма счетов 1-го уровня = «Итого»: {'да' if totals_equal(level1, grand) else 'НЕТ'}")
+
+    if next_s3 is not None and next_s3.is_file():
+        try:
+            nxt = read_osv(next_s3)
+            breaks = month_carry_breaks(sheet, nxt)
+            print(f"разрывов перехода S3 → след. месяц по счетам: {breaks}")
+        except XlsFormatError as exc:
+            print(f"S3 след. месяца не прочитан: {exc}")
+
+    placed, returned, interest = deposit_flows_from_s1(docs)
+    for code in ("51", "57.03", "62", "55.03", "91.01", "91.02"):
+        row = sheet.by_code(code)
+        if row is None:
+            print(f"счёт {code}: нет в ОСВ")
+            continue
+        print(
+            f"счёт {code}: начало {_money(_osv_opening_net(row))} "
+            f"Дт {_money(row.turnover_debit)} Кт {_money(row.turnover_credit)} "
+            f"конец {_money(_osv_net(row))}"
+        )
+
+    if s1_totals is not None:
+        row51 = sheet.by_code("51")
+        if row51 is not None:
+            _compare_money("51 конец vs S1", _osv_net(row51), s1_totals.closing)
+    if s13 is not None:
+        row51 = sheet.by_code("51")
+        if row51 is not None:
+            _compare_money("51 конец vs S13", _osv_net(row51), s13.closing)
+    if s12_gross is not None:
+        row57 = sheet.by_code("57.03")
+        if row57 is not None:
+            _compare_money("57.03 оборот Дт vs валовая S12", row57.turnover_debit, s12_gross)
+    row55 = sheet.by_code("55.03")
+    if row55 is not None:
+        _compare_money("55.03 оборот Дт vs размещение S1", row55.turnover_debit, placed)
+        _compare_money("55.03 оборот Кт vs возврат S1", row55.turnover_credit, returned)
+    row91 = sheet.by_code("91.01")
+    if row91 is not None:
+        _compare_money("91.01 оборот Кт vs проценты S1", row91.turnover_credit, interest)
+
+    row9102 = sheet.by_code("91.02")
+    if row9102 is not None:
+        acq = acquiring_fee if acquiring_fee is not None else ZERO
+        bank_part = money(row9102.turnover_debit - acq)
+        print(
+            f"91.02: оборот Дт {_money(row9102.turnover_debit)} "
+            f"(эквайринг {_money(acq)} + банк {_money(bank_part)})"
+        )
+        print(
+            f"91.02 сальдо: начало {_money(_osv_opening_net(row9102))} "
+            f"конец {_money(_osv_net(row9102))} "
+            "(для сверки с S2 после получения карточки)"
+        )
+
+    if s9_closing is not None and s9a_closing is not None and s9b_closing is not None:
+        combined = money(s9a_closing + s9b_closing)
+        _compare_money("62.01+62.02 vs S9 счёт 62", combined, s9_closing)
+        row62 = sheet.by_code("62")
+        if row62 is not None:
+            _compare_money("62 конец vs S9", _osv_net(row62), s9_closing)
+
+    return sheet
+
+
+def print_s9_subaccount(sheet: OsvCounterpartySheet, label: str, s3_row: OsvRow | None) -> None:
+    print(
+        f"{label}: начало {_money(sheet.opening)} "
+        f"Дт {_money(sheet.turnover_in)} Кт {_money(sheet.turnover_out)} "
+        f"конец {_money(sheet.closing)}"
+    )
+    if s3_row is not None:
+        _compare_money(f"{label} vs S3", sheet.closing, _osv_net(s3_row))
+        _compare_money(
+            f"{label} оборот Дт vs S3",
+            sheet.turnover_in,
+            s3_row.turnover_debit,
+        )
+        _compare_money(
+            f"{label} оборот Кт vs S3",
+            sheet.turnover_out,
+            s3_row.turnover_credit,
+        )
+
+
 def print_s9_sheet(sheet: OsvCounterpartySheet, label: str) -> None:
     consistent = counterparty_turnover_consistent(sheet)
     debit_side, credit_side = closing_balance_sides(sheet)
@@ -505,6 +661,7 @@ def run(
     month_label: str,
     *,
     next_s1: Path | None = None,
+    next_s3: Path | None = None,
     prior_s9: Path | None = None,
 ) -> int:
     try:
@@ -520,6 +677,8 @@ def run(
         ("S2", samples.s2),
         ("S3", samples.s3),
         ("S9", samples.s9),
+        ("S9a", samples.s9a),
+        ("S9b", samples.s9b),
         ("S12", samples.s12),
         ("S13", samples.s13),
     ):
@@ -550,6 +709,13 @@ def run(
     print(f"остаток: {_money(daily.opening)} → {_money(daily.closing)}")
     print(f"ошибок цепочки остатков: {len(chain_errors)}")
 
+    s1_totals = Account51Totals(
+        opening=daily.opening,
+        total_in=total_in,
+        total_out=total_out,
+        closing=daily.closing,
+    )
+
     if next_s1 is not None and next_s1.is_file():
         _header("1b. Стыковка конца месяца S1 с началом следующего")
         _enc_next, _docs_next, _skip = load_s1(next_s1)
@@ -572,14 +738,38 @@ def run(
     else:
         try:
             s13 = read_osv_single_account(samples.s13)
-            print_s13_reconcile(s13, sections, s1_totals := Account51Totals(
-                opening=daily.opening,
-                total_in=total_in,
-                total_out=total_out,
-                closing=daily.closing,
-            ))
+            print_s13_reconcile(s13, sections, s1_totals)
         except XlsFormatError as exc:
             print(f"S13 не прочитан: {exc}")
+
+    acquiring_fee_total: Decimal | None = None
+    s12_gross_total: Decimal | None = None
+    s9_for_s3: OsvCounterpartySheet | None = None
+    s9a_sheet: OsvCounterpartySheet | None = None
+    s9b_sheet: OsvCounterpartySheet | None = None
+
+    if samples.s9 is not None:
+        try:
+            s9_for_s3 = read_osv_counterparties(samples.s9)
+        except XlsFormatError:
+            s9_for_s3 = None
+    if samples.s9a is not None:
+        try:
+            s9a_sheet = read_osv_counterparties(samples.s9a, account_prefix="62.01")
+        except XlsFormatError as exc:
+            print(f"S9a не прочитан (prefetch): {exc}")
+    if samples.s9b is not None:
+        try:
+            s9b_sheet = read_osv_counterparties(samples.s9b, account_prefix="62.02")
+        except XlsFormatError as exc:
+            print(f"S9b не прочитан (prefetch): {exc}")
+    if samples.s12 is not None:
+        try:
+            s12_gross_total = read_osv_5703(samples.s12).root.turnover_debit
+        except XlsFormatError:
+            s12_gross_total = None
+
+    osv: OsvSheet | None = None
 
     _header("2. Сверка по счёту 51: S1 = S2 = S3 (допуск 0,00)")
     card: Card51Sheet | None = None
@@ -595,11 +785,11 @@ def run(
     else:
         print("S2: нет файла")
 
-    osv: OsvSheet | None = None
     totals_s3: Account51Totals | None = None
     if samples.s3 is not None:
         try:
-            osv = read_osv(samples.s3)
+            if osv is None:
+                osv = read_osv(samples.s3)
             row = osv.by_code("51")
             if row is not None:
                 totals_s3 = Account51Totals(
@@ -618,12 +808,6 @@ def run(
     else:
         print("S3: нет файла")
 
-    s1_totals = Account51Totals(
-        opening=daily.opening,
-        total_in=total_in,
-        total_out=total_out,
-        closing=daily.closing,
-    )
     compared: list[tuple[str, Account51Totals]] = [("S1", s1_totals)]
     if card is not None:
         compared.append(
@@ -729,6 +913,7 @@ def run(
             f"валовая − комиссия: "
             f"{_money(sum(gross_by_day.values(), ZERO) - sum(fee_by_day.values(), ZERO))}"
         )
+        acquiring_fee_total = sum(fee_by_day.values(), ZERO)
 
         if acquiring_docs == 0:
             print("сверка по дням пропущена: в назначениях нет валовых сумм эквайринга")
@@ -755,38 +940,58 @@ def run(
                     f"{_money(ZERO) if not mismatch_days else len(mismatch_days)}"
                 )
 
+    if samples.s3 is not None:
+        _header("4b. S3 · полная ОСВ")
+        osv = print_s3_full_osv(
+            samples.s3,
+            s1_totals=s1_totals,
+            s13=s13,
+            s12_gross=s12_gross_total,
+            s9_closing=s9_for_s3.closing if s9_for_s3 else None,
+            s9a_closing=s9a_sheet.closing if s9a_sheet else None,
+            s9b_closing=s9b_sheet.closing if s9b_sheet else None,
+            docs=docs,
+            next_s3=next_s3,
+            acquiring_fee=acquiring_fee_total,
+        )
+
     _header("5. Комиссии и эквайринг на счёте 91.02")
-    if osv is None or card is None:
-        print("пропущено: нужны S2 и S3")
+    if osv is None:
+        print("пропущено: нет S3")
     else:
         row9102 = osv.by_code("91.02")
         if row9102 is None:
             print("в ОСВ нет счёта 91.02")
         else:
-            fees = sum(
-                (
-                    row.amount
-                    for row in card.rows
-                    if row.direction == "out" and row.counter_account == "91.02"
-                ),
-                ZERO,
-            )
-            acquiring_fee_total = sum(fee_by_day.values(), ZERO) if s12 is not None else None
+            fees = ZERO
+            if card is not None:
+                fees = sum(
+                    (
+                        row.amount
+                        for row in card.rows
+                        if row.direction == "out" and row.counter_account == "91.02"
+                    ),
+                    ZERO,
+                )
+            acq_fee = acquiring_fee_total if acquiring_fee_total is not None else ZERO
             print(f"оборот Дт 91.02 в ОСВ: {_money(row9102.turnover_debit)}")
-            print(f"комиссии банка (списания на 91.02 в S2): {_money(fees)}")
-            if acquiring_fee_total is None:
-                print("комиссия эквайринга: н/д (нет S12)")
-                print(f"разница только по комиссиям банка: {_money(row9102.turnover_debit - fees)}")
+            if card is None:
+                bank_part = money(row9102.turnover_debit - acq_fee)
+                print(f"эквайринг (S12/S1): {_money(acq_fee)}")
+                print(f"остаток под комиссии банка (без S2): {_money(bank_part)}")
             else:
-                print(f"комиссия эквайринга (из S12/S1): {_money(acquiring_fee_total)}")
-                expected = fees + acquiring_fee_total
+                print(f"комиссии банка (списания на 91.02 в S2): {_money(fees)}")
+                print(f"комиссия эквайринга (из S12/S1): {_money(acq_fee)}")
+                expected = fees + acq_fee
                 print(f"ожидается по 91.02: {_money(expected)}")
                 print(f"разница: {_money(row9102.turnover_debit - expected)}")
 
     _header("6. ОСВ 62 по контрагентам (S9)")
-    s9_sheet: OsvCounterpartySheet | None = None
+    s9_sheet: OsvCounterpartySheet | None = s9_for_s3
     if samples.s9 is None:
         print("пропущено: нет S9")
+    elif s9_sheet is not None:
+        print_s9_sheet(s9_sheet, "S9")
     else:
         try:
             s9_sheet = read_osv_counterparties(samples.s9)
@@ -802,6 +1007,24 @@ def run(
             print(f"контрагентов в объединении месяцев: {union_size}")
         except XlsFormatError as exc:
             print(f"пред. S9 не прочитан: {exc}")
+
+    _header("6b. ОСВ 62.01 и 62.02 (S9a / S9b)")
+    if samples.s9a is None and samples.s9b is None:
+        print("пропущено: нет S9a/S9b")
+    else:
+        row6201 = osv.by_code("62.01") if osv is not None else None
+        row6202 = osv.by_code("62.02") if osv is not None else None
+        if s9a_sheet is not None:
+            print_s9_subaccount(s9a_sheet, "S9a 62.01", row6201)
+        else:
+            print("S9a: нет файла")
+        if s9b_sheet is not None:
+            print_s9_subaccount(s9b_sheet, "S9b 62.02", row6202)
+        else:
+            print("S9b: нет файла")
+        if s9a_sheet is not None and s9b_sheet is not None:
+            combined = money(s9a_sheet.closing + s9b_sheet.closing)
+            print(f"62.01 + 62.02 (чистые): {_money(combined)}")
 
     _header("7. Набор правил v1")
     rules = pack_rule_views()
@@ -887,8 +1110,20 @@ def main(argv: Iterable[str] | None = None) -> int:
         default=None,
         help="S9 предыдущего месяца для перехода остатков по контрагентам",
     )
+    parser.add_argument(
+        "--next-s3",
+        type=Path,
+        default=None,
+        help="S3 следующего месяца для перехода остатков по счетам",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
-    return run(args.folder, args.month, next_s1=args.next_s1, prior_s9=args.prior_s9)
+    return run(
+        args.folder,
+        args.month,
+        next_s1=args.next_s1,
+        next_s3=args.next_s3,
+        prior_s9=args.prior_s9,
+    )
 
 
 if __name__ == "__main__":
