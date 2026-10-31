@@ -48,6 +48,33 @@ def _company(client: TestClient, admin, app, fake, tmp_path, email: str) -> str:
     return company_id
 
 
+def _tenant_with_companies(
+    client: TestClient, admin, app, fake, tmp_path, email: str, count: int
+) -> tuple[str, list[str]]:
+    """Один tenant и несколько фирм в нём (оплата на `count` фирм)."""
+    app.state.settings.import_storage_dir = str(tmp_path)
+    register_and_verify(client, admin, email)
+    login(client, email)
+    tenant_id = open_workspace(client, "Pack Multi Co")
+    pay(client, app, fake, count, "month")
+    company_ids: list[str] = []
+    for index in range(count):
+        created = client.post(
+            f"/api/v1/workspaces/{tenant_id}/companies",
+            json={
+                "name": f"Pack Co {index + 1}",
+                "kind": "company",
+                "timezone": "Europe/Moscow",
+            },
+        )
+        assert created.status_code == 200, created.text
+        company_id = created.json()["id"]
+        activated = client.post(f"/api/v1/billing/companies/{company_id}/activate")
+        assert activated.status_code == 200, activated.text
+        company_ids.append(company_id)
+    return tenant_id, company_ids
+
+
 def _wallet(client: TestClient, company_id: str) -> str:
     created = client.post(
         f"/api/v1/companies/{company_id}/wallets",
@@ -216,3 +243,107 @@ def test_other_company_install_404(client, admin, app, fake, tmp_path) -> None:
     # company_b has no install — disable returns 404
     response = client.post(_pack_url(company_b, "disable"))
     assert response.status_code == 404
+
+
+def test_two_companies_one_tenant_are_isolated(client, admin, app, fake, tmp_path) -> None:
+    _tenant_id, (company_a, company_b) = _tenant_with_companies(
+        client, admin, app, fake, tmp_path, "pack-same-tenant@example.com", 2
+    )
+    wallet_a = _wallet(client, company_a)
+    wallet_b = _wallet(client, company_b)
+    rows = "iso-1,main,2026-10-07,out,300.00,RUB,,,ЗАРПЛАТА,,,\n"
+    source_a = _source(client, company_a, wallet_a, uuid4().hex[:8])
+    source_b = _source(client, company_b, wallet_b, uuid4().hex[:8])
+    _import_csv(client, company_a, source_a, rows)
+    _import_csv(client, company_b, source_b, rows)
+
+    installed_a = client.post(
+        _pack_url(company_a, "install"),
+        headers={"Idempotency-Key": uuid4().hex},
+    )
+    assert installed_a.status_code == 200, installed_a.text
+    assert len(installed_a.json()["created"]) == 32
+
+    # Установка на A не делает набор установленным для B.
+    disabled_b = client.post(_pack_url(company_b, "disable"))
+    assert disabled_b.status_code == 404
+    applied_b = client.post(_pack_url(company_b, "apply"))
+    assert applied_b.status_code == 404
+
+    installed_b = client.post(
+        _pack_url(company_b, "install"),
+        headers={"Idempotency-Key": uuid4().hex},
+    )
+    assert installed_b.status_code == 200, installed_b.text
+    assert len(installed_b.json()["created"]) == 32
+    assert installed_b.json()["skipped"] == []
+
+    applied_a = client.post(_pack_url(company_a, "apply"))
+    assert applied_a.status_code == 200, applied_a.text
+    assert applied_a.json()["applied"] == 1
+
+    disabled_b_after = client.post(_pack_url(company_b, "disable"))
+    assert disabled_b_after.status_code == 200, disabled_b_after.text
+    assert len(disabled_b_after.json()["disabled_rule_ids"]) == 32
+
+    # Отключение на B не затрагивает правила A: применение A снова сработает после снятия категории.
+    cf_a = client.get(
+        f"/api/v1/companies/{company_a}/cashflow?date_from={PERIOD[0]}&date_to={PERIOD[1]}"
+    )
+    assert cf_a.status_code == 200, cf_a.text
+    assert section_amounts(cf_a.json())["operating"][1] == "300.00"
+
+    disabled_a = client.post(_pack_url(company_a, "disable"))
+    assert disabled_a.status_code == 200, disabled_a.text
+    assert len(disabled_a.json()["disabled_rule_ids"]) == 32
+
+
+def test_repeat_install_same_version_has_no_duplicates(client, admin, app, fake, tmp_path) -> None:
+    company_id = _company(client, admin, app, fake, tmp_path, "pack-repeat@example.com")
+    first = client.post(
+        _pack_url(company_id, "install"),
+        headers={"Idempotency-Key": uuid4().hex},
+    )
+    assert first.status_code == 200, first.text
+    second = client.post(
+        _pack_url(company_id, "install"),
+        headers={"Idempotency-Key": uuid4().hex},
+    )
+    assert second.status_code == 200, second.text
+    third = client.post(
+        _pack_url(company_id, "install"),
+        headers={"Idempotency-Key": uuid4().hex},
+    )
+    assert third.status_code == 200, third.text
+    assert third.json()["created"] == []
+    assert len(third.json()["skipped"]) == 32
+
+    rules = client.get(f"/api/v1/companies/{company_id}/classification-rules")
+    assert rules.status_code == 200, rules.text
+    pack_rules = [row for row in rules.json()["rules"] if row["name"].startswith("[pack:")]
+    assert len(pack_rules) == 32
+
+    disabled = client.post(_pack_url(company_id, "disable"))
+    assert disabled.status_code == 200, disabled.text
+    assert len(set(disabled.json()["disabled_rule_ids"])) == 32
+    assert len(disabled.json()["disabled_rule_ids"]) == 32
+
+
+def test_foreign_company_install_paths_404(client, admin, app, fake, tmp_path) -> None:
+    owner_company = _company(client, admin, app, fake, tmp_path, "pack-owner@example.com")
+    client.post(
+        _pack_url(owner_company, "install"),
+        headers={"Idempotency-Key": uuid4().hex},
+    )
+    foreign_company = _company(client, admin, app, fake, tmp_path, "pack-foreign@example.com")
+
+    preview = client.post(
+        _pack_url(foreign_company, "preview"),
+        json={"date_from": PERIOD[0], "date_to": PERIOD[1]},
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["unmapped_count"] == 0
+
+    # У чужой фирмы набор не установлен: применение и отключение — 404.
+    assert client.post(_pack_url(foreign_company, "apply")).status_code == 404
+    assert client.post(_pack_url(foreign_company, "disable")).status_code == 404

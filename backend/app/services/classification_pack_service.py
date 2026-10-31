@@ -30,7 +30,7 @@ def require_classification_packs_enabled(settings: Settings) -> None:
 def _pack_install_audit(
     session: Session,
     user: User,
-    tenant_id: uuid.UUID,
+    company: Company,
     rule_id: uuid.UUID,
     *,
     pack: str,
@@ -40,13 +40,14 @@ def _pack_install_audit(
 ) -> None:
     session.add(
         AuditLog(
-            tenant_id=tenant_id,
+            tenant_id=company.tenant_id,
             user_id=user.id,
             action=PACK_INSTALL_ACTION,
             entity_type="classification_rule",
             entity_id=rule_id,
             before_redacted=None,
             after_redacted={
+                "company_id": str(company.id),
                 "pack": pack,
                 "version": version,
                 "rule_key": rule_key,
@@ -61,6 +62,7 @@ def _pack_install_audit(
 def _installed_audits(
     session: Session, company: Company, pack_slug: str, version: str | None = None
 ) -> list[AuditLog]:
+    """Установки набора именно этой фирмы: tenant — грубый фильтр, фирма — точный."""
     rows = session.scalars(
         select(AuditLog).where(
             AuditLog.tenant_id == company.tenant_id,
@@ -68,12 +70,20 @@ def _installed_audits(
         )
     ).all()
     matched: list[AuditLog] = []
+    seen_rules: set[uuid.UUID] = set()
     for row in rows:
         payload = row.after_redacted or {}
+        if payload.get("company_id") != str(company.id):
+            continue
         if payload.get("pack") != pack_slug:
             continue
         if version is not None and payload.get("version") != version:
             continue
+        # Одно правило — одна запись в отчёте, даже если аудит продублирован.
+        if row.entity_id is not None:
+            if row.entity_id in seen_rules:
+                continue
+            seen_rules.add(row.entity_id)
         matched.append(row)
     return matched
 
@@ -307,7 +317,7 @@ def install_pack(
         _pack_install_audit(
             session,
             user,
-            company.tenant_id,
+            company,
             rule_id,
             pack=pack_slug,
             version=version,
