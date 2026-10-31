@@ -3,6 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from app.domain.billing.periods import MOSCOW
+from app.domain.cash.unclassified import SECTIONS, UNMAPPED, is_internal_transfer, section_of
 from app.domain.money import money, money_str
 from app.domain.revenue import (
     GROUP_REVENUE_LABEL,
@@ -17,7 +18,6 @@ from app.services.cash_service import company_summary, summary_payload
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-SECTIONS = ("operating", "investing", "financing", "technical", "unmapped")
 _COMPLETENESS_RANK = {"unavailable": 0, "preliminary": 1, "full": 2}
 
 
@@ -290,11 +290,9 @@ def _opening_total(session: Session, company) -> str | None:
 
 def _section(session: Session, row: CashTransaction) -> str:
     if row.category_id is None:
-        return "unmapped"
+        return UNMAPPED
     category = session.get(CashCategory, row.category_id)
-    if category is None or category.cash_flow_section not in SECTIONS:
-        return "unmapped"
-    return category.cash_flow_section
+    return section_of(None if category is None else category.cash_flow_section)
 
 
 def group_cashflow_payload(session: Session, companies: list, at: datetime, period) -> dict:
@@ -330,9 +328,7 @@ def group_cashflow_payload(session: Session, companies: list, at: datetime, peri
                 outgoing[section] += row.amount
     external_in = sum(incoming.values(), Decimal("0"))
     external_out = sum(outgoing.values(), Decimal("0"))
-    company_parts = [
-        cashflow_payload(session, company, at, period) for company in companies
-    ]
+    company_parts = [cashflow_payload(session, company, at, period) for company in companies]
     company_statuses = [
         {"company_id": part["company_id"], "completeness": part["completeness"]}
         for part in company_parts
@@ -364,9 +360,7 @@ def _paired_inside(session: Session, row: CashTransaction, company_ids: set[uuid
         return False
     present = set(
         session.scalars(
-            select(CashTransaction.company_id).where(
-                CashTransaction.transfer_group_id == group.id
-            )
+            select(CashTransaction.company_id).where(CashTransaction.transfer_group_id == group.id)
         ).all()
     )
     return len(present) >= 2 and present <= company_ids
@@ -376,7 +370,7 @@ def _internal(session: Session, row: CashTransaction) -> bool:
     if row.transfer_group_id is None:
         return False
     group = session.get(TransferGroup, row.transfer_group_id)
-    return group is not None and group.kind == "internal" and group.status == "linked"
+    return group is not None and is_internal_transfer(group.kind, group.status)
 
 
 def _enabled_cash_sources(session: Session, company) -> list[SourceConnection]:
@@ -425,12 +419,7 @@ def _cashflow_completeness(
     period_tz = company.timezone or "Europe/Moscow"
     unverified = False
     for source in sources:
-        if (
-            effective_reconciled_coverage(
-                session, source, date_from, date_to, period_tz
-            )
-            is None
-        ):
+        if effective_reconciled_coverage(session, source, date_from, date_to, period_tz) is None:
             unverified = True
             break
     if unverified and "coverage_unverified" not in flags:

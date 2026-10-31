@@ -6,6 +6,7 @@ from decimal import Decimal
 from app.config import Settings
 from app.domain.cash.balance import Anchor, CashLine, WalletInput
 from app.domain.cash.summary import CashSummary, summarize
+from app.domain.cash.unclassified import INTERNAL_KIND, LINKED_STATUS, is_internal_transfer
 from app.domain.money import money_str
 from app.errors import AppError
 from app.models.cash import (
@@ -22,8 +23,9 @@ from app.models.revenue import RevenueCashMatch
 from app.security.access import OPERATOR
 from app.security.tokens import canonical_hash
 from app.services.wallet_service import visible_wallet
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 SCOPE = "cash-create"
 
@@ -84,32 +86,26 @@ def unclassified_summary(
     date_from: date,
     date_to: date,
 ) -> dict:
-    query = (
-        select(
-            CashTransaction.direction,
-            func.count(),
-            func.coalesce(func.sum(CashTransaction.amount), 0),
-        )
-        .where(
-            CashTransaction.tenant_id == company.tenant_id,
-            CashTransaction.company_id == company.id,
-            CashTransaction.status == "posted",
-            CashTransaction.category_id.is_(None),
-            CashTransaction.business_date >= date_from,
-            CashTransaction.business_date <= date_to,
-        )
-        .group_by(CashTransaction.direction)
-    )
-    if membership.role == OPERATOR:
-        allowed = _operator_wallets(session, membership)
-        if not allowed:
-            return _empty_unclassified_summary(date_from, date_to)
-        query = query.where(CashTransaction.wallet_id.in_(allowed))
+    rows = _unclassified_rows(session, company, date_from, date_to)
+    internal = _internal_transfer_ids(session, rows)
     totals = {"in": {"count": 0, "amount": "0.00"}, "out": {"count": 0, "amount": "0.00"}}
-    for direction, count, amount in session.execute(query):
-        key = str(direction)
-        if key in totals:
-            totals[key] = {"count": int(count), "amount": money_str(amount)}
+    allowed = _operator_wallets(session, membership) if membership.role == OPERATOR else None
+    if membership.role == OPERATOR and not allowed:
+        return _empty_unclassified_summary(date_from, date_to)
+    sums: dict[str, list[int | Decimal]] = {"in": [0, Decimal("0")], "out": [0, Decimal("0")]}
+    for row in rows:
+        if row.id in internal:
+            continue
+        if allowed is not None and row.wallet_id not in allowed:
+            continue
+        bucket = sums[row.direction]
+        bucket[0] = int(bucket[0]) + 1
+        bucket[1] = Decimal(bucket[1]) + row.amount
+    for direction, bucket in sums.items():
+        totals[direction] = {
+            "count": int(bucket[0]),
+            "amount": money_str(Decimal(bucket[1])),
+        }
     return {
         "period": {"date_from": date_from.isoformat(), "date_to": date_to.isoformat()},
         **totals,
@@ -132,6 +128,7 @@ def list_unclassified_transactions(
         CashTransaction.company_id == company.id,
         CashTransaction.status == "posted",
         CashTransaction.category_id.is_(None),
+        _not_internal_transfer(),
     )
     if date_from is not None:
         query = query.where(CashTransaction.business_date >= date_from)
@@ -173,6 +170,52 @@ def _empty_unclassified_summary(date_from: date, date_to: date) -> dict:
         "in": dict(empty),
         "out": dict(empty),
     }
+
+
+def _unclassified_rows(
+    session: Session, company: Company, date_from: date, date_to: date
+) -> list[CashTransaction]:
+    """Проведённые операции фирмы без категории за период (кандидаты в неразнесённые)."""
+    return list(
+        session.scalars(
+            select(CashTransaction).where(
+                CashTransaction.tenant_id == company.tenant_id,
+                CashTransaction.company_id == company.id,
+                CashTransaction.status == "posted",
+                CashTransaction.category_id.is_(None),
+                CashTransaction.business_date >= date_from,
+                CashTransaction.business_date <= date_to,
+            )
+        ).all()
+    )
+
+
+def _internal_transfer_ids(session: Session, rows: list[CashTransaction]) -> set[uuid.UUID]:
+    """Идентификаторы ног подтверждённых внутренних переводов (ОДДС их исключает)."""
+    group_ids = {row.transfer_group_id for row in rows if row.transfer_group_id is not None}
+    if not group_ids:
+        return set()
+    groups = session.scalars(select(TransferGroup).where(TransferGroup.id.in_(group_ids))).all()
+    internal = {group.id for group in groups if is_internal_transfer(group.kind, group.status)}
+    return {
+        row.id
+        for row in rows
+        if row.transfer_group_id is not None and row.transfer_group_id in internal
+    }
+
+
+def _not_internal_transfer() -> ColumnElement[bool]:
+    """SQL-фильтр: у операции нет группы перевода либо группа не «внутренний перевод»."""
+    return or_(
+        CashTransaction.transfer_group_id.is_(None),
+        ~exists().where(
+            and_(
+                TransferGroup.id == CashTransaction.transfer_group_id,
+                TransferGroup.kind == INTERNAL_KIND,
+                TransferGroup.status == LINKED_STATUS,
+            )
+        ),
+    )
 
 
 def list_transactions(
