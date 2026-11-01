@@ -1,4 +1,4 @@
-import { expect, test, type Request } from "@playwright/test";
+import { expect, test, type Page, type Request } from "@playwright/test";
 
 import {
   E2E_PASSWORD,
@@ -11,6 +11,13 @@ import {
 import { openAppShell, selectCompany } from "./helpers/auth";
 
 const API = "http://127.0.0.1:8000";
+
+async function setOverviewPeriod(page: Page, from: string, to: string) {
+  await page.locator("#fp-period-from").fill(from);
+  await page.locator("#fp-period-to").fill(to);
+  await page.locator("#fp-period-to").blur();
+  await expect(page.getByText(/^Загрузка$/)).toHaveCount(0, { timeout: 30_000 });
+}
 
 test.describe("Synthetic polygon · E2E (backend + UI)", () => {
   test.beforeEach(async ({ page, context }) => {
@@ -28,6 +35,7 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
       await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), company.id);
       await selectCompany(page, company.name);
       await page.getByRole("link", { name: "Обзор" }).click();
+      await setOverviewPeriod(page, oracle.period_from, oracle.period_to);
 
       // Значение из oracle остаётся источником истины, а на экране оно
       // печатается через форматтер: 50000.00 → «50 000,00 ₽».
@@ -53,6 +61,7 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), meta.companies.services.id);
     await selectCompany(page, meta.companies.services.name);
     await page.getByRole("link", { name: "Обзор" }).click();
+    await setOverviewPeriod(page, oracle.period_from, oracle.period_to);
     await expect(
       page.getByText(
         labeledMoneyPattern(oracle.revenue_label, oracle.companies.services.revenue_net_ex_vat),
@@ -63,6 +72,7 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     await selectCompany(page, meta.companies.retail.name);
     await page.reload();
     await page.getByRole("link", { name: "Обзор" }).click();
+    await setOverviewPeriod(page, oracle.period_from, oracle.period_to);
     await expect(
       page.getByText(
         labeledMoneyPattern(oracle.revenue_label, oracle.companies.retail.revenue_net_ex_vat),
@@ -109,9 +119,7 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), company.id);
     await selectCompany(page, company.name);
     await page.getByRole("link", { name: "Обзор" }).click();
-
-    await page.locator("#fp-period-from").fill(oracle.period_from);
-    await page.locator("#fp-period-to").fill(oracle.period_to);
+    await setOverviewPeriod(page, oracle.period_from, oracle.period_to);
     await expect(page.getByTestId("kpi-cash-total")).toHaveAttribute(
       "data-value",
       expected.cash_total,
@@ -160,6 +168,7 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), meta.companies.services.id);
     await selectCompany(page, meta.companies.services.name);
     await page.getByRole("link", { name: "Обзор" }).click();
+    await setOverviewPeriod(page, oracle.period_from, oracle.period_to);
     // Сумма на экране форматируется; исходное значение доступно в data-value.
     await expect(page.getByTestId("kpi-cash-total")).toHaveAttribute(
       "data-value",
@@ -228,6 +237,7 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     await expect(page.getByText(displayUnpaid(plan.forecast_unpaid_after))).toBeVisible();
 
     await page.getByRole("link", { name: "Обзор" }).click();
+    await setOverviewPeriod(page, oracle.period_from, oracle.period_to);
     // Сумма на экране форматируется; исходное значение доступно в data-value.
     await expect(page.getByTestId("kpi-cash-total")).toHaveAttribute(
       "data-value",
