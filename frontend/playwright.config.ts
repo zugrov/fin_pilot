@@ -31,6 +31,7 @@ export default defineConfig({
         /local-demo-overview-capture\.spec\.ts/,
         /group-e-synthetic-polygon\.spec\.ts/,
         /classification-polygon\.spec\.ts/,
+        /classification-packs-polygon\.spec\.ts/,
         /cashflow-polygon\.spec\.ts/,
         /receivable-polygon\.spec\.ts/,
         /polygon\//,
