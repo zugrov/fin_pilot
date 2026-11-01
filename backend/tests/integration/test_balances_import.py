@@ -23,8 +23,8 @@ from tests.integration.conftest import (
     register_and_verify,
     token_from_link,
 )
-from tests.synthetic_polygon.constants import polygon_frozen_moment
 from tests.integration.test_import_api import _upload
+from tests.synthetic_polygon.constants import polygon_frozen_moment
 
 PERIOD = "date_from=2026-10-01&date_to=2026-10-31"
 
