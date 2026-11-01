@@ -11,7 +11,7 @@ from sqlalchemy import text
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import (
     freeze,
-    latest_link,
+    latest_email_link,
     login,
     open_workspace,
     pay,
@@ -180,6 +180,7 @@ def test_coverage_repeat_same_date_increments_dataset_coverage_version(
 
 
 def test_viewer_cannot_set_coverage(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     company_id, wallet_id = _ready(
         client, admin, app, fake, tmp_path, "cov-owner@example.com"
     )
@@ -190,7 +191,7 @@ def test_viewer_cannot_set_coverage(client, admin, app, fake, tmp_path) -> None:
         json={"email": "cov-viewer@example.com", "role": "viewer"},
     )
     assert invited.status_code == 200, invited.text
-    invite_token = token_from_link(latest_link(admin))
+    invite_token = token_from_link(latest_email_link(admin, "cov-viewer@example.com", "invite"))
     guest = TestClient(app)
     register_and_verify(guest, admin, "cov-viewer@example.com")
     guest_login = login(guest, "cov-viewer@example.com")

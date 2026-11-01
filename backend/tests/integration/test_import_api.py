@@ -8,13 +8,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from tests.integration.conftest import (
     freeze,
-    latest_link,
+    latest_email_link,
     login,
     open_workspace,
     pay,
     register_and_verify,
     token_from_link,
 )
+from tests.synthetic_polygon.constants import polygon_frozen_moment
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 HEADER = (
@@ -309,6 +310,7 @@ def test_import_guards(client, admin, app, fake, tmp_path) -> None:
 
 
 def test_operator_cannot_import(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     company_id, wallet_id = _ready(client, admin, app, fake, tmp_path, "boss-imp@example.com")
     tenant = client.headers["X-Tenant-Id"]
     source = _source(client, company_id, wallet_id, namespace="op")
@@ -317,7 +319,7 @@ def test_operator_cannot_import(client, admin, app, fake, tmp_path) -> None:
         json={"email": "op-imp@example.com", "role": "operator"},
     )
     assert invited.status_code == 200, invited.text
-    token = token_from_link(latest_link(admin))
+    token = token_from_link(latest_email_link(admin, "op-imp@example.com", "invite"))
     guest = TestClient(app)
     register_and_verify(guest, admin, "op-imp@example.com", name="Оператор")
     logged = login(guest, "op-imp@example.com")

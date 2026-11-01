@@ -6,13 +6,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from tests.integration.conftest import (
     freeze,
-    latest_link,
+    latest_email_link,
     login,
     open_workspace,
     pay,
     register_and_verify,
     token_from_link,
 )
+from tests.synthetic_polygon.constants import polygon_frozen_moment
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 PERIOD = "date_from=2026-10-01&date_to=2026-10-31"
@@ -250,6 +251,7 @@ def test_revenue_csv_dedup_and_unknown_format(client, admin, app, fake, tmp_path
 
 
 def test_revenue_guards(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     tenant, company_id = _ready(client, admin, app, fake, tmp_path, "guard-rev@example.com")
     first = _sale(client, company_id, "same-sale")
     replay = _sale(client, company_id, "same-sale")
@@ -259,7 +261,7 @@ def test_revenue_guards(client, admin, app, fake, tmp_path) -> None:
         json={"email": "op-rev@example.com", "role": "operator"},
     )
     assert invited.status_code == 200, invited.text
-    token = token_from_link(latest_link(admin))
+    token = token_from_link(latest_email_link(admin, "op-rev@example.com", "invite"))
     guest = TestClient(app)
     register_and_verify(guest, admin, "op-rev@example.com", name="Оператор")
     logged = login(guest, "op-rev@example.com")

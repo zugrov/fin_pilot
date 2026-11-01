@@ -12,7 +12,7 @@ from sqlalchemy import text
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import (
     freeze,
-    latest_link,
+    latest_email_link,
     login,
     open_workspace,
     pay,
@@ -295,6 +295,7 @@ def test_apply_skips_when_higher_priority_rule_wins(client, admin, app, fake, tm
 
 
 def test_viewer_cannot_apply(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     company_id = _company(client, admin, app, fake, tmp_path, "viewer-apply@example.com")
     tenant = client.headers["X-Tenant-Id"]
     rule_id = create_rule(client, company_id, _bulk_rule())
@@ -303,7 +304,9 @@ def test_viewer_cannot_apply(client, admin, app, fake, tmp_path) -> None:
         json={"email": "viewer-apply-guest@example.com", "role": "viewer"},
     )
     assert invited.status_code == 200, invited.text
-    invite_token = token_from_link(latest_link(admin))
+    invite_token = token_from_link(
+        latest_email_link(admin, "viewer-apply-guest@example.com", "invite")
+    )
     guest = TestClient(app)
     register_and_verify(guest, admin, "viewer-apply-guest@example.com")
     guest_login = login(guest, "viewer-apply-guest@example.com")

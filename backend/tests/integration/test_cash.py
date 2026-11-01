@@ -7,13 +7,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from tests.integration.conftest import (
     freeze,
-    latest_link,
+    latest_email_link,
     login,
     open_workspace,
     pay,
     register_and_verify,
     token_from_link,
 )
+from tests.synthetic_polygon.constants import polygon_frozen_moment
 
 
 def _ready(client, admin, app, fake, email: str = "cash@example.com") -> tuple[str, str]:
@@ -258,6 +259,7 @@ def test_foreign_wallet_is_hidden(client, admin, app, fake) -> None:
 
 
 def test_operator_wallet_access_and_no_analytics(client, admin, app, fake) -> None:
+    freeze(app, polygon_frozen_moment())
     tenant, company_id = _ready(client, admin, app, fake, "boss@example.com")
     wallet = _wallet(client, company_id)
     _anchor(client, wallet["id"], "1000.00")
@@ -267,7 +269,7 @@ def test_operator_wallet_access_and_no_analytics(client, admin, app, fake) -> No
         json={"email": "op@example.com", "role": "operator"},
     )
     assert invited.status_code == 200, invited.text
-    token = token_from_link(latest_link(admin))
+    token = token_from_link(latest_email_link(admin, "op@example.com", "invite"))
     guest = TestClient(app)
     register_and_verify(guest, admin, "op@example.com", name="Оператор")
     logged = login(guest, "op@example.com")

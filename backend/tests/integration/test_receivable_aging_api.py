@@ -7,13 +7,15 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from tests.integration.conftest import (
-    latest_link,
+    freeze,
+    latest_email_link,
     login,
     open_workspace,
     pay,
     register_and_verify,
     token_from_link,
 )
+from tests.synthetic_polygon.constants import polygon_frozen_moment
 from tests.integration.test_revenue_api import _ready
 from tests.synthetic_polygon.receivable_harness import (
     apply_receivable_demo_matches,
@@ -132,6 +134,7 @@ def test_receivable_aging_rows_truncated(client, admin, app, fake, tmp_path) -> 
 
 
 def test_receivable_aging_forbidden_and_not_found(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     tenant, company_id = _ready(client, admin, app, fake, tmp_path, "ar-guard@example.com")
     foreign = TestClient(app)
     _ready(foreign, admin, app, fake, tmp_path, "ar-other@example.com")
@@ -147,7 +150,7 @@ def test_receivable_aging_forbidden_and_not_found(client, admin, app, fake, tmp_
         json={"email": "ar-op@example.com", "role": "operator"},
     )
     assert invited.status_code == 200, invited.text
-    token = token_from_link(latest_link(admin))
+    token = token_from_link(latest_email_link(admin, "ar-op@example.com", "invite"))
     guest = TestClient(app)
     register_and_verify(guest, admin, "ar-op@example.com", name="Оператор")
     login(guest, "ar-op@example.com")

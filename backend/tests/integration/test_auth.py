@@ -3,12 +3,15 @@ from datetime import timedelta
 from sqlalchemy import text
 from tests.integration.conftest import (
     PASSWORD,
+    freeze,
+    latest_email_link,
     latest_link,
     login,
     open_workspace,
     register_and_verify,
     token_from_link,
 )
+from tests.synthetic_polygon.constants import polygon_frozen_moment
 
 
 def test_auth1_normalized_email_is_unique(client, admin) -> None:
@@ -108,7 +111,8 @@ def test_auth5_forgot_does_not_reveal_account(client, admin) -> None:
     assert known.json() == unknown.json()
 
 
-def test_auth6_invited_user_joins_existing_subscription(client, admin) -> None:
+def test_auth6_invited_user_joins_existing_subscription(client, admin, app) -> None:
+    freeze(app, polygon_frozen_moment())
     register_and_verify(client, admin, "owner@example.com")
     login(client, "owner@example.com")
     tenant_id = open_workspace(client)
@@ -117,7 +121,7 @@ def test_auth6_invited_user_joins_existing_subscription(client, admin) -> None:
         json={"email": "staff@example.com", "role": "viewer"},
     )
     assert invited.status_code == 200
-    token = token_from_link(latest_link(admin))
+    token = token_from_link(latest_email_link(admin, "staff@example.com", "invite"))
     guest = client.__class__(client.app)
     register_and_verify(guest, admin, "staff@example.com", name="Сотрудник")
     logged = login(guest, "staff@example.com")

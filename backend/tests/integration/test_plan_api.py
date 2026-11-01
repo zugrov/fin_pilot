@@ -8,13 +8,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from tests.integration.conftest import (
     freeze,
-    latest_link,
+    latest_email_link,
     login,
     open_workspace,
     pay,
     register_and_verify,
     token_from_link,
 )
+from tests.synthetic_polygon.constants import polygon_frozen_moment
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 AS_OF = "2026-10-14"
@@ -385,13 +386,14 @@ def test_obligation_is_one_event(client, admin, app, fake, tmp_path) -> None:
 
 
 def test_plan_access_guards(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     tenant, company_id = _ready(client, admin, app, fake, tmp_path, "guard-plan@example.com")
     invited = client.post(
         f"/api/v1/workspaces/{tenant}/invitations",
         json={"email": "op-plan@example.com", "role": "operator"},
     )
     assert invited.status_code == 200, invited.text
-    token = token_from_link(latest_link(admin))
+    token = token_from_link(latest_email_link(admin, "op-plan@example.com", "invite"))
     guest = TestClient(app)
     register_and_verify(guest, admin, "op-plan@example.com", name="Оператор")
     logged = login(guest, "op-plan@example.com")

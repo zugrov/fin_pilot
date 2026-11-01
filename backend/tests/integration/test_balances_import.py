@@ -16,13 +16,14 @@ from tests.integration.balances_test_util import (
 )
 from tests.integration.conftest import (
     freeze,
-    latest_link,
+    latest_email_link,
     login,
     open_workspace,
     pay,
     register_and_verify,
     token_from_link,
 )
+from tests.synthetic_polygon.constants import polygon_frozen_moment
 from tests.integration.test_import_api import _upload
 
 PERIOD = "date_from=2026-10-01&date_to=2026-10-31"
@@ -442,6 +443,7 @@ def test_balances_csrf_denied_on_commit_and_refresh(client, admin, app, fake, tm
 
 
 def test_balances_operator_and_paid_through_guards(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     company_id, _ = _ready(client, admin, app, fake, tmp_path, "b-boss@example.com")
     tenant = client.headers["X-Tenant-Id"]
     source = _balances_source(client, company_id)
@@ -454,7 +456,7 @@ def test_balances_operator_and_paid_through_guards(client, admin, app, fake, tmp
         json={"email": "b-op@example.com", "role": "operator"},
     )
     assert invited.status_code == 200, invited.text
-    invite_token = token_from_link(latest_link(admin))
+    invite_token = token_from_link(latest_email_link(admin, "b-op@example.com", "invite"))
     guest = TestClient(app)
     register_and_verify(guest, admin, "b-op@example.com", name="Оператор")
     login(guest, "b-op@example.com")

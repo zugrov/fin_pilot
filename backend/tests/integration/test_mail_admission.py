@@ -11,13 +11,14 @@ from app.services.mail_admission_service import evaluate_mail_admission
 from sqlalchemy import text
 from tests.integration.conftest import (
     freeze,
-    latest_link,
+    latest_email_link,
     login,
     open_workspace,
     pay,
     register_and_verify,
     token_from_link,
 )
+from tests.synthetic_polygon.constants import polygon_frozen_moment
 
 RECEIVED = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 SECRET = "mailbox-secret-1"
@@ -185,6 +186,7 @@ def test_unverified_user_rejects(client, admin, app, fake, tmp_path) -> None:
 
 
 def test_viewer_cannot_admit(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     register_and_verify(client, admin, "owner-view@example.com")
     login(client, "owner-view@example.com")
     tenant_id = open_workspace(client)
@@ -193,7 +195,7 @@ def test_viewer_cannot_admit(client, admin, app, fake, tmp_path) -> None:
         json={"email": "viewer-mail@example.com", "role": "viewer"},
     )
     assert invited.status_code == 200
-    token = token_from_link(latest_link(admin))
+    token = token_from_link(latest_email_link(admin, "viewer-mail@example.com", "invite"))
     guest = client.__class__(client.app)
     register_and_verify(guest, admin, "viewer-mail@example.com")
     guest_login = login(guest, "viewer-mail@example.com")

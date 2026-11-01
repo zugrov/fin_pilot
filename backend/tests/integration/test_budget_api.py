@@ -8,13 +8,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from tests.integration.conftest import (
     freeze,
-    latest_link,
+    latest_email_link,
     login,
     open_workspace,
     pay,
     register_and_verify,
     token_from_link,
 )
+from tests.synthetic_polygon.constants import polygon_frozen_moment
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 REPORT = "2026-10-31"
@@ -382,13 +383,14 @@ def test_budget_import_does_not_approve_or_create_cash(client, admin, app, fake,
 
 
 def test_budget_access_guards(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     tenant, company_id = _ready(client, admin, app, fake, tmp_path, "guard-b@example.com")
     invited = client.post(
         f"/api/v1/workspaces/{tenant}/invitations",
         json={"email": "op-b@example.com", "role": "operator"},
     )
     assert invited.status_code == 200, invited.text
-    token = token_from_link(latest_link(admin))
+    token = token_from_link(latest_email_link(admin, "op-b@example.com", "invite"))
     guest = TestClient(app)
     register_and_verify(guest, admin, "op-b@example.com", name="Оператор")
     logged = login(guest, "op-b@example.com")
