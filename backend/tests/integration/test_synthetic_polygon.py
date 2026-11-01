@@ -47,7 +47,7 @@ def _workspace_three_companies(client, admin, app, fake, tmp_path) -> tuple[str,
     return tenant_id, company_ids
 
 
-def test_dashboard_cash_total_follows_period_end_not_now(client, admin, app, fake, tmp_path) -> None:
+def test_dashboard_cash_total_by_period_end(client, admin, app, fake, tmp_path) -> None:
     freeze(app, polygon_frozen_moment())
     _tenant, company_ids = _workspace_three_companies(client, admin, app, fake, tmp_path)
     load_profile(client, company_ids[SERVICES.slug], SERVICES, admin=admin)
