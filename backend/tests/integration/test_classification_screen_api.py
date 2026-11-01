@@ -11,7 +11,7 @@ from sqlalchemy import text
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import (
     freeze,
-    latest_link,
+    latest_email_link,
     login,
     open_workspace,
     pay,
@@ -271,6 +271,7 @@ def test_create_rule_two_keys_same_body_creates_two_rules(
 
 
 def test_patch_rule_guards_and_audit(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     company_id = _company(client, admin, app, fake, tmp_path, "patch-guards@example.com")
     rule_id = create_rule(client, company_id, RETAIL_CLIENTBANK_IN_RULE)
     tenant = client.headers["X-Tenant-Id"]
@@ -279,7 +280,9 @@ def test_patch_rule_guards_and_audit(client, admin, app, fake, tmp_path) -> None
         json={"email": "patch-viewer@example.com", "role": "viewer"},
     )
     assert invited.status_code == 200, invited.text
-    invite_token = token_from_link(latest_link(admin))
+    invite_token = token_from_link(
+        latest_email_link(admin, "patch-viewer@example.com", "invite")
+    )
     guest = TestClient(app)
     register_and_verify(guest, admin, "patch-viewer@example.com")
     guest_login = login(guest, "patch-viewer@example.com")

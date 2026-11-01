@@ -176,6 +176,28 @@ def latest_link(admin) -> str:
     return str(link)
 
 
+def latest_email_link(admin, email: str, type_: str) -> str:
+    with admin.connect() as connection:
+        link = connection.execute(
+            text(
+                """
+                SELECT payload_redacted->>'link' FROM transactional_email_outbox
+                WHERE payload_redacted ? 'link'
+                  AND type = :type_
+                  AND lower(to_email) = lower(:email)
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """
+            ),
+            {"email": email, "type_": type_},
+        ).scalar_one()
+    return str(link)
+
+
+def latest_verify_link(admin, email: str) -> str:
+    return latest_email_link(admin, email, "verify_email")
+
+
 def token_from_link(link: str) -> str:
     return parse_qs(urlparse(link).query)["token"][0]
 
@@ -186,10 +208,11 @@ def register_and_verify(client: TestClient, admin, email: str, name: str = "Ол
         json={"email": email, "password": PASSWORD, "name": name},
     )
     assert created.status_code == 200
-    client.post(
+    verified = client.post(
         "/api/v1/auth/verify-email",
-        json={"token": token_from_link(latest_link(admin))},
+        json={"token": token_from_link(latest_verify_link(admin, email))},
     )
+    assert verified.status_code == 200, verified.text
 
 
 def login(client: TestClient, email: str) -> dict:
