@@ -15,8 +15,8 @@ from tests.integration.conftest import (
     register_and_verify,
     token_from_link,
 )
-from tests.synthetic_polygon.constants import polygon_frozen_moment
 from tests.integration.test_revenue_api import _ready
+from tests.synthetic_polygon.constants import polygon_frozen_moment
 from tests.synthetic_polygon.receivable_harness import (
     apply_receivable_demo_matches,
     load_receivable_demo_profile,
