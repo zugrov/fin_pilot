@@ -87,6 +87,12 @@ test.describe("FA-R01.4 · A · основной путь одной фирмы"
     await expect(page.locator("ul.mb-6").getByText(/остаток 1,50 ₽/)).toBeVisible();
 
     await page.getByRole("link", { name: "Обзор" }).click();
+    // Период по умолчанию — календарный месяц «сегодня» в TZ браузера; seed и frozen API — октябрь.
+    const overviewMonth = meta.frozenDate.slice(0, 7);
+    await page.locator("#fp-period-from").fill(`${overviewMonth}-01`);
+    await page.locator("#fp-period-to").fill(`${overviewMonth}-31`);
+    await page.locator("#fp-period-to").blur();
+    await expect(page.getByText(/^Загрузка$/)).toHaveCount(0, { timeout: 30_000 });
     // Выручка приходит как «2.00», на экране печатается форматтером.
     // Проверяем оба: исходное значение в data-value и его отображение.
     await expect(page.getByText(/Выручка без НДС: 2,00/)).toBeVisible();
