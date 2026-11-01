@@ -28,6 +28,7 @@ export default defineConfig({
       dependencies: ["setup"],
       testIgnore: [
         /auth\.setup\.ts/,
+        /local-demo-overview-capture\.spec\.ts/,
         /group-e-synthetic-polygon\.spec\.ts/,
         /classification-polygon\.spec\.ts/,
         /cashflow-polygon\.spec\.ts/,
