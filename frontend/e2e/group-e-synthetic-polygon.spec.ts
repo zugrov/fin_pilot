@@ -117,7 +117,11 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
       expected.cash_total,
     );
     await expect(page.getByText(`Операций: ${expected.operation_count}`)).toBeVisible();
-    await expect(page.getByText("20 000,00 ₽").first()).toBeVisible();
+    const sectionChart = page
+      .locator("div")
+      .filter({ hasText: "Движение денег по секциям за период" })
+      .first();
+    await expect(sectionChart).toContainText("20 000,00");
 
     await page.locator("#fp-period-from").fill("2026-09-01");
     await page.locator("#fp-period-to").fill("2026-09-30");
@@ -126,7 +130,11 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
       expected.opening_balance,
     );
     await expect(page.getByText("Операций: 0")).toBeVisible();
-    await expect(page.getByText("20 000,00 ₽")).toHaveCount(0);
+    const sectionChartAfter = page
+      .locator("div")
+      .filter({ hasText: "Движение денег по секциям за период" })
+      .first();
+    await expect(sectionChartAfter).not.toContainText("20 000,00");
   });
 
   test("план: перенос expected_date меняет прогноз, не деньги", async ({ page }) => {
