@@ -83,3 +83,27 @@ def list_pack_versions(slug: str) -> tuple[str, ...]:
     if not root.is_dir():
         return ()
     return tuple(sorted(p.name for p in root.iterdir() if p.is_dir()))
+
+
+def list_packs() -> tuple[dict, ...]:
+    """Каталог наборов на диске: по slug последняя версия и все доступные версии."""
+    if not PACKS_ROOT.is_dir():
+        return ()
+    packs: list[dict] = []
+    for root in sorted(PACKS_ROOT.iterdir()):
+        if not root.is_dir() or root.name.startswith("_"):
+            continue
+        versions = list_pack_versions(root.name)
+        if not versions:
+            continue
+        latest = load_pack(root.name, versions[-1])
+        packs.append(
+            {
+                "slug": latest.slug,
+                "display_name": latest.display_name,
+                "versions": list(versions),
+                "latest_version": latest.version,
+                "rule_count": len(latest.rules),
+            }
+        )
+    return tuple(packs)

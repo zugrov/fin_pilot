@@ -233,6 +233,54 @@ def test_user_rule_priority_over_pack(client, admin, app, fake, tmp_path) -> Non
     assert amounts["investing"][0] == "0.00"
 
 
+def test_catalog_lists_pack_and_versions(client, admin, app, fake, tmp_path) -> None:
+    _company(client, admin, app, fake, tmp_path, "pack-catalog@example.com")
+    response = client.get("/api/v1/classification-packs")
+    assert response.status_code == 200, response.text
+    packs = {item["slug"]: item for item in response.json()["packs"]}
+    assert PACK in packs
+    assert VERSION in packs[PACK]["versions"]
+    assert packs[PACK]["rule_count"] == 32
+
+
+def test_catalog_hidden_when_flag_off(client, admin, app, fake, tmp_path) -> None:
+    _company(client, admin, app, fake, tmp_path, "pack-catalog-off@example.com")
+    app.state.settings.classification_packs_enabled = False
+    assert client.get("/api/v1/classification-packs").status_code == 404
+
+
+def test_status_is_per_company(client, admin, app, fake, tmp_path) -> None:
+    _tenant_id, (company_a, company_b) = _tenant_with_companies(
+        client, admin, app, fake, tmp_path, "pack-status@example.com", 2
+    )
+    empty_a = client.get(f"/api/v1/companies/{company_a}/classification-packs/status")
+    assert empty_a.status_code == 200, empty_a.text
+    assert empty_a.json()["installed"] == []
+
+    client.post(_pack_url(company_a, "install"), headers={"Idempotency-Key": uuid4().hex})
+
+    status_a = client.get(f"/api/v1/companies/{company_a}/classification-packs/status")
+    assert status_a.status_code == 200, status_a.text
+    installed = status_a.json()["installed"]
+    assert len(installed) == 1
+    assert installed[0]["pack"] == PACK
+    assert installed[0]["version"] == VERSION
+    assert installed[0]["rule_count"] == 32
+    assert installed[0]["enabled_rule_count"] == 32
+    assert installed[0]["disabled"] is False
+
+    status_b = client.get(f"/api/v1/companies/{company_b}/classification-packs/status")
+    assert status_b.status_code == 200, status_b.text
+    assert status_b.json()["installed"] == []
+
+    client.post(_pack_url(company_a, "disable"))
+    after_disable = client.get(f"/api/v1/companies/{company_a}/classification-packs/status").json()[
+        "installed"
+    ]
+    assert after_disable[0]["enabled_rule_count"] == 0
+    assert after_disable[0]["disabled"] is True
+
+
 def test_other_company_install_404(client, admin, app, fake, tmp_path) -> None:
     company_a = _company(client, admin, app, fake, tmp_path, "pack-a@example.com")
     company_b = _company(client, admin, app, fake, tmp_path, "pack-b@example.com")

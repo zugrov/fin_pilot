@@ -15,7 +15,7 @@ from app.models.cash import CashCategory, CashTransaction
 from app.models.identity import AuditLog, Company, Membership, User
 from app.models.imports import ClassificationRule
 from app.services.import_service import apply_classification_rule, create_rule, load_rule_views
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 PACK_INSTALL_ACTION = "classification_rule_installed_from_pack"
@@ -333,6 +333,53 @@ def install_pack(
         "skipped": skipped,
         "version_conflicts": version_conflicts,
     }
+
+
+def pack_status(session: Session, company: Company, pack_slug: str, version: str) -> dict:
+    """Статус набора для фирмы: установлен ли, сколько правил активно."""
+    audits = _installed_audits(session, company, pack_slug, version)
+    rule_ids = [row.entity_id for row in audits if row.entity_id is not None]
+    enabled_count = 0
+    if rule_ids:
+        enabled_count = int(
+            session.scalar(
+                select(func.count()).where(
+                    ClassificationRule.id.in_(rule_ids),
+                    ClassificationRule.enabled.is_(True),
+                )
+            )
+            or 0
+        )
+    return {
+        "pack": pack_slug,
+        "version": version,
+        "installed": bool(audits),
+        "rule_count": len(rule_ids),
+        "enabled_rule_count": enabled_count,
+        "disabled": bool(audits) and enabled_count == 0,
+    }
+
+
+def installed_packs(session: Session, company: Company) -> list[dict]:
+    """Все установленные версии наборов фирмы без дублей."""
+    seen: set[tuple[str, str]] = set()
+    result: list[dict] = []
+    rows = session.scalars(
+        select(AuditLog).where(
+            AuditLog.tenant_id == company.tenant_id,
+            AuditLog.action == PACK_INSTALL_ACTION,
+        )
+    ).all()
+    for row in rows:
+        payload = row.after_redacted or {}
+        if payload.get("company_id") != str(company.id):
+            continue
+        pair = (str(payload.get("pack")), str(payload.get("version")))
+        if pair in seen or not pair[0] or not pair[1]:
+            continue
+        seen.add(pair)
+        result.append(pack_status(session, company, pair[0], pair[1]))
+    return result
 
 
 def disable_pack(

@@ -103,6 +103,21 @@ def test_auth4_reset_revokes_sessions(client, admin) -> None:
     assert fresh.status_code == 200
 
 
+def test_auth4b_me_reports_feature_flags(client, admin, app) -> None:
+    register_and_verify(client, admin, "flags@example.com")
+    login(client, "flags@example.com")
+
+    app.state.settings.classification_packs_enabled = False
+    off = client.get("/api/v1/auth/me")
+    assert off.status_code == 200
+    assert off.json()["features"] == {"classification_packs": False}
+
+    app.state.settings.classification_packs_enabled = True
+    on = client.get("/api/v1/auth/me")
+    assert on.status_code == 200
+    assert on.json()["features"] == {"classification_packs": True}
+
+
 def test_auth5_forgot_does_not_reveal_account(client, admin) -> None:
     register_and_verify(client, admin, "known@example.com")
     known = client.post("/api/v1/auth/forgot-password", json={"email": "known@example.com"})

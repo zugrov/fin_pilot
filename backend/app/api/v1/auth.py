@@ -9,6 +9,7 @@ from app.api.deps import (
     set_session_cookie,
     settings_of,
 )
+from app.config import Settings
 from app.services.auth_service import (
     GENERIC_MAIL,
     confirm_email_change,
@@ -66,6 +67,11 @@ def _user_payload(user) -> dict:
         "name": user.name,
         "email_verified": user.email_verified_at is not None,
     }
+
+
+def features_payload(settings: Settings) -> dict:
+    """Флаги контура для интерфейса: только то, что уже проверяется на сервере."""
+    return {"classification_packs": settings.classification_packs_enabled}
 
 
 @router.post("/register")
@@ -176,6 +182,7 @@ def me(request: Request, session: DbSession) -> dict:
         "memberships": [
             {"tenant_id": str(item.tenant_id), "role": item.role} for item in memberships
         ],
+        "features": features_payload(settings_of(request)),
     }
 
 

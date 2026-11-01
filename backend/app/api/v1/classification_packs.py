@@ -2,6 +2,7 @@ from datetime import date
 from uuid import UUID
 
 from app.api.deps import DbSession, current_session, require_csrf, settings_of
+from app.catalog.classification_packs.loader import list_packs
 from app.clock import now
 from app.errors import AppError
 from app.services import classification_pack_service as pack_service
@@ -33,6 +34,21 @@ def _idempotency(request: Request) -> str:
     if not key:
         raise AppError(400, "validation_error", "Нужен Idempotency-Key")
     return key
+
+
+@router.get("/classification-packs")
+def get_pack_catalog(request: Request):
+    """Каталог наборов на диске: доступные slug и версии."""
+    pack_service.require_classification_packs_enabled(settings_of(request))
+    return {"packs": list(list_packs())}
+
+
+@router.get("/companies/{company_id}/classification-packs/status")
+def get_pack_status(company_id: UUID, request: Request, session: DbSession):
+    """Установленные версии и число активных правил для конкретной фирмы."""
+    pack_service.require_classification_packs_enabled(settings_of(request))
+    _user, _membership, company = _actor(request, session, company_id, mutate=False)
+    return {"installed": pack_service.installed_packs(session, company)}
 
 
 @router.post("/companies/{company_id}/classification-packs/{slug}/{version}/preview")
