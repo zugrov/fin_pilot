@@ -47,6 +47,25 @@ def _workspace_three_companies(client, admin, app, fake, tmp_path) -> tuple[str,
     return tenant_id, company_ids
 
 
+def test_dashboard_cash_total_follows_period_end_not_now(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
+    _tenant, company_ids = _workspace_three_companies(client, admin, app, fake, tmp_path)
+    load_profile(client, company_ids[SERVICES.slug], SERVICES, admin=admin)
+    october = client.get(
+        f"/api/v1/companies/{company_ids[SERVICES.slug]}/dashboard?{PERIOD_QUERY}"
+    ).json()["values"]
+    september = client.get(
+        f"/api/v1/companies/{company_ids[SERVICES.slug]}/dashboard?"
+        "date_from=2026-09-01&date_to=2026-09-30"
+    ).json()["values"]
+    assert october["cash_total"] == ORACLE["services"].cash_total
+    assert september["operation_count"] == 0
+    assert september["cash_in"] == "0.00"
+    assert september["cash_out"] == "0.00"
+    assert september["cash_total"] == ORACLE["services"].opening_balance
+    assert september["cash_total"] != october["cash_total"]
+
+
 def test_synthetic_polygon_three_companies_dashboard(client, admin, app, fake, tmp_path) -> None:
     freeze(app, polygon_frozen_moment())
     tenant_id, company_ids = _workspace_three_companies(client, admin, app, fake, tmp_path)

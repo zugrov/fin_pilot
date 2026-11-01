@@ -384,8 +384,8 @@ export function listCompanies() {
   });
 }
 
-export function loadDashboard(companyId: string) {
-  const period = "date_from=2026-10-01&date_to=2026-10-31";
+export function loadDashboard(companyId: string, dateFrom: string, dateTo: string) {
+  const period = `date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`;
   return request<Dashboard>(`/api/v1/companies/${companyId}/dashboard?${period}`);
 }
 

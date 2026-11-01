@@ -1,6 +1,7 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from app.domain.billing.periods import MOSCOW
 from app.domain.cash.unclassified import SECTIONS, UNMAPPED, is_internal_transfer, section_of
@@ -24,6 +25,15 @@ _COMPLETENESS_RANK = {"unavailable": 0, "preliminary": 1, "full": 2}
 def default_period(at: datetime) -> tuple[date, date]:
     local = at.astimezone(MOSCOW).date()
     return local.replace(day=1), local
+
+
+def dashboard_balance_at(period_end: date, timezone: str, now: datetime) -> datetime:
+    """Момент для остатка на Обзоре: конец выбранного периода, но не позже «сейчас»."""
+    tz = ZoneInfo(timezone or "Europe/Moscow")
+    end_moment = datetime.combine(period_end, time.max, tzinfo=tz)
+    if end_moment > now:
+        return now
+    return end_moment
 
 
 def revenue_snapshot(session: Session, company_id: uuid.UUID, tenant_id: uuid.UUID, period):
@@ -86,7 +96,8 @@ def revenue_snapshot(session: Session, company_id: uuid.UUID, tenant_id: uuid.UU
 
 
 def dashboard_payload(session: Session, company, at: datetime, period: tuple[date, date]) -> dict:
-    cash = summary_payload(company_summary(session, company, at))
+    balance_at = dashboard_balance_at(period[1], company.timezone, at)
+    cash = summary_payload(company_summary(session, company, balance_at))
     revenue = revenue_snapshot(session, company.id, company.tenant_id, period)
     flags = [item for item in cash["quality_flags"] if item != "missing_revenue_source"]
     for item in revenue["quality_flags"]:
@@ -110,7 +121,7 @@ def dashboard_payload(session: Session, company, at: datetime, period: tuple[dat
     )
     return {
         "company_id": str(company.id),
-        "as_of": at.isoformat(),
+        "as_of": balance_at.isoformat(),
         "date_from": period[0].isoformat(),
         "date_to": period[1].isoformat(),
         "coverage_through": revenue["coverage_through"],

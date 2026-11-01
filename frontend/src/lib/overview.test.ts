@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { balanceLabel, cashAmount, flowLabel, qualityNotes } from "./overview";
+import {
+  balanceCaptionForPeriodEnd,
+  balanceLabel,
+  cashAmount,
+  flowLabel,
+  qualityNotes,
+} from "./overview";
 
 describe("показатели обзора", () => {
   it("не подменяет отсутствие данных нулём и не берёт остаток", () => {
@@ -31,6 +37,9 @@ describe("показатели обзора", () => {
     const label = balanceLabel("2026-10-16T09:00:00+00:00");
     expect(label).toContain("16.10.2026");
     expect(label).toContain("12:00");
+    expect(balanceCaptionForPeriodEnd("2026-08-31", "Europe/Moscow")).toBe(
+      "Остаток на 31.08.2026, 23:59",
+    );
   });
 });
 

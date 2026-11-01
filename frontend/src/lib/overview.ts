@@ -1,4 +1,4 @@
-import { formatDateRange } from "./dates";
+import { formatDate, formatDateRange } from "./dates";
 
 const FLAG_TEXT: Record<string, string> = {
   unclassified_operations:
@@ -60,4 +60,12 @@ export function balanceMoment(asOf: string): string {
 
 export function balanceLabel(asOf: string): string {
   return `Остаток на ${balanceMoment(asOf)}`;
+}
+
+/** Подпись KPI «деньги на счетах» по концу выбранного периода (не по «сейчас»). */
+export function balanceCaptionForPeriodEnd(dateTo: string, _timeZone: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    return balanceLabel("");
+  }
+  return `Остаток на ${formatDate(dateTo)}, 23:59`;
 }

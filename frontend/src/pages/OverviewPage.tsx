@@ -23,7 +23,7 @@ import { SECTIONS, sectionLabel } from "../lib/cashflow";
 import { BUCKETS } from "../lib/receivable";
 import { monthRangeInTimeZone } from "../lib/periodRange";
 import { todayInTimeZone } from "../lib/receivable";
-import { balanceLabel, isLoadedOnly, qualityNotes } from "../lib/overview";
+import { balanceCaptionForPeriodEnd, isLoadedOnly, qualityNotes } from "../lib/overview";
 import { revenueDisplay } from "../lib/revenue";
 import { flowLabel } from "../lib/overview";
 import { gapDisplay } from "../lib/forecast";
@@ -42,7 +42,7 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
 
   const dashboard = useQuery({
     queryKey: ["dashboard", companyId, period.from, period.to],
-    queryFn: () => loadDashboard(companyId),
+    queryFn: () => loadDashboard(companyId, period.from, period.to),
     enabled: Boolean(companyId),
   });
 
@@ -192,7 +192,7 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
           <KpiCard
             title="Деньги на счетах"
             value={values.cash_total}
-            caption={balanceLabel(dashboard.data?.as_of ?? "")}
+            caption={balanceCaptionForPeriodEnd(periodTo, timezone)}
             tone={values.cash_total === null ? "warn" : "info"}
             testId="kpi-cash-total"
             meta={

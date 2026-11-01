@@ -100,6 +100,35 @@ test.describe("Synthetic polygon · E2E (backend + UI)", () => {
     expect(body.metrics.revenue).not.toBe(body.metrics.cash_total);
   });
 
+  test("обзор: смена периода меняет KPI и секции ОДДС", async ({ page }) => {
+    const meta = loadPolygonMeta();
+    const oracle = loadPolygonOracle();
+    const company = meta.companies.services;
+    const expected = oracle.companies.services;
+
+    await page.evaluate((id) => sessionStorage.setItem("fp_company_id", id), company.id);
+    await selectCompany(page, company.name);
+    await page.getByRole("link", { name: "Обзор" }).click();
+
+    await page.locator("#fp-period-from").fill(oracle.period_from);
+    await page.locator("#fp-period-to").fill(oracle.period_to);
+    await expect(page.getByTestId("kpi-cash-total")).toHaveAttribute(
+      "data-value",
+      expected.cash_total,
+    );
+    await expect(page.getByText(`Операций: ${expected.operation_count}`)).toBeVisible();
+    await expect(page.getByText("20 000,00 ₽").first()).toBeVisible();
+
+    await page.locator("#fp-period-from").fill("2026-09-01");
+    await page.locator("#fp-period-to").fill("2026-09-30");
+    await expect(page.getByTestId("kpi-cash-total")).toHaveAttribute(
+      "data-value",
+      expected.opening_balance,
+    );
+    await expect(page.getByText("Операций: 0")).toBeVisible();
+    await expect(page.getByText("20 000,00 ₽")).toHaveCount(0);
+  });
+
   test("план: перенос expected_date меняет прогноз, не деньги", async ({ page }) => {
     const meta = loadPolygonMeta();
     const oracle = loadPolygonOracle();
