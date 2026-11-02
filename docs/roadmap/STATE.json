@@ -1693,12 +1693,12 @@
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
   "note": "REL1 2026-10-29: P4a+P4b приняты и задеплоены на staging (только frontend f147092); backend ebd3912, schema 20261027_0017 без изменений. Окно 2026-10-28 (backend+0017) закрыто ранее. Pack v1 выключен. Q6 → набор-шаблон v1; проценты по депозитам → investing.",
-  "updated_at": "2026-10-30",
+  "updated_at": "2026-11-02",
   "fa_r03_1_samples_2026_10_30": {
     "august_hold_out_folder": "var/fa-r03-client-samples-2026-08/",
     "september_folder": "var/fa-r03-client-samples/",
     "new_artifact_types": ["S9_osv_62", "S13_osv_51_daily"],
-    "s2_august_blocker": "точность набора v1 на hold-out без карточки 51"
+    "s2_august_blocker": "снят 2026-11-02: карточка 51 за 2026-08 получена; приёмка набора — classification_pack_v1.hold_out_acceptance"
   },
   "owner_decisions_2026_10_27": {
     "clientbank_external_id_slice_2a": "accepted_no_identity_migration_real_cb_never_committed",
@@ -1888,12 +1888,37 @@
     "pack": "ru-bank-clientbank/1.0.0",
     "rules": 32,
     "priority_base": 1000,
-    "status": "in_repo_disabled_on_staging",
+    "status": "accepted_hold_out_august_2026",
     "code_commit": "1be94b5",
-    "docs_commit": "ebd3912",
+    "docs_commit": "7f3afa0",
     "flag_default": false,
     "installed_in_tenant": false,
-    "hold_out": "второй месяц/банк локально, не CI; до hold-out набор не включается"
+    "rules_calibrated_on": "2026-09 (var/fa-r03-client-samples/, S1+S2+S3; см. DECISIONS FA-R03.2b сентябрь)",
+    "hold_out_acceptance": {
+      "date": "2026-11-02",
+      "main_sha": "7f3afa0f877bc829611978794241170f42ad583b",
+      "month": "2026-08",
+      "method": "карточка счёта 51 × секции ОДДС demo-БД finpilot_demo_real_r03 (FA-R03 2026-08)",
+      "card51_rows": 235,
+      "card51_rows_in": 170,
+      "card51_rows_out": 65,
+      "section_match_rows": 233,
+      "product_unmapped_rows": 2,
+      "unmapped_expected_operating": [
+        {"date": "2026-08-01", "direction": "in", "amount": "1000.00", "counter_account": "90.01.1"},
+        {"date": "2026-08-10", "direction": "out", "amount": "6142.50", "counter_account": "68.10"}
+      ],
+      "operating_reference_sum": "3123579.99",
+      "operating_section_gap_sum": "7142.50",
+      "limitations": [
+        "один клиент (ООО ТОПКОМ), один месяц (август 2026)",
+        "сверка по секциям ОДДС (operating/investing/technical/unmapped), не по категориям",
+        "без названий контрагентов и текстов назначений в отчёте"
+      ],
+      "reconcile_script_outside_git": "/tmp/finpilot_august_card51_reconcile.py",
+      "reproduce": "локально: карточка 51 (.xls) вне git; demo-БД на 127.0.0.1:5433; cd backend && uv run python /tmp/finpilot_august_card51_reconcile.py"
+    },
+    "hold_out": "август 2026 закрыт локально; данные клиента не в git и не в CI"
   },
   "fa_r06_1_p2": {
     "status": "done_in_repo",
