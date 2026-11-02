@@ -16,7 +16,9 @@ permissions:
   contents: read
 
 env:
-  REL0_PRODUCT_CANDIDATE_SHA: "42d3e6f272c0d8784e40635d3b74d677d4b02982"
+  REL0_PRODUCT_CANDIDATE_SHAS: |
+    42d3e6f272c0d8784e40635d3b74d677d4b02982
+    6cb371cf3ec8fa6b3a0c68499290e6980fde06d6
   BUILD_PLATFORM: linux/amd64
   ALEMBIC_HEAD: "20261027_0017"
 
@@ -32,9 +34,20 @@ jobs:
             echo "source_sha must be a full 40-character lowercase hex SHA"
             exit 1
           fi
-          if [ "$sha" != "${{ env.REL0_PRODUCT_CANDIDATE_SHA }}" ]; then
+          allowed=0
+          while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            [ -z "$line" ] && continue
+            if [ "$sha" = "$line" ]; then
+              allowed=1
+              break
+            fi
+          done <<< "${{ env.REL0_PRODUCT_CANDIDATE_SHAS }}"
+          if [ "$allowed" -ne 1 ]; then
             echo "source_sha not allowed for REL0 candidate build: $sha"
-            echo "allowed: ${{ env.REL0_PRODUCT_CANDIDATE_SHA }}"
+            echo "allowed SHAs:"
+            echo "${{ env.REL0_PRODUCT_CANDIDATE_SHAS }}"
             exit 1
           fi
           echo "SOURCE_SHA=$sha" >> "$GITHUB_ENV"
