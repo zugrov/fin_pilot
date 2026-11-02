@@ -20,6 +20,9 @@ from tests.synthetic_polygon.constants import polygon_frozen_moment
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 REPORT = "2026-10-31"
 AS_OF = "2026-10-14"
+MOSCOW = ZoneInfo("Europe/Moscow")
+ALERT_TODAY = polygon_frozen_moment().astimezone(MOSCOW).date()
+LEGACY_SEEN_AT = datetime(2026, 10, 16, 12, tzinfo=MOSCOW)
 
 
 def _ready(client, admin, app, fake, tmp_path, email: str) -> tuple[str, str]:
@@ -445,6 +448,7 @@ def test_budget_access_guards(client, admin, app, fake, tmp_path) -> None:
 
 
 def test_alert_read_does_not_change_saved_signals(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     _tenant, company_id = _ready(client, admin, app, fake, tmp_path, "read-alert@example.com")
     wallet = _wallet(client, company_id, "100000.00")
     source = client.post(
@@ -472,7 +476,7 @@ def test_alert_read_does_not_change_saved_signals(client, admin, app, fake, tmp_
     assert _count(admin, "alert_rules") == 0
     assert _count(admin, "alerts") == 0
     assert _count(admin, "forecast_runs") == 0
-    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    today = ALERT_TODAY
     due = today + timedelta(days=4)
     planned = client.post(
         f"/api/v1/companies/{company_id}/planned-cash",
@@ -524,9 +528,10 @@ def test_alert_read_does_not_change_saved_signals(client, admin, app, fake, tmp_
 
 
 def test_alert_preview_keeps_the_saved_signal(client, admin, app, fake, tmp_path) -> None:
+    freeze(app, polygon_frozen_moment())
     _tenant, company_id = _ready(client, admin, app, fake, tmp_path, "preview-alert@example.com")
     wallet = _wallet(client, company_id, "100000.00")
-    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    today = ALERT_TODAY
     due = today + timedelta(days=4)
     later = today + timedelta(days=10)
     created = client.post(
@@ -574,7 +579,7 @@ def test_legacy_alert_without_completeness_is_not_final() -> None:
     from app.models.signals import Alert
     from app.services.alert_service import _saved_payload
 
-    moment = datetime.now(ZoneInfo("Europe/Moscow"))
+    moment = LEGACY_SEEN_AT
     company_id = uuid4()
     row = Alert(
         id=uuid4(),

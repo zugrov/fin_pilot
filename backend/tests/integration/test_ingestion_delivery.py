@@ -11,6 +11,7 @@ import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
+from app.clock import reset_clock, set_clock
 from app.integrations.imap_client import FakeMailbox, MailAttachment
 from app.models.identity import Company, Membership, User
 from app.models.imports import ImportBatch, SourceConnection
@@ -20,14 +21,29 @@ from app.services.mail_service import ingest_mailbox
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from tests.integration.balances_test_util import assert_finpilot_test_database
-from tests.integration.conftest import BACKEND, login, open_workspace, pay, register_and_verify
+from tests.integration.conftest import (
+    BACKEND,
+    freeze,
+    login,
+    open_workspace,
+    pay,
+    register_and_verify,
+)
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 RECEIVED = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
+SCOPE_SEED_AT = RECEIVED
 REVISION = "20261027_0017"
 REV_0011 = "20261018_0011"
 PREV = "20261017_0010"
 _PG_PORT = __import__("os").environ.get("TEST_PG_PORT", "5432")
+
+
+@pytest.fixture(autouse=True)
+def _ingestion_frozen_clock(app) -> None:
+    if os.environ.get("TEST_FIXED_CLOCK_ISO", "").strip():
+        return
+    freeze(app, RECEIVED)
 
 
 def _rows(admin, query: str, params: dict | None = None) -> list:
@@ -126,6 +142,7 @@ def _document(number: str, *, valid: bool) -> str:
 
 def _ingest_mail(app, tenant_id: str, user_id: str, source_id: str, mailbox, at: datetime) -> int:
     session = app.state.session_factory()
+    token = set_clock(app.state.clock)
     try:
         set_context(session, tenant_id=UUID(tenant_id), user_id=UUID(user_id))
         connection = session.get(SourceConnection, UUID(source_id))
@@ -138,6 +155,7 @@ def _ingest_mail(app, tenant_id: str, user_id: str, source_id: str, mailbox, at:
         session.rollback()
         raise
     finally:
+        reset_clock(token)
         session.close()
 
 
@@ -284,6 +302,7 @@ def _run_ui_concurrent_same_file_two_sessions(
     def worker(key: str) -> None:
         start_barrier.wait(timeout=5)
         session = app.state.session_factory()
+        token = set_clock(app.state.clock)
         try:
             set_context(session, tenant_id=tenant_id, user_id=owner_id)
             user = session.get(User, owner_id)
@@ -314,6 +333,7 @@ def _run_ui_concurrent_same_file_two_sessions(
             session.rollback()
             errors.append(exc)
         finally:
+            reset_clock(token)
             session.close()
 
     with patch.object(ImportBatch, "__init__", batch_init_with_barrier):
@@ -558,7 +578,7 @@ def _seed_scope_fixtures(connection) -> _ScopeFixtures:
     delivery_a1b = uuid.uuid4()
     delivery_a2 = uuid.uuid4()
     delivery_b1 = uuid.uuid4()
-    now = datetime.now(tz=UTC)
+    now = SCOPE_SEED_AT
     connection.execute(
         text("INSERT INTO tenants (id, name, created_at) VALUES (:id, 'Scope FK', :at)"),
         {"id": tenant_id, "at": now},
@@ -680,7 +700,7 @@ def _insert_part(
     batch_id: uuid.UUID | None,
     part_index: int,
 ) -> None:
-    now = datetime.now(tz=UTC)
+    now = SCOPE_SEED_AT
     connection.execute(
         text(
             "INSERT INTO ingestion_delivery_parts "
@@ -787,7 +807,7 @@ def test_scope_batch_delivery_rejects_different_company(migrated_database) -> No
     with migrated_database.begin() as connection:
         fixtures = _seed_scope_fixtures(connection)
         batch_b = uuid.uuid4()
-        now = datetime.now(tz=UTC)
+        now = SCOPE_SEED_AT
         connection.execute(
             text(
                 "INSERT INTO import_batches "
@@ -817,7 +837,7 @@ def test_scope_email_ingestion_rejects_different_connection(migrated_database) -
     with migrated_database.begin() as connection:
         fixtures = _seed_scope_fixtures(connection)
         email_conn = uuid.uuid4()
-        now = datetime.now(tz=UTC)
+        now = SCOPE_SEED_AT
         connection.execute(
             text(
                 "INSERT INTO source_connections "
@@ -882,7 +902,7 @@ def test_scope_allows_shared_batch_and_legacy_null_delivery(migrated_database) -
             {"delivery": fixtures.delivery_a1, "batch": fixtures.batch_a1},
         )
         legacy_batch = uuid.uuid4()
-        now = datetime.now(tz=UTC)
+        now = SCOPE_SEED_AT
         connection.execute(
             text(
                 "INSERT INTO import_batches "

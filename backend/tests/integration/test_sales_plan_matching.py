@@ -10,6 +10,8 @@ from sqlalchemy import text
 from tests.integration.conftest import login, open_workspace, pay, register_and_verify
 from tests.integration.test_revenue_api import _cash, _ready, _wallet
 
+IDEMPOTENCY_AT = datetime(2026, 10, 14, 12, tzinfo=UTC)
+
 
 def _sale_body(**extra):
     body = {
@@ -506,7 +508,7 @@ def test_legacy_idempotency_replay_without_company_id_is_rejected(
         "entry_type": "sale",
         "status": "posted",
     }
-    at = datetime.now(UTC)
+    at = IDEMPOTENCY_AT
     with admin.connect() as connection:
         connection.execute(
             text(
@@ -564,7 +566,7 @@ def test_legacy_fingerprint_without_company_id_conflicts_with_new_hash(
             "external_id": None,
         }
     )
-    at = datetime.now(UTC)
+    at = IDEMPOTENCY_AT
     with admin.connect() as connection:
         connection.execute(
             text(

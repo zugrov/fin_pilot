@@ -1,9 +1,11 @@
 import json
+import os
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from tests.integration.conftest import (
@@ -20,6 +22,13 @@ from tests.synthetic_polygon.constants import polygon_frozen_moment
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 AS_OF = "2026-10-14"
 PERIOD = "date_from=2026-10-01&date_to=2026-10-31"
+
+
+@pytest.fixture(autouse=True)
+def _plan_frozen_clock(app) -> None:
+    if os.environ.get("TEST_FIXED_CLOCK_ISO", "").strip():
+        return
+    freeze(app, polygon_frozen_moment())
 
 
 def _ready(client, admin, app, fake, tmp_path, email: str, companies: int = 1) -> tuple[str, str]:
