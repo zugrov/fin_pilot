@@ -516,6 +516,26 @@ FA-R00.3 не блокируют.
   `/tmp/finpilot_august_card51_reconcile.py` — `cd backend && uv run python /tmp/finpilot_august_card51_reconcile.py`
   (нужны локальные `.xls` и demo-БД на `127.0.0.1:5433`).
 - **Staging / tenant:** набор по-прежнему **не установлен**; feature flag по умолчанию **выкл**.
+- **Docs (STATE):** блок `fa_r03_2b_2c.hold_out_august_2026` → **closed**, **233/235**, ссылка на docs **`7f1cb0a`**; S2 август **снят** с `FA-R03.1.blocking_inputs`.
+
+### FA-R03.2 · сверка с 1С read-only и design (**2026-11-03**)
+
+- **Граница:** сверка **S1 ↔ S2** (+ контроль S3/S13) ведётся под **FA-R03.2** через CLI
+  `fa_r03_check` и `reconcile.py`; **не** пишет в ledger и **не** вызывает product API.
+- **Design:** [`FA-R03.2-reconciliation-design.md`](FA-R03.2-reconciliation-design.md) —
+  ступени подбора (номер → FIFO дата+сумма+направление), статусы `matched` /
+  `exceptions` / `owner_confirmed`, различие **полноты загрузки** (`DatasetCoverage`) и
+  **согласования с 1С**; MVP = контрольные итоги + цепочка + пары без БД; ledger — отдельно.
+- **Приёмка 2b+2c:** [`FA-R03.2-owner-acceptance-checklist.md`](FA-R03.2-owner-acceptance-checklist.md).
+- **Ступенчатая сверка (локально, вне git, 2026-11-03):**
+
+  | Месяц | S1 | строк S2 → док. | ступень 1: найдено / не найдено / неодн. | FIFO на «не найдено» | итог ambiguous |
+  |-------|-----|-----------------|------------------------------------------|----------------------|----------------|
+  | 2026-09 | 219 | 233 → 219 | 187 / 26 / 6 | 26 → 0 not_found | **6** |
+  | 2026-08 | 218 | 235 → 218 | 189 / 23 / 6 | FIFO: 23 из очереди 24 → **1** not_found | **6** |
+
+  Независимая проверка «направление + дата + сумма» (`fa_r03_check`): **219/219** и **218/218**.
+  Скрипт ступеней: `/tmp/finpilot_staged_s1_s2_match.py` (не в repo).
 
 ### FA-R06.2-B0 · массовая отмена применения правила (2026-10-22)
 
