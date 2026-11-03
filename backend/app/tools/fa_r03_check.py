@@ -23,6 +23,16 @@ from pathlib import Path
 
 from app.catalog.classification_packs.loader import load_pack, rule_priority
 from app.domain.imports.clientbank import read_clientbank
+from app.domain.imports.fa_r03.bank_card51_matching import (
+    BankMovement,
+    match_bank_to_card51,
+)
+from app.domain.imports.fa_r03.bank_card51_matching import (
+    aggregate_card_rows as aggregate_card_rows_v2,
+)
+from app.domain.imports.fa_r03.cash_flow_sections import (
+    section_for_account,
+)
 from app.domain.imports.fa_r03.clientbank_daily import parse_clientbank_daily_sections
 from app.domain.imports.fa_r03.osv_month import (
     OsvCounterpartySheet,
@@ -64,26 +74,6 @@ from app.domain.money import money, money_str
 PACK_SLUG = "ru-bank-clientbank"
 PACK_VERSION = "1.0.0"
 ZERO = Decimal("0.00")
-
-# Эталонная трактовка корреспонденции счетов для сверки (не правила продукта).
-INBOUND_SECTIONS = {
-    "62.01": "operating",
-    "62.02": "operating",
-    "57.03": "operating",
-    "90.01.1": "operating",
-    "55.03": "investing",
-    "91.01": "investing",
-}
-OUTBOUND_SECTIONS = {
-    "60.01": "operating",
-    "60.02": "operating",
-    "70": "operating",
-    "69.11": "operating",
-    "68.90": "operating",
-    "91.02": "operating",
-    "55.03": "investing",
-    "50.01": "technical",
-}
 
 
 @dataclass(frozen=True)
@@ -180,11 +170,6 @@ def load_s1(path: Path) -> tuple[str, list[S1Document], int]:
             )
         )
     return encoding, docs, skipped
-
-
-def section_for_account(account: str, direction: str) -> str | None:
-    table = INBOUND_SECTIONS if direction == "in" else OUTBOUND_SECTIONS
-    return table.get(account.strip())
 
 
 def aggregate_card(card: Card51Sheet) -> list[CardAggregate]:
@@ -627,6 +612,7 @@ def match_by_document_number(
             for item in aggregates
             if number in item.document
             and item.direction == doc.direction
+            and item.business_date == doc.business_date
             and _money(item.amount) == _money(doc.amount)
         ]
         if len(candidates) == 1:
@@ -857,6 +843,45 @@ def run(
         print(f"пар по направлению + дате + сумме: {len(pairs)}")
         multi = [item for item in aggregates if len(item.counter_accounts) > 1]
         print(f"документов из нескольких строк карточки: {len(multi)}")
+
+    _header("3b. Сопоставление FA-R03.2 (ступень 1 + группы)")
+    if card is None:
+        print("пропущено: нет S2")
+    else:
+        bank_moves = [
+            BankMovement(
+                index=index,
+                direction=doc.direction,
+                business_date=doc.business_date,
+                amount=money(doc.amount),
+                document_number=doc.document_number.strip(),
+            )
+            for index, doc in enumerate(docs)
+        ]
+        card_aggs_v2 = aggregate_card_rows_v2(list(card.rows))
+        match_report = match_bank_to_card51(bank_moves, card_aggs_v2)
+        print(
+            f"документов S1: {match_report.bank_count}, "
+            f"агрегатов S2: {match_report.card_aggregate_count}"
+        )
+        print(f"matched_pair: {match_report.matched_pair_count}")
+        print(f"group_matched_equivalent: {match_report.group_matched_equivalent_count}")
+        print(f"needs_confirmation_groups: {match_report.needs_confirmation_group_count}")
+        print(f"stage1_ambiguous: {match_report.ambiguous_stage1_count}")
+        print(f"not_found (банк): {len(match_report.not_found_bank_indices)}")
+        multi_groups = [
+            group
+            for group in match_report.groups
+            if len(group.bank_indices) > 1
+            and group.kind in {"group_matched_equivalent", "needs_confirmation"}
+        ]
+        print(f"групп с несколькими документами: {len(multi_groups)}")
+        for group in multi_groups[:15]:
+            print(
+                f"  {group.key.business_date.isoformat()} {group.key.direction} "
+                f"{_money(group.key.amount)}: банк {len(group.bank_indices)}, "
+                f"карточка {len(group.card_indices)}, {group.kind}"
+            )
 
     _header("4. Эквайринг по счёту 57.03 (S12)")
     s12: Osv57Sheet | None = None

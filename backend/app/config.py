@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     mail_quarantine_daily_entry_limit: int = 200
     receivable_aging_max_rows: int = 500
     classification_packs_enabled: bool = False
+    fa_r03_local_reconciliation_enabled: bool = False
+    fa_r03_local_samples_root: str = ""
+    fa_r03_local_reconciliation_company_id: str = ""
 
     @field_validator("app_env")
     @classmethod
@@ -94,6 +97,8 @@ class Settings(BaseSettings):
             raise ValueError("обход billing guard запрещён в production")
         if self.poll_imap and self.secret_encryption_key == "dev-only-change-me":
             raise ValueError("нужен ключ шифрования почты")
+        if self.fa_r03_local_reconciliation_enabled:
+            raise ValueError("локальная сверка FA-R03 запрещена в production")
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -142,6 +147,16 @@ class Settings(BaseSettings):
 
     def billing_bypass_allowed(self) -> bool:
         return self.billing_guard_bypass and self.app_env != "production"
+
+    def fa_r03_local_reconciliation_active(self) -> bool:
+        """Локальный маршрут сверки: только development/test и явный флаг."""
+        if self.app_env not in {"development", "test"}:
+            return False
+        if not self.fa_r03_local_reconciliation_enabled:
+            return False
+        if not self.fa_r03_local_samples_root.strip():
+            return False
+        return bool(self.fa_r03_local_reconciliation_company_id.strip())
 
 
 def _parse_days(raw: str) -> set[int]:

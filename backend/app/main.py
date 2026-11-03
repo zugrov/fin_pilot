@@ -16,6 +16,7 @@ from app.api.v1 import (
     ingestions,
     mail_quarantine,
     plan,
+    reconciliation,
     revenue,
     rules,
     signals,
@@ -109,6 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(telegram.router, prefix="/api/v1")
     app.include_router(rules.router, prefix="/api/v1")
     app.include_router(classification_packs.router, prefix="/api/v1")
+    app.include_router(reconciliation.router, prefix="/api/v1")
     app.include_router(billing.router, prefix="/api/v1")
     app.include_router(webhooks.router, prefix="/api/v1")
     return app
