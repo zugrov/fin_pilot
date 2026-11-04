@@ -511,14 +511,25 @@
         {
           "id": "FA-R03.3",
           "title": "Сверки и provenance",
-          "status": "planned",
-          "evidence": []
+          "status": "design_proposed",
+          "code_started": false,
+          "owner_decision": "pending",
+          "evidence": [
+            "docs/roadmap/FA-R03.3-provenance-design.md"
+          ],
+          "note": "утверждение design не разрешает код и миграции"
         },
         {
           "id": "FA-R03.4",
           "title": "Коррекции",
-          "status": "planned",
-          "evidence": []
+          "status": "design_proposed",
+          "code_started": false,
+          "owner_decision": "pending",
+          "proposed_order_before": "FA-R03.3",
+          "evidence": [
+            "docs/roadmap/FA-R03.4-corrections-design.md"
+          ],
+          "note": "утверждение design не разрешает код и миграции"
         }
       ],
       "accepted_sha": null,
@@ -1929,8 +1940,9 @@
         "сверка по секциям ОДДС (operating/investing/technical/unmapped), не по категориям",
         "без названий контрагентов и текстов назначений в отчёте"
       ],
-      "reconcile_script_outside_git": "/tmp/finpilot_august_card51_reconcile.py",
-      "reproduce": "локально: карточка 51 (.xls) вне git; demo-БД на 127.0.0.1:5433; cd backend && uv run python /tmp/finpilot_august_card51_reconcile.py"
+      "reconcile_script": "tools/august_card51_reconcile.py",
+      "reconcile_readme": "docs/tools-august-card51-reconcile.md",
+      "reproduce": "cd backend && uv run python ../tools/august_card51_reconcile.py --card-xls <path> --database-url <url> --company-id <uuid>"
     },
     "hold_out": "август 2026 закрыт локально; данные клиента не в git и не в CI"
   },
@@ -2338,6 +2350,96 @@
       ]
     },
     "docs_acceptance_commit_note": "отдельный docs-коммит на fa-r03-2-reconciliation после product SHA 59279ff"
+  },
+  "fa_r03_3": {
+    "status": "design_proposed",
+    "owner_decision": "pending",
+    "code_started": false,
+    "design_doc": "docs/roadmap/FA-R03.3-provenance-design.md",
+    "scope_narrowed": [
+      "отпечаток исходника",
+      "связь строка → нормализованное событие",
+      "неизменяемый прогон сверки в отдельной таблице (не DatasetCoverage)"
+    ],
+    "ledger_step": "FA-R03.2d отдельно",
+    "proposed_after": "FA-R03.4 v1",
+    "subpackage_3_3_min": "fingerprint + lineage (до FA-R03.4)",
+    "approval_note": "утверждение design не разрешает код и миграции; миграции — отдельное одобрение с целью и средой"
+  },
+  "fa_r03_4": {
+    "status": "design_proposed",
+    "owner_decision": "pending",
+    "code_started": false,
+    "design_doc": "docs/roadmap/FA-R03.4-corrections-design.md",
+    "scope_v1": [
+      "пересечение периодов",
+      "повтор одного платежа в разных файлах",
+      "внутренние переводы"
+    ],
+    "deferred_client_request": ["сторно", "валюты"],
+    "depends_on": "FA-R03.3-min",
+    "proposed_before": "FA-R03.3-full",
+    "approval_note": "утверждение design не разрешает код и миграции"
+  },
+  "pilot_topkom_d6": {
+    "organization": "ООО «ТОПКОМ»",
+    "role": "оператор ПДн; собственная компания владельца",
+    "finpilot_operator": "юрлицо FinPilot — обработчик по поручению (152-ФЗ ч.3 ст.6)",
+    "staging_synthetic_company": "ООО «Топ» — не ТОПКОМ",
+    "decision_status": "proposed",
+    "preliminary_recommendation": "B",
+    "recommendation_summary": "облегчённый отдельный контур: небольшой сервер, backup вне сервера, restore на новом сервере",
+    "decide_by": "до загрузки данных ТОПКОМ на любой сервер и не позднее FA-R10.1",
+    "reasons": [
+      "D5 staging = синтетика",
+      "выкатки/откаты/backup probe на staging",
+      "единая точка отказа (Beget 2026-11-02)",
+      "baseline.restore_new_server_verified=false"
+    ],
+    "decisions_doc": "docs/roadmap/DECISIONS.md § пилот ТОПКОМ 2026-11-04"
+  },
+  "legal_prerequisites_topkom_server_upload": {
+    "status": "open",
+    "decision_status": "proposed",
+    "items": [
+      {
+        "id": "L1",
+        "title": "Договор поручения обработки ПДн ТОПКОМ ↔ юрлицо FinPilot",
+        "owner": "юрист",
+        "status": "open"
+      },
+      {
+        "id": "L2",
+        "title": "Основание ПДн работников и контрагентов-ФЛ",
+        "owner": "юрист",
+        "status": "open"
+      },
+      {
+        "id": "L3",
+        "title": "Локализация РФ (152-ФЗ ч.5 ст.18) и меры защиты (ст.19)",
+        "owner": "юрист + админ",
+        "status": "open"
+      },
+      {
+        "id": "L4",
+        "title": "Политика ТОПКОМ — перечень лиц, которым поручена обработка",
+        "owner": "юрист",
+        "status": "open"
+      },
+      {
+        "id": "L5",
+        "title": "Налоги сделок между связанными лицами",
+        "owner": "бухгалтер + юрист",
+        "status": "open",
+        "note": "не решать в продукте"
+      },
+      {
+        "id": "L6",
+        "title": "Контур B: секреты, TLS, мониторинг, доступы, активация фirmы, удаление данных",
+        "owner": "владелец + админ",
+        "status": "open"
+      }
+    ]
   },
   "design_system_v2_2026_10_29": {
     "status": "accepted_by_owner_2026_10_29",
