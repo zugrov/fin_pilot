@@ -7,7 +7,8 @@
 - Сверка **S1 (ClientBank) ↔ S2 (карточка 51)** и контроль **S3/S13** ведётся под **FA-R03.2** как **read-only**:
   - локальный CLI `python -m app.tools.fa_r03_check` и чистые функции `reconcile.py`;
   - **не** вызывает `import_service`, **не** пишет в `cash_transactions`, **не** меняет `DatasetCoverage`.
-- **FA-R03.3** — provenance, API и (при необходимости) сохранение **производных** отчётов сверки, не сырых выгрузок.
+- **FA-R03.3** — provenance и **неизменяемый прогон сверки** в отдельной таблице (не `DatasetCoverage`); см. [`FA-R03.3-provenance-design.md`](FA-R03.3-provenance-design.md).
+- **FA-R03.2d** — сверка с **ledger** (`cash_transactions`) — отдельная задача после FA-R03.3.
 - **FA-R06.4** — закрытие периода (`closed`) и связь с отчётностью; не смешивать с MVP сверки.
 
 ## Два разных «reconciliation» (имена)
@@ -79,7 +80,7 @@
 ## Хранение (после MVP)
 
 - **Не** хранить сырые `.txt`/`.xls` клиента в git и на staging.
-- Допустимо в v1: JSON-отчёт **производных** метрик (counts, sums, deltas, id пар без текстов) в `var/` или в `DatasetCoverage.evidence` после FA-R03.3 — по отдельному решению.
+- Допустимо до FA-R03.3: JSON **производных** метрик в `var/` (локально). После FA-R03.3 — append-only **`reconciliation_run`** в Postgres (см. design FA-R03.3); **не** `DatasetCoverage.evidence`.
 
 ## Воспроизведение
 
