@@ -2363,6 +2363,7 @@
     ],
     "ledger_step": "FA-R03.2d отдельно",
     "proposed_after": "FA-R03.4 v1",
+    "subpackage_3_3_min": "fingerprint + lineage (до FA-R03.4)",
     "approval_note": "утверждение design не разрешает код и миграции; миграции — отдельное одобрение с целью и средой"
   },
   "fa_r03_4": {
@@ -2376,7 +2377,8 @@
       "внутренние переводы"
     ],
     "deferred_client_request": ["сторно", "валюты"],
-    "proposed_before": "FA-R03.3",
+    "depends_on": "FA-R03.3-min",
+    "proposed_before": "FA-R03.3-full",
     "approval_note": "утверждение design не разрешает код и миграции"
   },
   "pilot_topkom_d6": {

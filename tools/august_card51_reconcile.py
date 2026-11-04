@@ -11,6 +11,7 @@ import argparse
 import sys
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -22,6 +23,20 @@ from app.domain.money import money
 
 YEAR = 2026
 MONTH = 8
+
+_LOCAL_DB_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _assert_localhost_database(url: str) -> None:
+    """Запрет подключения к удалённым БД (в т.ч. staging/prod)."""
+    normalized = url.replace("postgresql+psycopg://", "postgresql://", 1)
+    host = (urlparse(normalized).hostname or "").strip().lower()
+    if host not in _LOCAL_DB_HOSTS:
+        print(
+            "error: database-url must be localhost only (127.0.0.1, localhost, ::1)",
+            file=sys.stderr,
+        )
+        raise SystemExit(3)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -56,6 +71,7 @@ def _product_section(conn: psycopg.Connection, company_id: uuid.UUID) -> dict[tu
 
 def main() -> int:
     args = _parse_args()
+    _assert_localhost_database(args.database_url)
     if not args.card_xls.is_file():
         print("error: card-xls not found", file=sys.stderr)
         return 2
