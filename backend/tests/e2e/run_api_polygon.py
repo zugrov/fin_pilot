@@ -15,6 +15,7 @@ def build_app():
     port = apply_e2e_env()
     assert_finpilot_test_only(port)
     settings = E2ESettings()
+    settings.classification_packs_enabled = True
     application = create_app(settings)
     application.state.clock = FixedClock(polygon_frozen_moment())
     fake = FakeYooKassa(shop_id="shop-test")

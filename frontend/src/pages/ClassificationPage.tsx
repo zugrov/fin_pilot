@@ -5,6 +5,7 @@ import {
   applyClassificationRulePage,
   classifyCashTransaction,
   createClassificationRule,
+  ensureWorkspace,
   listCashCategories,
   listClassificationRules,
   listCompanies,
@@ -16,6 +17,7 @@ import {
   type ClassificationRuleRow,
   WalletRequestError,
 } from "../api";
+import { ClassificationPacksBlock } from "../components/ClassificationPacksBlock";
 import { CompanyWritePicker } from "../components/CompanyWritePicker";
 import { Shell } from "../components/Shell";
 import { shouldAcceptPreviewResponse, type ApplyCounters } from "../lib/classificationApply";
@@ -32,6 +34,7 @@ import {
 } from "../lib/classificationForm";
 import { directionLabel } from "../lib/calendarForm";
 import { companyScopedData, useWritableCompanySelection } from "../lib/companySelection";
+import { isPacksEnabled } from "../lib/features";
 import { monthRangeInTimeZone, validatePeriod } from "../lib/periodRange";
 import {
   applyAfterFailure,
@@ -108,8 +111,13 @@ export function ClassificationPage() {
     transaction_id: string;
   } | null>(null);
   const [unclassifiedHasMore, setUnclassifiedHasMore] = useState(false);
+  const [packsEnabled, setPacksEnabled] = useState(false);
 
   const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
+
+  useEffect(() => {
+    void ensureWorkspace().then((features) => setPacksEnabled(isPacksEnabled(features)));
+  }, []);
 
   const clearLocal = useCallback(() => {
     setError("");
@@ -801,6 +809,18 @@ export function ClassificationPage() {
           </button>
         </form>
       </section>
+
+      {packsEnabled && companyId ? (
+        <section className="mt-6 rounded-card border bg-white p-4">
+          <h2 className="mb-3 text-lg font-semibold">Наборы правил</h2>
+          <ClassificationPacksBlock
+            companyId={companyId}
+            canWrite={selection.canWrite}
+            dateFrom={periodFrom}
+            dateTo={periodTo}
+          />
+        </section>
+      ) : null}
 
       {applyDialog ? (
         <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/40 p-4" role="dialog">

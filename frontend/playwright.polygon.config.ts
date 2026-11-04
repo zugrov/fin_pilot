@@ -9,6 +9,7 @@ export default defineConfig({
     /group-e-synthetic-polygon\.spec\.ts/,
     /cashflow-polygon\.spec\.ts/,
     /receivable-polygon\.spec\.ts/,
+    /classification-packs-polygon\.spec\.ts/,
   ],
   fullyParallel: false,
   workers: 1,

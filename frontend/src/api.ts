@@ -1,5 +1,6 @@
 import { alertsPath, recalculateAlertsPath } from "./lib/alerts";
 import { planFactPath } from "./lib/budget";
+import { type Features, normalizeFeatures } from "./lib/features";
 import { forecastPath, groupForecastPath } from "./lib/forecast";
 import { authHeaders, setCsrf, setTenant } from "./session";
 
@@ -109,21 +110,26 @@ export function resetPassword(token: string, password: string) {
   });
 }
 
-export async function ensureWorkspace(): Promise<void> {
-  const me = await request<{
-    csrf_token: string;
-    memberships: { tenant_id: string }[];
-  }>("/api/v1/auth/me");
+export type AuthMe = {
+  csrf_token: string;
+  memberships: { tenant_id: string }[];
+  features?: Partial<Features>;
+};
+
+export async function ensureWorkspace(): Promise<Features> {
+  const me = await request<AuthMe>("/api/v1/auth/me");
   setCsrf(me.csrf_token);
+  const features = normalizeFeatures(me.features);
   if (me.memberships.length > 0) {
     setTenant(me.memberships[0].tenant_id);
-    return;
+    return features;
   }
   const created = await request<{ id: string }>("/api/v1/workspaces", {
     method: "POST",
     body: JSON.stringify({ name: "Рабочее пространство" }),
   });
   setTenant(created.id);
+  return features;
 }
 
 export function loadTariff() {
@@ -872,6 +878,89 @@ export function activateCompany(companyId: string) {
 export function listClassificationRules(companyId: string) {
   return request<{ rules: ClassificationRuleRow[] }>(
     `/api/v1/companies/${companyId}/classification-rules`,
+  );
+}
+
+export type PackCatalogEntry = {
+  slug: string;
+  display_name: string;
+  versions: string[];
+  latest_version: string;
+  rule_count: number;
+};
+
+export type PackStatus = {
+  pack: string;
+  version: string;
+  installed: boolean;
+  rule_count: number;
+  enabled_rule_count: number;
+  disabled: boolean;
+};
+
+export type PackPreview = {
+  pack: string;
+  version: string;
+  date_from: string;
+  date_to: string;
+  transaction_count: number;
+  unmapped_count: number;
+  sections: { code: string; in: string; out: string }[];
+  intersections_with_existing: {
+    existing_rule_id: string;
+    pack_rule_key: string;
+    winner: string;
+    existing_priority: number;
+    pack_priority: number;
+  }[];
+  pack_rule_count: number;
+};
+
+function packPath(companyId: string, slug: string, version: string, suffix: string) {
+  return `/api/v1/companies/${companyId}/classification-packs/${slug}/${version}/${suffix}`;
+}
+
+export function listPackCatalog() {
+  return request<{ packs: PackCatalogEntry[] }>("/api/v1/classification-packs");
+}
+
+export function loadPackStatus(companyId: string) {
+  return request<{ installed: PackStatus[] }>(
+    `/api/v1/companies/${companyId}/classification-packs/status`,
+  );
+}
+
+export function previewPack(
+  companyId: string,
+  slug: string,
+  version: string,
+  dateFrom: string,
+  dateTo: string,
+) {
+  return request<PackPreview>(packPath(companyId, slug, version, "preview"), {
+    method: "POST",
+    body: JSON.stringify({ date_from: dateFrom, date_to: dateTo }),
+  });
+}
+
+export function installPack(companyId: string, slug: string, version: string) {
+  return request<{ created: { rule_key: string; rule_id: string }[]; skipped: unknown[] }>(
+    packPath(companyId, slug, version, "install"),
+    { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } },
+  );
+}
+
+export function applyPack(companyId: string, slug: string, version: string) {
+  return request<{ applied: number; total_matches: number }>(
+    packPath(companyId, slug, version, "apply"),
+    { method: "POST" },
+  );
+}
+
+export function disablePack(companyId: string, slug: string, version: string) {
+  return request<{ disabled_rule_ids: string[] }>(
+    packPath(companyId, slug, version, "disable"),
+    { method: "POST" },
   );
 }
 
