@@ -21,7 +21,7 @@
   "current_stage": "FA-R03",
   "current_task": "FA-R03.2",
   "status": "in_progress",
-  "allowed_next_action": "FA-R03.2: read-only сверка банка с карточкой 51 (CLI fa_r03_check, reconcile.py) — без записи в ledger; design docs/roadmap/FA-R03.2-reconciliation-design.md. Приёмка 2b+2c владельцем — FA-R03.2-owner-acceptance-checklist.md. Hold-out набора v1 август закрыт (233/235, docs 7f1cb0a). FA-R03.1: ждём S10/S11 и 8.3.x; S2 август — не блокер. Набор ru-bank-clientbank/1.0.0 в tenant не устанавливался. Staging frontend 42d3e6f до отдельного окна; next_scope_blocked: FA-R06.2-B4, CI polygon/classification E2E.",
+  "allowed_next_action": "FA-R03.2b/2c/MVP сверки — accepted_by_owner 2026-11-04 (SHA 59279ff). Дальше по плану: FA-R03.3 (provenance/производные отчёты) — design-first, без записи сырых выгрузок. FA-R03.1: ждём S10/S11 и 8.3.x. Набор ru-bank-clientbank/1.0.0 в tenant не устанавливался. Staging frontend 42d3e6f до отдельного окна; next_scope_blocked: FA-R06.2-B4, CI polygon/classification E2E.",
   "permission_policy": {
     "product_code": "requires approved stage/task",
     "commit_push": "requires separate approval with exact scope",
@@ -488,13 +488,20 @@
               "commit": "7926e67"
             },
             "FA-R03.2b": {
-              "status": "in_progress",
-              "next": "reconcile.py + unit tests на списках"
+              "status": "accepted_by_owner",
+              "owner_accepted_at": "2026-11-04",
+              "product_sha": "59279ff68e43769e9c22b03840f19aba70864d33"
             },
             "FA-R03.2c": {
-              "status": "plan_first",
-              "xlrd_2_0_1_dev_dependency": "accepted_owner_2026_10_27",
-              "next": "xls row reader после 2b"
+              "status": "accepted_by_owner",
+              "owner_accepted_at": "2026-11-04",
+              "product_sha": "59279ff68e43769e9c22b03840f19aba70864d33",
+              "xlrd_2_0_1_dev_dependency": "accepted_owner_2026_10_27"
+            },
+            "FA-R03.2_mvp_reconciliation": {
+              "status": "accepted_by_owner",
+              "commit": "59279ff",
+              "checklist": "docs/roadmap/FA-R03.2-owner-acceptance-checklist.md"
             }
           },
           "evidence": [
@@ -1366,6 +1373,14 @@
       "status": "accepted_by_owner_with_caveat",
       "by": "owner",
       "basis": "product 9819768 candidate backend+frontend; schema 0016; backup REL0 20261027T055643Z verify OK; D-7 browser OK; два отключённых smoke-правила (два Idempotency-Key); apply=0; baseline Top preserved; flags unchanged"
+    },
+    {
+      "at": "2026-11-04",
+      "task": "FA-R03.2",
+      "scope": "fa_r03_2b_2c_mvp_read_only_reconciliation",
+      "status": "accepted_by_owner",
+      "by": "owner",
+      "basis": "product SHA 59279ff68e43769e9c22b03840f19aba70864d33; CI 41689912623; e2e 41689912566; checklist FA-R03.2-owner-acceptance-checklist.md; сент 219/217/1/0/0 авг 218/214/2/0/0; chain 0; S1=S2=S3; без БД/ledger/UI/production API"
     }
   ],
   "fa_r01_3_acceptance": {
@@ -2193,7 +2208,46 @@
     "docs": "docs/roadmap/FA-R06-release-readiness.md §REL0 accept"
   },
   "fa_r03_2b_2c": {
-    "status": "done_in_repo_pending_owner_acceptance",
+    "status": "accepted_by_owner",
+    "owner_acceptance": {
+      "accepted_at": "2026-11-04",
+      "product_sha": "59279ff68e43769e9c22b03840f19aba70864d33",
+      "branch_merged_from": "fa-r03-2-reconciliation",
+      "checklist": "docs/roadmap/FA-R03.2-owner-acceptance-checklist.md",
+      "ci_run_id": 41689912623,
+      "e2e_run_id": 41689912566,
+      "ci_url": "https://github.com/zugrov/fin_pilot/actions/runs/41689912623",
+      "e2e_url": "https://github.com/zugrov/fin_pilot/actions/runs/41689912566"
+    },
+    "mvp_fa_r03_2_matching_3b": {
+      "commit": "59279ff",
+      "september_2026": {
+        "bank_documents": 219,
+        "matched_pair": 217,
+        "group_matched_equivalent": 1,
+        "needs_confirmation_groups": 0,
+        "not_found_bank": 0,
+        "daily_chain_errors": 0,
+        "control_totals_s1_s2_s3": "aligned"
+      },
+      "august_2026": {
+        "bank_documents": 218,
+        "matched_pair": 214,
+        "group_matched_equivalent": 2,
+        "needs_confirmation_groups": 0,
+        "not_found_bank": 0,
+        "daily_chain_errors": 0,
+        "control_totals_s1_s2_s3": "aligned"
+      },
+      "limitations": [
+        "только 2026-08 и 2026-09",
+        "зашитые каталоги под FA_R03_LOCAL_SAMPLES_ROOT",
+        "без записи в БД",
+        "без ledger-шага",
+        "без ручного owner_confirmed и UI",
+        "локальный read-only API; production запрещён"
+      ]
+    },
     "2b": {
       "commit": "82193f5",
       "content": "сверка S1/S2/S3 чистыми функциями, допуск 0,00"
@@ -2283,7 +2337,7 @@
         "S10 (карточка 62) — ожидается образец"
       ]
     },
-    "pending": "приёмка владельцем 2b вместе с 2c после ручной проверки"
+    "docs_acceptance_commit_note": "отдельный docs-коммит на fa-r03-2-reconciliation после product SHA 59279ff"
   },
   "design_system_v2_2026_10_29": {
     "status": "accepted_by_owner_2026_10_29",
