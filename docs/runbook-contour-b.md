@@ -3,9 +3,22 @@
 **Статус:** план, **без исполнения** до отдельного окна владельца (целевая готовность VPS **2026-11-06**).  
 **Не** деплоить из этого документа автоматически; каждый шаг с ID — только после явного «ок» по списку (как REL0).
 
-**Контекст:** D6 **принят** — **вариант B** (отдельный контур), провайдер **≠** текущий staging (Beget). Staging остаётся **синтетика** (ООО «Топ»). Реальные данные **ООО «ТОПКОМ»** — **запрещены** до закрытия юридических предпосылок (L1–L4, ведёт владельца) и успешной **пробы восстановления** на новом сервере.
+**Контекст:** D6 **принят** — **вариант B** (отдельный контур), провайдер **≠** текущий staging (Beget). Staging остаётся **синтетика** (ООО «Топ»). Реальные данные **ООО «ТОПКОМ»** — **запрещены** до закрытия юридических предпосылок (L1–L4, ведёт владелец) и успешной **пробы восстановления** на новом сервере (`baseline.restore_new_server_verified` в STATE — **false** до прогона).
 
-**Ссылки:** [`DECISIONS.md`](roadmap/DECISIONS.md), [`STATE.json`](roadmap/STATE.json) · `pilot_topkom_d6`, `ops/rel0/`.
+**Ссылки:** [`DECISIONS.md`](roadmap/DECISIONS.md), [`STATE.json`](roadmap/STATE.json) · `pilot_topkom_d6`, `ops/rel0/`, [`runbook-staging.md`](runbook-staging.md), `infra/docker-compose.prod.yml` (шаблон compose; на окне — override как у staging REL0).
+
+---
+
+## 0. Окна разрешений владельца (отдельные «ок»)
+
+| Окно | Что разрешает | Что **не** разрешает |
+| --- | --- | --- |
+| **W0 · подготовка VPS** | B-01…B-06, hardening, Docker | compose postgres volume, данные ТОПКОМ |
+| **W1 · restore probe** | B-07…B-11 (синтетика REL0, одноразовый Postgres) | боевой том, api/worker в prod-сети |
+| **W2 · deploy контура B** | B-12…B-22 @ зафиксированный **`SHA`** окна | загрузка реальных данных ТОПКОМ |
+| **W3 · реальные данные** | FA-R10.1, L1–L4 closed, отдельное письменное «ок» | автоматически из deploy |
+
+Юридические L1–L4 и deploy **не** считаются выполненными, пока в STATE не зафиксирован отдельный факт прогона (сейчас **не** зафиксирован).
 
 ---
 
@@ -16,7 +29,7 @@
 | ОС | Linux LTS (Ubuntu 24.04 или аналог), **РФ** (локализация данных) |
 | Ресурсы (мин.) | 4 vCPU, 8 GiB RAM, 80 GiB SSD + отдельный том под Postgres (рекомендуется) |
 | SSH | Только **ключ**; пользователь **`deploy`** (не root); **PermitRootLogin no** |
-| Firewall | `ufw`/security group: 22 (ограничить по IP владельца), 80/443 только для Caddy |
+| Firewall | `ufw`/security group: 22 **с ограничением по IP**, 80/443 для Caddy |
 | fail2ban | Включён для sshd |
 | Обновления | Unattended security updates или еженедельное окно patch |
 | Время | `Europe/Moscow`, NTP синхронизирован |
@@ -24,79 +37,86 @@
 
 Секреты и passphrase backup — **только** менеджер паролей / offline; **не** git, **не** чат.
 
-**SSH / firewall (B-02, B-03):** перед `PasswordAuthentication no` и **`ufw enable`** открыть **вторую** SSH-сессию под `deploy` и убедиться, что вход по ключу работает; держать **веб-консоль провайдера** как запасной вход. Если IP владельца **динамический** — заранее согласовать диапазон / VPN / временное правило `ufw`, иначе можно потерять доступ. **`ufw enable` только после** успешного входа во второй сессии.
+**SSH / firewall (B-02, B-03):**
+
+1. Перед `PasswordAuthentication no` — **вторая** SSH-сессия под `deploy` + **веб-консоль провайдера** (запасной вход).
+2. Зафиксировать **`ADMIN_IP`** (или /32 VPN). При **динамическом IP** — VPN / временное правило / security group провайдера; не полагаться только на `ufw allow OpenSSH` без `from`.
+3. Порядок: `ufw allow from ${ADMIN_IP}/32 to any port 22 proto tcp` → `ufw allow 80,443/tcp` → проверить **новый** SSH-вход → **`ufw enable`** → только потом закрывать первую сессию.
+4. Откат: консоль провайдера → `ufw disable` / восстановление `sshd_config` из бэкапа.
 
 ---
 
 ## 2. Состав стека
 
-Docker Compose (отдельный project name, напр. `finpilot-contour-b`) — **только фаза (b)**, не раньше:
+Docker Compose (project **`finpilot-contour-b`**, файл на базе `infra/docker-compose.prod.yml` + override окна) — **только фаза (b)**, не раньше W2:
 
 | Сервис | Образ / версия | Назначение |
 | --- | --- | --- |
-| **postgres** | `postgres:16.6` | БД `finpilot`, **именованный volume** (боевой контур) |
-| **redis** | `redis:7` (pin minor) | Celery broker |
+| **postgres** | `postgres:16.6-bookworm` (как prod) | БД `finpilot`, **именованный volume** |
+| **redis** | pin minor (как prod) | Celery broker |
 | **api** | `finpilot-api:release-candidate-<SHA>` | HTTP API |
-| **worker** | тот же api-образ | Celery worker |
-| **beat** | тот же api-образ | Celery beat |
+| **worker** / **beat** | тот же api-образ | Celery |
 | **frontend** | `finpilot-frontend:release-candidate-<SHA>` | SPA |
-| **caddy** | официальный pin | TLS termination, reverse proxy |
+| **proxy** | Caddy pin (как staging/prod) | TLS, reverse proxy |
 
 TLS: Let's Encrypt или загруженный сертификат на **выделенном домене** контура B (не staging-домен).
 
 ### 2.1 Переменные и флаги (контур B, **безопасные defaults**)
 
+Согласовано с [`runbook-staging.md`](runbook-staging.md) и `.env.example` на **`SHA` окна**:
+
 | Переменная | Значение контура B |
 | --- | --- |
 | `APP_ENV` | `production` |
-| `SEND_REAL_EMAIL` | **false** (до отдельного решения и настроенного SMTP) |
+| `SEND_REAL_EMAIL` | **false** до окна с настроенным SMTP и allowlist |
 | `SEND_EXTERNAL_MESSAGES` | **false** |
 | `SEND_LIVE_PAYMENTS` | **false** |
 | `POLL_IMAP` | **false** |
 | `REFUNDS_ENABLED` | **false** |
-| `CLASSIFICATION_PACKS_ENABLED` / product flag | **false** |
-| `FA_R03_LOCAL_RECONCILIATION_ENABLED` | **false** (в production код **запрещает** true) |
+| `CLASSIFICATION_PACKS_ENABLED` | **false** (default) |
+| `FA_R03_LOCAL_RECONCILIATION_ENABLED` | **false** |
 | `SESSION_COOKIE_SECURE` | **true** |
-| `BILLING_MODE` | **`test`** на пилоте контура B, пока нет отдельного решения на **live** и боевой кассы; при `live` — только с проверенным webhook и без обходов |
-| `BILLING_GUARD_BYPASS` | **не задавать** / **false** — **запрещён** |
-| `EMAIL_PROVIDER_MODE` | **`smtp`** при реальном SMTP; до выбора провайдера письма не отправлять (`SEND_REAL_EMAIL=false`) |
-| `MAIL_QUARANTINE_ENABLED` | **false** (до отдельного решения) |
+| `BILLING_MODE` | **`test`** на пилоте B до отдельного решения на **live** |
+| `BILLING_GUARD_BYPASS` | **не задавать** — **запрещён** |
+| `EMAIL_PROVIDER_MODE` | **`smtp`** (не `mock` при `APP_ENV=production`) |
+| `MAIL_QUARANTINE_ENABLED` | **false** |
 
-Полный список — из `.env.example` / `app/config.py` на **зафиксированном SHA main** окна.
+`DATABASE_URL` / `WORKER_DATABASE_URL` — роли **`finpilot_app`** / **`finpilot_worker`** (создаёт миграция). **`MIGRATION_DATABASE_URL`** — отдельная роль миграций; **только** для one-shot `alembic`, не для api/worker.
 
-### 2.2 Активация tenant / firm / слота (**без** `BILLING_GUARD_BYPASS`)
+### 2.2 Активация tenant / firm / слота (**без** SQL и bypass)
 
-Порядок только через продукт и биллинг (см. `docs/billing-policy.md`, `docs/decision-log.md`):
+Поддерживаемые **HTTP**-шаги (см. `backend/app/api/v1/auth.py`, `billing.py`, `companies.py`):
 
-1. Регистрация tenant и **подтверждение email** (нужен рабочий канал из § «Первый пользователь»).
-2. Подписка и **оплата / тестовый entitlement** в выбранном `BILLING_MODE` (`test` — тестовый магазин, без live webhook в этом runbook).
-3. Создание firm в **`draft`**, затем переход в активное использование только при **entitlement** и актуальном **`paid_through`** (или эквивалент для test-режима по политике).
-4. **Не** создавать второй слот, **не** загружать данные ТОПКОМ и **не** включать финансовые флаги до отдельного окна FA-R10.1.
-5. SQL-правки прав, ручной `owner_confirmed` и обходы guard — **запрещены** (D5, DECISIONS).
+1. `POST /api/v1/auth/register` → письмо verify в outbox.
+2. `POST /api/v1/auth/verify-email` с **`token`** из ссылки письма (обязателен для дальнейших действий).
+3. Создание workspace / firm через product API (роли membership).
+4. `POST /api/v1/billing/checkout` при **`BILLING_MODE=test`** и тестовых `YOOKASSA_*` → entitlement / `paid_through` по [`billing-policy.md`](billing-policy.md) (**без** `BILLING_GUARD_BYPASS`).
+5. Firm **`draft`** → активное использование только при entitlement и `paid_through`.
 
----
-
-## 3. Доставка артефактов на сервер (выбор до B-07)
-
-| Вариант | Суть | Плюсы / минусы |
-| --- | --- | --- |
-| **(a) REL0-канал** | Tarball образов api/frontend с CI + `docker-compose` override + каталог `ops/rel0/` + `MANIFEST.sha256` с commit окна; доставка scp/rsync/offsite, сверка SHA | **Рекомендуется:** повторяет staging REL0, не нужен git на VPS, воспроизводимые SHA |
-| **(b) Deploy-ключ read-only** | `git fetch && git checkout ${SHA}` в `/fin_pilot`; образы всё равно **load** из CI tarball | Удобно для hotfix-дiff; риск drift, нужен guard на read-only ключ |
-
-**Рекомендация владельцу:** **(a)** для первого разворота контура B; **(b)** — только если зафиксированы политика ключа и тот же SHA образов, что в MANIFEST окна.
+Запрещено: SQL-правки, `BILLING_GUARD_BYPASS`, второй слот и данные ТОПКОМ до FA-R10.1 / W3.
 
 ---
 
-## 4. Первый пользователь и подтверждение email
+## 3. Доставка артефактов (до B-07)
 
-**Решение за владельцем** до включения `SEND_REAL_EMAIL=true`.
+| Вариант | Суть |
+| --- | --- |
+| **(a) REL0-канал** *(рекомендуется)* | CI tarball **`finpilot-api-release-candidate-${SHA}`** / frontend + compose override + `ops/rel0/*` + `MANIFEST.sha256`; scp/rsync; `sha256sum -c` |
+| **(b) Read-only deploy-ключ** | checkout **`SHA`** + те же tarball образов (git **не** заменяет образы) |
 
-| Вариант | Описание | Риски |
+**`SHA` окна** — единый для: MANIFEST, тегов образов, **`ALEMBIC_HEAD`** (из allowlist CI / `STATE` окна). Не смешивать образ и alembic-ревизии с разных commit.
+
+---
+
+## 4. Первый пользователь и smoke (**production** + `BILLING_MODE=test`)
+
+| Путь | Условия | Статус preflight |
 | --- | --- | --- |
-| **A · SMTP контура B** | Отдельный SMTP (или транзакционный провайдер) в `.env`, `EMAIL_PROVIDER_MODE=smtp`, SPF/DKIM на домене B | OPEX, настройка DNS; без этого регистрация «зависнет» на verify |
-| **B · Админ-процедура** | Утверждённый runbook: одноразовая выдача доступа через **поддерживаемый** product/API путь (invite / reset), **без** SQL и без `BILLING_GUARD_BYPASS` | Нужен явный документ «кто и когда»; риск human error |
+| **A · Register + verify + billing** | `SEND_REAL_EMAIL=true`, `EMAIL_PROVIDER_MODE=smtp`, `OUTBOUND_EMAIL_ALLOWLIST`, тестовый YooKassa; API как в §2.2 | **Поддерживается продуктом** |
+| **B · Smoke на БД после restore backup** | Если в дампе уже есть пользователи «Топ» — нужны **учётные данные окна** (не в git); иначе путь A | Зависит от сценария deploy |
+| **C · «Админ без SQL» при `SEND_REAL_EMAIL=false`** | Публичного API выдачи verify-token **нет**; invite тоже ставит outbox | **Блокер продукта** — см. §13 |
 
-**Рекомендация:** для контура B с **`BILLING_MODE=test`** и **`SEND_REAL_EMAIL=false`** на старте — **B** для первого smoke (учётная запись создаётся в окне с владельцем по процедуре), параллельно готовить **A** до FA-R10.1. **Не** использовать mock-email в `APP_ENV=production`.
+**Рекомендация:** для W2 smoke — **A** (временно SMTP + allowlist на домен B) **или** restore синтетического backup на **боевой** том с заранее согласованным логином окна. **Не** обещать «процедуру B» без SMTP/SQL — её в коде нет.
 
 ---
 
@@ -104,143 +124,133 @@ TLS: Let's Encrypt или загруженный сертификат на **в�
 
 | Параметр | Политика (предложение) |
 | --- | --- |
-| Формат | Encrypted tarball (`*.tar.enc`) по канону `ops/rel0/rel0-backup-create.sh` |
-| Расписание | Ежедневно + перед каждым окном изменений |
-| Хранение | **Вне** VPS (offsite: объектное хранилище / Mac владельца), срок **30** суток rolling |
-| Целостность | SHA-256 в sidecar; периодическая `rel0-backup-verify.sh` |
-| RPO (пилот) | **24 ч** (ежедневный backup) |
-| RTO (пилот) | **8 ч** (ручное восстановление + smoke) |
+| Формат | `ops/rel0/rel0-backup-create.sh` → `*.tar.enc` |
+| Расписание | Ежедневно + перед окнами |
+| Offsite | Вне VPS, **30** суток rolling |
+| RPO / RTO | **24 ч** / **8 ч** (пилот) |
+
+**Preflight:** `rel0-backup-create.sh` и `rel0-backup-verify.sh` в git **жёстко привязаны** к `finpilot-staging-postgres-1`, пути `/var/backups/finpilot/*.tar.enc`, БД `finpilot_rel0_probe` — см. §13 перед B-20 / probe.
 
 ---
 
-## 6. Порядок развёртывания (фазы)
+## 6. Фазы развёртывания
 
 ```text
-(a) probe-restore синтетики REL0 (одноразовый Postgres, без боевого тома)
-    → (b) deploy contour B @ SHA (именованный том postgres)
-    → (c) health/smoke синтетика
-    → (d) отдельное решение о реальных данных ТОПКОМ
+(a) probe: одноразовый Postgres, restore REL0, migrate head на probe, baseline
+(b) deploy: postgres volume → ready → migrate → api/worker/beat/frontend/proxy
+(c) health/smoke синтетика
+(d) реальные данные ТОПКОМ — только W3
 ```
 
-**Важно:** шаги **B-12+** (load образов, compose с **postgres volume**) — **не раньше** успешной фазы **(a)** и явного «ок» на фазу **(b)**.
-
-### Фаза (a) — проба восстановления (синтетика)
+### Фаза (a)
 
 **Артефакт:** `finpilot-staging-REL0-20261028T081545Z.tar.enc`  
-**SHA-256:** `57fe4b435d201f5c370a17ff39b16b5ba570f8f519aa1848e7048674f2cbaa1a` (см. DECISIONS · REL0).  
-**MANIFEST внутри backup:** `schema_before=20261022_0016`, baseline «Топ».
+**SHA-256:** `57fe4b435d201f5c370a17ff39b16b5ba570f8f519aa1848e7048674f2cbaa1a`  
+**MANIFEST внутри архива:** `schema_before=20261022_0016`, baseline «Топ» (контрольные суммы как в `rel0-backup-verify.sh`).
 
-**Postgres для пробы (не боевой):** одноразовый контейнер **без** именованного тома compose, данные только в контейнере / `--tmpfs` (см. B-08, B-11).
+**Postgres пробы:** контейнер **`${PROBE_PG}`**, **без** compose-volume `finpilot-contour-b_*`. Пользователь/роль **`finpilot`** + пароль как в `.env` окна (дамп staging). Порт **`127.0.0.1:5434`**.
 
-**Критерий успеха probe:**
+**Критерии:**
 
-- БД `finpilot_contour_b_probe` на **probe Postgres** (порт localhost, не сервис compose).
-- После restore: `alembic_version` = **`20261022_0016`** (= `schema_before` MANIFEST копии).
-- После **`alembic upgrade head`** на той же копии: `alembic_version` = **head** репозитория окна (в т.ч. проверка **0017** на данных); контрольные суммы baseline «Топ» **не изменились** относительно снимка сразу после restore.
-- После OK — cleanup B-11 (DROP DB, stop/rm probe container, wipe decrypt dir).
+- После restore: `alembic_version` = **`20261022_0016`**.
+- После **`alembic upgrade head`** на **той же** probe-БД: version = **`ALEMBIC_HEAD`** для **`SHA`**; baseline «Топ» **не изменился** (сравнить SQL-агрегаты до/после B-10).
+- Cleanup B-11: DROP probe DB, `docker stop/rm ${PROBE_PG}`, wipe decrypt dir.
 
-### Фаза (b) — разворот контура
+### Фаза (b)
 
-Образы и `ops/` по каналу §3; миграции на **боевой** БД один раз через `MIGRATION_DATABASE_URL` (если БД пустая — `upgrade head`; если restore — по политике окна).
-
-### Фаза (c) — health и smoke
-
-- `/health/live`, `/health/ready` → 200
-- Авторизованный smoke на **синтетической** firm (не ТОПКОМ), без загрузки клиентских файлов.
-
-### Фаза (d) — реальные данные
-
-**Только** после: L1–L4 closed владельцем, `restore_new_server_verified=true` на probe, отдельное письменное «ок» на загрузку ТОПКОМ.
+Порядок как [`runbook-staging.md`](runbook-staging.md): **postgres (+ redis) → ready → migrate → остальные сервисы**. Не запускать api/worker до успешной миграции на боевой БД.
 
 ---
 
-## 7. Команды (plan-only, для пошагового одобрения)
+## 7. Команды (plan-only)
 
-Параметры: `HOST` — IP контура B; `DEPLOY_USER=deploy`; `PASSFILE` — путь к passphrase backup (600); `SHA` — product main; `PROBE_DB=finpilot_contour_b_probe`; `PROBE_PG=finpilot-probe-pg`; `SCHEMA_BEFORE=20261022_0016` (из MANIFEST backup REL0-20261028); `PROBE_PORT=127.0.0.1:5434`.
+Параметры: `HOST`, `DEPLOY_USER=deploy`, `PASSFILE`, **`SHA`**, `ALEMBIC_HEAD` (из MANIFEST окна, напр. `20261027_0017`), `PROBE_DB=finpilot_contour_b_probe`, `PROBE_PG=finpilot-probe-pg`, `SCHEMA_BEFORE=20261022_0016`, `ADMIN_IP`, `DOMAIN`.
 
-| ID | Действие | Команда (шаблон) | Ожидаемый результат | Откат |
+| ID | Действие | Шаблон | Ожидание | Откат |
 | --- | --- | --- | --- | --- |
-| **B-01** | Проверка SSH | `ssh ${DEPLOY_USER}@${HOST} 'uname -a && timedatectl'` | Linux, timezone Moscow | — |
-| **B-02** | Hardening sshd | В **новой** сессии: `PermitRootLogin no`, `PasswordAuthentication no` + reload sshd; **первая** сессия открыта | root/password login denied; deploy по ключу OK | restore sshd config backup; консоль провайдера |
-| **B-03** | Firewall base | После **второй** успешной SSH-сессии: `ufw allow OpenSSH`, `ufw allow 80,443/tcp`, **`ufw enable`** | только нужные порты; вход по SSH сохранён | `ufw disable` / консоль |
-| **B-04** | fail2ban | установка пакета + jail sshd | banned после N fails | stop fail2ban |
-| **B-05** | Docker install | по доке Docker CE pin version | `docker compose version` OK | remove packages |
-| **B-06** | Каталог приложения | `sudo install -d -o deploy -m 750 /fin_pilot` (+ `/var/tmp/finpilot-rel0-artifacts` при варианте (a)) | владелец deploy | `rm -rf` (если пусто) |
-| **B-07** | Доставка SHA | **(a)** scp tarball образов + compose + `ops/rel0/*`; `sha256sum -c MANIFEST.sha256` **или (b)** read-only git checkout `${SHA}` + те же tarball образов | MANIFEST OK; **не** создавать compose postgres volume | удалить artifacts |
-| **B-08** | Probe Postgres + decrypt | `docker run --rm -d --name ${PROBE_PG} -e POSTGRES_HOST_AUTH_METHOD=trust -p ${PROBE_PORT}:5432 postgres:16.6` (**без** `-v` compose); затем `rel0-backup-verify.sh` / restore в `${PROBE_DB}` на `${PROBE_PORT}` | **`REL0_BACKUP_VERIFY_OK`**; **нет** volume `finpilot-contour-b_*` | B-11 |
-| **B-09** | Probe schema_before | `SELECT version_num FROM alembic_version` в `${PROBE_DB}` | **`20261022_0016`** (= MANIFEST `schema_before` копии) | B-11 |
-| **B-10** | Probe migrate head | `alembic upgrade head` (one-shot, `DATABASE_URL` → probe) | `version_num` = repo **head** (0017+); **0017** на данных без ошибки | B-11 |
-| **B-11** | Probe baseline + cleanup | Read-only контроль «Топ» = эталон REL0 **до и после** B-10; затем `DROP DATABASE`, `docker stop/rm ${PROBE_PG}`, wipe decrypt dir | диск без сырого dump; probe container gone | — |
-| **B-12** | Load api image | `docker load` из tarball CI `finpilot-api-release-candidate-${SHA}` | image present | `docker rmi` |
-| **B-13** | Load frontend image | аналогично frontend artifact | image present | `docker rmi` |
-| **B-14** | `.env` contour B | файл 600, owner deploy, флаги §2.1–2.2 | валидация Settings OK | restore prev .env |
-| **B-15** | Migrate (боевой том) | `alembic upgrade head` через one-shot → **compose postgres volume** | one row in alembic_version | restore from backup (B-20) |
-| **B-16** | Compose up | `docker compose -p finpilot-contour-b up -d` (**первое** создание postgres volume) | all healthy | `compose down` (volume — осознанно) |
-| **B-17** | TLS | Caddy obtains cert для домена B | HTTPS valid | revert Caddyfile |
-| **B-18** | Health | `curl -fsS https://${DOMAIN}/health/ready` | 200 | logs |
-| **B-19** | Smoke synthetic | scripted login + cashflow read | 200, known synthetic totals | — |
-| **B-20** | Backup post-deploy | `rel0-backup-create.sh ${PASSFILE}` | `.tar.enc` + sha256 | delete bad backup |
-| **B-21** | Offsite copy | scp/rsync `.enc` + `.sha256` offsite | sha256 match | — |
-| **B-22** | Rollback drill | документированный откат образов на N-1 SHA | health OK на prev | re-up current |
+| **B-01** | SSH check | `ssh deploy@${HOST} 'uname -a; timedatectl'` | Moscow TZ | — |
+| **B-02** | sshd hardening | см. §1; **2 сессии** + консоль | ключ OK | sshd backup |
+| **B-03** | ufw | `allow from ${ADMIN_IP}/32` → 22; 80,443; **enable после 2-й сессии** | SSH жив | ufw off / консоль |
+| **B-04** | fail2ban | jail sshd | работает | stop |
+| **B-05** | Docker | pin CE + compose plugin | `docker compose version` | — |
+| **B-06** | каталоги | `/fin_pilot`, `/var/backups/finpilot`, `/var/tmp/finpilot-rel0-artifacts` | права deploy | rm empty |
+| **B-07** | артефакты **SHA** | REL0 (a): compose override, `ops/rel0`, MANIFEST; backup `.enc` в `/var/backups/finpilot/` | sha256 OK; **нет** compose pg volume | rm artifacts |
+| **B-07a** | **load api image** | `docker load` ← `finpilot-api-release-candidate-${SHA}` | образ для **alembic** и deploy | rmi |
+| **B-08** | probe Postgres + restore | `docker run -d --name ${PROBE_PG} -e POSTGRES_USER=finpilot -e POSTGRES_PASSWORD=… -e POSTGRES_DB=postgres -p 127.0.0.1:5434:5432 postgres:16.6-bookworm` (**без** `-v` compose); restore по шагам verify (decrypt, `pg_restore` в `${PROBE_DB}`) — **list_id**, не слепой вызов verify.sh без адаптации §13 | restore OK; baseline file **до** migrate | B-11 |
+| **B-09** | schema_before | `SELECT version_num FROM alembic_version` | **`20261022_0016`** | B-11 |
+| **B-10** | **migrate на probe** | One-shot **только** probe URL: `docker run --rm --network host -e MIGRATION_DATABASE_URL=postgresql+psycopg://finpilot:…@127.0.0.1:5434/${PROBE_DB} finpilot-api:release-candidate-${SHA} uv run alembic upgrade head` — **запрет** URL с боевым `postgres` service | `version_num` = **`ALEMBIC_HEAD`**; baseline «Топ» = B-08 | B-11 |
+| **B-11** | cleanup probe | DROP `${PROBE_DB}`; `docker stop/rm ${PROBE_PG}`; rm decrypt tmp | нет probe/pg volume | — |
+| **B-12** | load frontend | `docker load` frontend tarball | image OK | rmi |
+| **B-13** | `.env` | 600, §2.1; **без** bypass | Settings OK | restore |
+| **B-14** | postgres+redis only | `docker compose -p finpilot-contour-b up -d postgres redis` | **первое** создание pg volume | down |
+| **B-15** | readiness | `pg_isready` / `SELECT 1` на сервис `postgres` | ready | logs |
+| **B-16** | migrate **боевой** | One-shot: `MIGRATION_DATABASE_URL` → **только** compose postgres (`finpilot` DB); тот же образ **`SHA`** | `alembic_version` = head | restore B-20 |
+| **B-17** | full stack | `docker compose … up -d` (api, worker, beat, frontend, proxy) | containers up | down |
+| **B-18** | TLS | Caddy / LE | HTTPS | revert Caddyfile |
+| **B-19** | health | `curl …/health/ready` | 200 | — |
+| **B-20** | smoke | login §4 + read cashflow (синтетика) | 200 | — |
+| **B-21** | backup | `rel0-backup-create.sh` **после адаптации** §13 | `.enc` + sha256 | delete bad |
+| **B-22** | offsite | rsync `.enc` + `.sha256` offsite | sha match | — |
+| **B-23** | rollback drill | откат на N-1 **`SHA`** (документировано) | health OK | re-up |
 
 ---
 
 ## 8. Откат и аварийное восстановление
 
-1. Остановить трафик (Caddy maintenance / DNS).
-2. `docker compose down` (контур B).
-3. Restore последнего **verified** `.tar.enc` в новую/ту же БД (как REL0 verify).
-4. Поднять предыдущий известный-good образ (тег сохранять при каждом окне).
-5. Health + smoke synthetic → решение о reopen.
+1. Stop traffic (DNS / Caddy).
+2. `compose down` (контур B).
+3. Restore verified `.enc` (процедура verify после адаптации ops).
+4. Предыдущий образ **`SHA`**, health, smoke.
 
 ---
 
-## 9. Минимальный мониторинг (пилот)
+## 9. Минимальный мониторинг
 
 | Область | Минимум |
 | --- | --- |
-| Доступность | Внешний HTTP(S) check `/health/ready` (интервал 1–5 мин), алерт при 2–3 fail подряд |
-| Диск | Алерт при **>85%** на томе Postgres и на `/` |
-| Backup | Алерт, если **нет** успешного `.tar.enc` за **26 ч** или verify/sha256 fail |
-| Логи | Retention **14–30** суток на VPS; ротация docker/json; **не** логировать тела писем, назначения платежей, полные выгрузки 1С, пароли, токены, содержимое вложений |
-| Инциденты | Канал владельца (email/Telegram без ПДн клиента в тексте алерта) |
+| Доступность | Внешний check `/health/ready` |
+| Диск | >85% — алерт |
+| Backup | Нет `.enc` за 26 ч или verify fail |
+| Логи | 14–30 сут.; **без** ПДн, тел писем, назначений, выгрузок 1С |
 
 ---
 
-## 10. Удаление данных клиента (план)
+## 10. Удаление данных клиента (план, после W3)
 
-По запросу оператора (ТОПКОМ) и после юридического «ок»:
-
-1. Зафиксировать tenant/firm id и срок в журнале окна (без ПДн в git).
-2. Остановить worker/beat для tenant (maintenance), блокировать вход пользователей firm.
-3. Удалить или анонимизировать данные firm в БД по процедуре FA-R10 / договору поручения (вложения, import batches, outbox).
-4. Удалить offsite backup **только** по политике срока и отдельному списку (encrypted копии могут иметь retention 30 дней).
-5. Подтверждение владельцу: список таблиц/объёмов агрегированно, без выгрузки ПДн в чат.
-
-До утверждения L1–L4 **не** загружать реальные данные — раздел для исполнения после появления данных.
+По запросу оператора ТОПКОМ и юридическому «ок»: maintenance → удаление/анонимизация firm в БД по FA-R10 / договору → offsite backup по retention. **Не** исполнять до появления данных и L1–L4.
 
 ---
 
-## 11. Что нужно от владельца к **2026-11-06**
+## 11. Входы от владельца (2026-11-06+)
 
 | # | Вход |
 | --- | --- |
-| 1 | Провайдер контура B (договор, регион РФ) |
-| 2 | Публичный **IP** VPS |
-| 3 | SSH-пользователь + **публичный** ключ для `deploy` |
-| 4 | Домен (или поддомен) для TLS контура B |
-| 5 | Offsite-хранилище backup (bucket/path) |
-| 6 | Passphrase backup в менеджере паролей (не в чат) |
-| 7 | Подтверждение: юридические L1–L4 в работе; **данные ТОПКОМ не грузить** до отдельного окна |
-| 8 | Выгрузки **S10/S11** (и при необходимости S9) за **2026-08** и **2026-09** → локально `var/` |
-| 9 | **Способ доставки кода на VPS:** **(a) REL0 tarball + MANIFEST** *(рекомендуется)* или **(b) read-only deploy-ключ** |
-| 10 | **Почта контура B:** SMTP-провайдер + DNS **или** утверждённая админ-процедура первого пользователя (§4) |
-| 11 | **`BILLING_MODE`:** **`test`** для пилота B до отдельного решения на live; без `BILLING_GUARD_BYPASS` |
+| 1–8 | *(как ранее: провайдер, IP, SSH, домен, backup, passphrase, L1–L4, S10/S11)* |
+| 9 | Доставка кода: **(a) REL0** или **(b) deploy-key** |
+| 10 | Почта: SMTP+DNS **или** явный сценарий smoke §4 |
+| 11 | **`BILLING_MODE=test`**, без bypass |
+| 12 | **`SHA` + `ALEMBIC_HEAD`** окна W2 (из CI allowlist) |
+| 13 | **`ADMIN_IP`** / VPN для SSH (§1) |
 
 ---
 
-## 12. Ограничения документа
+## 12. Ограничения
 
-- Не создаёт tenant, firm, платёж, webhook, миграцию без окна.
-- Не регистрирует боевой webhook YooKassa / IMAP.
-- Не заменяет `ops/rel0/` — при расхождении приоритет у скриптов и MANIFEST в git.
+- Plan-only; не создаёт tenant/платёж/webhook без окна.
+- Приоритет у `ops/rel0/` в git над этим текстом при расхождении.
+
+---
+
+## 13. Блокеры preflight (PR #4) — **не исполнение**
+
+| ID | Блокер | Влияние | Предлагаемая задача |
+| --- | --- | --- | --- |
+| **BLK-1** | `rel0-backup-verify.sh` / `rel0-backup-create.sh`: фикс. `PG_CONTAINER=finpilot-staging-postgres-1`, `CHECK_DB=finpilot_rel0_probe`, compose staging | Probe/backup на контуре B **не** запускать «как на staging» без **list_id** / параметризации | **ops:** env `PG_CONTAINER`, `CHECK_DB`, `COMPOSE_PROJECT` для контура B |
+| **BLK-2** | Verify-скрипт **DROP** probe DB в конце | Нельзя вызывать полный verify **до** B-10 migrate; нужен restore-only list_id или fork | **ops:** `rel0-backup-restore-only.sh` или флаг «skip drop» |
+| **BLK-3** | Alembic до load api (исправлено в runbook: **B-07a** перед B-10) | — | Следовать порядку B-07a → B-10 |
+| **BLK-4** | Первый пользователь при `SEND_REAL_EMAIL=false` | Нет API для verify-token | **FA-R10.1-ops:** SMTP+allowlist **или** product bootstrap (не SQL) |
+| **BLK-5** | Compose override контура B | В repo только `infra/docker-compose.prod.yml`; override как у staging — **артефакт окна** | Подготовить override в list_id W2 |
+| **BLK-6** | `restore_new_server_verified` | Остаётся **false** до успешного W1 на VPS | После W1 — запись в STATE отдельным docs-коммитом |
+
+**Merge PR #4 (docs):** допустим — документы и блокеры согласованы.  
+**Исполнение W0–W2:** **не готово** до закрытия **BLK-1**, **BLK-2**, **BLK-4** (минимум) и list_id владельца.

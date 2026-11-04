@@ -2398,6 +2398,10 @@
       "restore_new_server_verified on contour B probe (REL0 synthetic)"
     ],
     "runbook_plan_only": "docs/runbook-contour-b.md",
+    "runbook_execution_blocked_by": [
+      "ops/rel0 staging-coupled scripts (BLK-1 BLK-2)",
+      "first-user path without SMTP (BLK-4)"
+    ],
     "target_vps_ready": "2026-11-06",
     "reasons": [
       "D5 staging = синтетика",
