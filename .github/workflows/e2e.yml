@@ -8,7 +8,8 @@ on:
 jobs:
   playwright:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Иногда шаг Chromium + install deps превышает 25 мин (отмена job по лимиту, не падение тестов)
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16.6
