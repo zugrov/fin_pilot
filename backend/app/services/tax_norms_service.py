@@ -6,11 +6,10 @@
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Select, select
-from sqlalchemy.orm import Session
-
 from app.domain.money import money, money_str, percent
 from app.models.tax_norms import TaxNormVersion
+from sqlalchemy import Select, select
+from sqlalchemy.orm import Session
 
 
 def derived_special_cap_5_rub(version: TaxNormVersion) -> Decimal | None:

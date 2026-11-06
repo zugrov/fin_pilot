@@ -1,9 +1,8 @@
 """P1a: общий справочник версий норм — чтение только для сессии."""
 
-from datetime import date
 from decimal import Decimal
 
-from tests.integration.conftest import PASSWORD, login, open_workspace, register_and_verify
+from tests.integration.conftest import login, open_workspace, register_and_verify
 
 
 def test_tax_norms_current_requires_session(client, admin) -> None:

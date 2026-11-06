@@ -24,7 +24,9 @@ class TaxNormVersion(Base):
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    usn_vat_exemption_threshold_rub: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    usn_vat_exemption_threshold_rub: Mapped[Decimal | None] = mapped_column(
+        Numeric(20, 4), nullable=True
+    )
     special_rate_base_5_cap_base_rub: Mapped[Decimal | None] = mapped_column(
         Numeric(20, 4), nullable=True
     )
