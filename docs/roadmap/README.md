@@ -19,6 +19,7 @@
 | [ADR-001-unified-ingestion.md](ADR-001-unified-ingestion.md) | ADR: IngestionDelivery + ImportBatch |
 | [ADR-002-acquiring-revenue-from-bank-statement.md](ADR-002-acquiring-revenue-from-bank-statement.md) | ADR: выручка эквайринга из выписки |
 | [ADR-003-organization-profile-and-tax-rules.md](ADR-003-organization-profile-and-tax-rules.md) | ADR: профиль организации и налоговые правила |
+| [profile-implementation-plan.md](profile-implementation-plan.md) | План реализации профиля (обзор, без кода/SQL) |
 | [FA-R03.2-export-checklist-by-profile.md](FA-R03.2-export-checklist-by-profile.md) | Персональный список выгрузок по профилю |
 | [FA-R00.4-contracts.md](FA-R00.4-contracts.md) | Контракты, валидация, G0 |
 
