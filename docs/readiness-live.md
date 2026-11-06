@@ -2,6 +2,17 @@
 
 Публичный репозиторий: `https://github.com/zugrov/fin_pilot`. Описание запуска: `docs/runbook-staging.md`. Backend release: [`docs/roadmap/FA-R02-release-phase-A.md`](roadmap/FA-R02-release-phase-A.md). UX календаря: [`docs/roadmap/UX-CALENDAR-01.md`](roadmap/UX-CALENDAR-01.md).
 
+## Текущая среда (2026-11-06)
+
+| Контур | Статус |
+| --- | --- |
+| **Staging Beget** (`my-vps`) | По состоянию на дату записи **может быть недоступен** — этим файлом статус VPS не обновляется |
+| **Временный синтетический стенд** | Отдельный хост (не контур B); на нём **не** выполнять шаги без отдельного «команды ок»; **не** загружать данные ТОПКОМ |
+| **Данные клиента (ТОПКОМ)** | Только **локально** в `var/` (gitignored); в репозиторий **не** коммитить |
+| **ОПиУ / FA-R06.2 (пилот)** | План согласования с бухгалтером — [`FA-R06.2-pilot-opiu-plan.md`](roadmap/FA-R06.2-pilot-opiu-plan.md) |
+
+Выгрузки **S9–S11** за **2026-08** и **2026-09** в рабочем дереве **не найдены** — папка `var/` пуста или отсутствует; передача ожидается по [`FA-R03.1-client-request-s9-s11.md`](roadmap/FA-R03.1-client-request-s9-s11.md).
+
 ## Актуальный staging (2026-10-21)
 
 Compose **`finpilot-staging`**, loopback **`127.0.0.1:8090`**. **Фаза B FA-R02 не выполнялась.** Session ingest **выключен**.

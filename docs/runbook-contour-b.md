@@ -44,6 +44,18 @@
 3. Порядок: `ufw allow from ${ADMIN_IP}/32 to any port 22 proto tcp` → `ufw allow 80,443/tcp` → проверить **новый** SSH-вход → **`ufw enable`** → только потом закрывать первую сессию.
 4. Откат: консоль провайдера → `ufw disable` / восстановление `sshd_config` из бэкапа.
 
+### 1.1 Временный синтетический стенд (не контур B)
+
+Используется только с отдельными list_id владельца; **не** подменяет контур B и **не** меняет `baseline.restore_new_server_verified` без документированного факта.
+
+| Правило | Содержание |
+| --- | --- |
+| **Обновления ОС** | `apt update` / `apt upgrade` — только в устойчивой сессии (**tmux**/`screen` или эквивалент), при **открытой веб-консоли провайдера**; не запускать длительный upgrade «вслепую» из одного SSH без запасного входа |
+| **Перезагрузка** | Если после upgrade есть **`/var/run/reboot-required`** — отдельный шаг **reboot**; после boot — **снова проверить SSH под `deploy`**, затем продолжать hardening (sshd/ufw/Docker) |
+| **Объём работ** | Не выполнять команд **сверх одобренного списка** |
+| **ufw (если согласовано)** | Только **`22/tcp`**; **порт 80 не открывать** до отдельного окна; вариант без привязки к `ADMIN_IP` — только при явном согласовании (ключи + fail2ban) |
+| **sudo NOPASSWD** | Если выдан временно (`/etc/sudoers.d/99-deploy-setup`) — **снять** после завершения L-2 / перед L-4 |
+
 ---
 
 ## 2. Состав стека
@@ -254,3 +266,52 @@ TLS: Let's Encrypt или загруженный сертификат на **в�
 
 **Merge PR #4 (docs):** допустим — документы и блокеры согласованы.  
 **Исполнение W0–W2:** **не готово** до закрытия **BLK-1**, **BLK-2**, **BLK-4** (минимум) и list_id владельца.
+
+---
+
+## 14. Список **L-3** · проба восстановления (ручные шаги, plan-only)
+
+**Passphrase / файл пароля:** **не** хранить на сервере постоянно; ввод — **с Mac** (`stdin`/`fd`) или расшифровка bundle **на Mac**, на сервер передаётся только уже **`bundle.tar`** в `umask 077` каталог.
+
+**Формат архива** (как при создании `rel0-backup-create.sh`): после `openssl dec` — `tar xf bundle.tar` даёт **`db.dump`** (custom `pg_dump -Fc`), **`files.tar`**, **`files.sha256`**, **`manifest.txt`** со строкой **`schema_before=<ревизия>`** (для копии REL0-20261028 — **`20261022_0016`**).
+
+| ID | Шаг | Параметры | Ожидание | Откат |
+| --- | --- | --- | --- | --- |
+| **L3-00** | Контроль `.enc` | `sha256sum -c …sha256` (как в DECISIONS) | OK | — |
+| **L3-01** | Расшифровка на Mac | `openssl enc -d -aes-256-cbc -pbkdf2 -salt -pass file:PASSFILE -in BACKUP.enc -out bundle.tar` (как в create-скрипте, обратная операция к строкам `openssl enc …` в `rel0-backup-create.sh`) | `bundle.tar` | `rm bundle.tar` |
+| **L3-02** | Распаковка | `tar -xf bundle.tar -C "$TMP"` | файлы на месте | `rm -rf "$TMP"` |
+| **L3-03** | Чтение эталона | `grep '^schema_before=' manifest.txt` → `EXPECTED_SCHEMA` | зафиксировано | — |
+| **L3-04** | Доставка на сервер | `scp bundle.tar deploy@host:…` (или только `db.dump`) | файл на сервере | `rm` |
+| **L3-05** | Одноразовый Postgres | контейнер без compose-volume, `127.0.0.1:5434` | `pg_isready` | `docker rm -f` |
+| **L3-06** | Роли **до** restore | `CREATE ROLE` / пароли согласованы с будущим `.env` **без** печати значений; суперпользователь для `pg_restore` при необходимости | `\du` показывает роли | `DROP ROLE` (осторожно) |
+| **L3-07** | `CREATE DATABASE` probe | owner `finpilot` | пустая БД | `DROP DATABASE` |
+| **L3-08** | `pg_restore` | `pg_restore -U … -d PROBE --no-owner --exit-on-error -Fc db.dump` | без ошибки | DROP DB |
+| **L3-09** | Выравнивание паролей | `ALTER ROLE finpilot|finpilot_app|finpilot_worker …` под `psql` **только** если дамп/политика требуют; значения = из генерированного `.env` | подключение api-роли возможно | повтор ALTER |
+| **L3-10** | Проверка версии | `SELECT version_num FROM alembic_version` | `= EXPECTED_SCHEMA` | — |
+| **L3-11** | Baseline «Топ» | SQL-агрегаты как в `rel0-backup-verify.sh` (posted_cash, суммы in/out, opening, revenue_oct) | совпадение с эталоном DECISIONS/REL1 | — |
+| **L3-12** | Migrate head | one-shot образа окна, `MIGRATION_DATABASE_URL` **только** probe | `= ALEMBIC_HEAD` | повтор restore |
+| **L3-13** | Повтор baseline | те же SQL | **без изменений** к L3-11 | — |
+| **L3-14** | Cleanup | `DROP DATABASE`; stop/rm контейнер; wipe tmp | чисто | — |
+
+**Фиксация:** в журнале окна можно написать «проба восстановления подтверждена на временном синтетическом стенде»; **`restore_new_server_verified` для контура B** — **не менять** без отдельного решения.
+
+---
+
+## 15. Список **L-4** · stack синтетики + доступ по туннелю (plan-only)
+
+**Порядок этапов (обязательный):** **L4-1** → **L4-2** → **L4-0** → **L4-0c** → **L4-0b** → **L4-3** → снятие **NOPASSWD** (если был выдан).
+
+| ID | Шаг | Содержание | Ожидание |
+| --- | --- | --- | --- |
+| **L4-1** | `.env` на сервере | Секреты **сгенерированы на сервере** (`openssl rand …`), файл **600**, не в git/чат; флаги как REL1 / §2.1 | `APP_ENV=production`, mock email **запрещён** |
+| **L4-2** | Загрузка образов | `docker load` api/fe **`SHA`** окна | образы в `docker images` |
+| **L4-0** | Restore **в БД compose** | Поднять `postgres` (том), `pg_restore`/`pg_restore` в `finpilot` **или** восстановление из `db.dump` bundle; **выравнивание паролей ролей** с `POSTGRES_PASSWORD` / URL в `.env` (`ALTER ROLE …`) | приложение может подключиться к БД |
+| **L4-0c** | Read-only: шифрованные учётные данные | `SELECT` агрегаты по таблицам, где хранятся секреты подключений (см. схему приложения), **до** смены `SECRET_ENCRYPTION_KEY` | если **count > 0** — ключ должен совпадать с исходной средой или данные пересоздаются осознанно |
+| **L4-0b** | Свежий дамп | `pg_dump -Fc` в `/var/backups/.../pre_migrate_<REV>.dump` **перед** `0016→0017` на этой базе | файл для отката миграции |
+| **L4-3** | Остальной stack | `redis`, `alembic upgrade head` (если ещё не head), `api`/`worker`/`beat`/`frontend`/`proxy` с bind **только localhost** | контейнеры работают |
+| **L4-4** | Порты IPv4 **и IPv6** | `ss -tulpn` + `ss -tulpn6` или единый вывод: с **публичных** адресов не должно быть **80/443/8090**; наружу допустим только согласованный **22** (или иной SSH-порт) | нет «слушающих» surprises |
+| **L4-5** | Снять NOPASSWD | удалить `/etc/sudoers.d/99-deploy-setup` или заменить на `sudo` с паролем | `sudo -l` без NOPASSWD |
+| **L4-6** | Туннель с Mac | `ssh -L 8090:127.0.0.1:8090 deploy@…` | `curl http://127.0.0.1:8090/health/ready` |
+| **L4-7** | Проверки | live/ready, `alembic_version`, SQL baseline «Топ» | как в окне приёмки |
+
+**Передача файлов:** `.enc` / `bundle.tar` — по защищённому каналу; контрольные суммы сверять до load.
