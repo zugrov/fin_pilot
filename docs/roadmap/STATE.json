@@ -2386,10 +2386,23 @@
     "role": "оператор ПДн; собственная компания владельца",
     "finpilot_operator": "юрлицо FinPilot — обработчик по поручению (152-ФЗ ч.3 ст.6)",
     "staging_synthetic_company": "ООО «Топ» — не ТОПКОМ",
-    "decision_status": "proposed",
+    "decision_status": "accepted_by_owner",
+    "accepted_variant": "B",
+    "accepted_at": "2026-11-04",
+    "accepted_source": "owner",
+    "contour_b_provider": "other_than_staging_beget",
     "preliminary_recommendation": "B",
     "recommendation_summary": "облегчённый отдельный контур: небольшой сервер, backup вне сервера, restore на новом сервере",
-    "decide_by": "до загрузки данных ТОПКОМ на любой сервер и не позднее FA-R10.1",
+    "real_data_upload_forbidden_until": [
+      "legal_prerequisites L1-L4 closed by owner",
+      "restore_new_server_verified on contour B probe (REL0 synthetic)"
+    ],
+    "runbook_plan_only": "docs/runbook-contour-b.md",
+    "runbook_execution_blocked_by": [
+      "ops/rel0 staging-coupled scripts (BLK-1 BLK-2)",
+      "first-user path without SMTP (BLK-4)"
+    ],
+    "target_vps_ready": "2026-11-06",
     "reasons": [
       "D5 staging = синтетика",
       "выкатки/откаты/backup probe на staging",
@@ -2399,8 +2412,8 @@
     "decisions_doc": "docs/roadmap/DECISIONS.md § пилот ТОПКОМ 2026-11-04"
   },
   "legal_prerequisites_topkom_server_upload": {
-    "status": "open",
-    "decision_status": "proposed",
+    "status": "owner_handles",
+    "decision_status": "owner_handles",
     "items": [
       {
         "id": "L1",
