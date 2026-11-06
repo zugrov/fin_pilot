@@ -10,7 +10,7 @@ from sqlalchemy.exc import ProgrammingError
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import BACKEND
 
-HEAD = "20261027_0017"
+HEAD = "20261106_0018"
 PREV = "20261022_0016"
 DOWNGRADE_WITH_EVIDENCE_GUARD = "20261021_0015"
 
