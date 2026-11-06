@@ -74,6 +74,7 @@ from app.models.telegram import (
     TelegramLinkToken,
     TelegramUpdate,
 )
+from app.models.tax_norms import TaxNormVersion
 
 __all__ = [
     "Alert",
@@ -131,6 +132,7 @@ __all__ = [
     "SourceIdentity",
     "Subscription",
     "TariffVersion",
+    "TaxNormVersion",
     "TelegramBinding",
     "TelegramLinkToken",
     "TelegramUpdate",
