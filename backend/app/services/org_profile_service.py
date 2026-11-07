@@ -322,6 +322,48 @@ def get_profile_for_period(
     )
 
 
+def resolve_profiles_for_months(
+    session: Session,
+    *,
+    tenant_id: UUID,
+    company_id: UUID,
+    months: set[date],
+) -> dict[date, ResolvedOrganizationProfile | None]:
+    """Одна загрузка версий; резолв по каждому первому числу месяца."""
+    if not months:
+        return {}
+    versions = list_versions_for_company(session, tenant_id=tenant_id, company_id=company_id)
+    if not versions:
+        return {month: None for month in months}
+    tuples = [
+        (
+            str(item.id),
+            item.effective_from,
+            snapshot_from_row(item),
+            item.confirmed_at is not None,
+        )
+        for item in versions
+    ]
+    out: dict[date, ResolvedOrganizationProfile | None] = {}
+    for period_month in months:
+        assert_first_day_of_month(period_month)
+        resolved = resolve_profile_for_period(versions=tuples, period_month=period_month)
+        if resolved is None:
+            out[period_month] = None
+            continue
+        version_row = next(item for item in versions if str(item.id) == resolved.version_id)
+        out[period_month] = ResolvedOrganizationProfile(
+            version_id=resolved.version_id,
+            effective_from=resolved.effective_from,
+            snapshot=resolved.snapshot,
+            is_confirmed=resolved.is_confirmed,
+            support=resolved.support,
+            confirmed_at=version_row.confirmed_at,
+            confirmed_role=version_row.confirmed_role,
+        )
+    return out
+
+
 def _effective_confirm_role(membership: Membership, access: CompanyAccess | None) -> str:
     role = effective_role(membership, access)
     if role not in PROFILE_CONFIRM_ROLES:

@@ -62,4 +62,10 @@ describe("подписи quality_flags (пункт ж)", () => {
     expect(qualityNotes(["unclassified_operations"])[0]).toContain("без категории");
     expect(qualityNotes(["missing_anchor"])[0]).toContain("начального остатка");
   });
+
+  it("подписывает флаги НДС и профиля", () => {
+    const notes = qualityNotes(["vat_basis_unknown", "vat_basis_from_profile"]);
+    expect(notes[0]).toContain("не выручка без НДС");
+    expect(notes[1]).toContain("подтверждённым профилем");
+  });
 });
