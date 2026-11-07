@@ -137,7 +137,55 @@ export function createQuote(companies: number, interval: "month" | "year") {
   });
 }
 
-export type Company = { id: string; name: string; status?: string; timezone?: string };
+export type Company = {
+  id: string;
+  name: string;
+  status?: string;
+  timezone?: string;
+  inn?: string | null;
+  kind?: string;
+};
+
+export type ConfirmReadiness = {
+  ready: boolean;
+  missing: string[];
+  field_errors: Record<string, string[]>;
+};
+
+export type OrganizationProfile = {
+  company_id: string;
+  period: string;
+  version_id: string;
+  effective_from: string;
+  is_confirmed: boolean;
+  confirmed_at: string | null;
+  profile_unconfirmed: boolean;
+  support_level: "supported" | "partial" | "unsupported";
+  support_code: string | null;
+  confirm_readiness: ConfirmReadiness;
+  org_form: string;
+  tax_system: string;
+  usn_tax_object: string;
+  vat_status: string;
+  vat_regime_detail: string | null;
+  vat_default_rate: string | null;
+  prices_include_vat: string;
+  vat_exemption_article_145: boolean | null;
+  is_new_organization: boolean | null;
+  prior_year_revenue_band: string;
+  change_reason?: string | null;
+};
+
+export type TaxNormsCurrent = {
+  status: string;
+  needs_review_banner: boolean;
+  values: {
+    usn_vat_exemption_threshold_rub?: string;
+    computed_special_cap_5_rub?: string;
+    computed_special_cap_7_rub?: string;
+  };
+  notes?: string;
+};
 
 export type BillingSubscription = {
   status: string;
@@ -1027,4 +1075,39 @@ export function loadReceivableAgingWithStatus(companyId: string, asOf: string) {
   return walletRequest<ReceivableAgingReport>(
     `/api/v1/companies/${companyId}/reports/receivable-aging?${query.toString()}`,
   );
+}
+
+export function loadOrganizationProfile(companyId: string, period?: string) {
+  const suffix = period ? `?period=${encodeURIComponent(period)}` : "";
+  return walletRequest<OrganizationProfile>(
+    `/api/v1/companies/${companyId}/organization-profile${suffix}`,
+  );
+}
+
+export function patchOrganizationProfileDraft(
+  companyId: string,
+  body: Record<string, unknown>,
+) {
+  return walletRequest<OrganizationProfile>(
+    `/api/v1/companies/${companyId}/organization-profile/draft`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function loadTaxNormsCurrent(asOf: string) {
+  const query = new URLSearchParams({ as_of: asOf });
+  return walletRequest<TaxNormsCurrent>(`/api/v1/tax-norms/current?${query.toString()}`);
+}
+
+export function patchCompanyProfileFields(
+  companyId: string,
+  body: { inn?: string | null },
+) {
+  return walletRequest<Company>(`/api/v1/companies/${companyId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
 }

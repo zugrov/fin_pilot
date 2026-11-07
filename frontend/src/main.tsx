@@ -17,6 +17,7 @@ import { OverviewPage } from "./pages/OverviewPage";
 import { ReceivablePage } from "./pages/ReceivablePage";
 import { SalesPage } from "./pages/SalesPage";
 import { TelegramPage } from "./pages/TelegramPage";
+import { OrgProfileWizardPage } from "./pages/OrgProfileWizardPage";
 import { WalletsPage } from "./pages/WalletsPage";
 
 const router = createBrowserRouter([
@@ -40,6 +41,7 @@ const router = createBrowserRouter([
   { path: "/reset-password", element: <ResetPage /> },
   { path: "/billing", element: <BillingPage /> },
   { path: "/billing/return", element: <BillingReturnPage /> },
+  { path: "/settings/org-profile", element: <OrgProfileWizardPage /> },
 ]);
 
 const queryClient = new QueryClient();
