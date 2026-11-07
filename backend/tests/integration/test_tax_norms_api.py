@@ -91,24 +91,25 @@ def test_tax_norms_deflator_precision_via_api(client, admin) -> None:
 
 def test_tax_norms_seed_periods_do_not_overlap(admin) -> None:
     """Дублирует гарантию EXCLUDE (btree_gist) для seed после TRUNCATE."""
-    overlap = admin.execute(
-        text(
-            """
-            SELECT COUNT(*) FROM tax_norm_versions a
-            JOIN tax_norm_versions b ON a.id < b.id
-            WHERE daterange(
-                    a.valid_from,
-                    COALESCE(a.valid_to, 'infinity'::date),
-                    '[]'
-                  )
-              && daterange(
-                    b.valid_from,
-                    COALESCE(b.valid_to, 'infinity'::date),
-                    '[]'
-                  )
-            """
-        )
-    ).scalar_one()
+    with admin.connect() as connection:
+        overlap = connection.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM tax_norm_versions a
+                JOIN tax_norm_versions b ON a.id < b.id
+                WHERE daterange(
+                        a.valid_from,
+                        COALESCE(a.valid_to, 'infinity'::date),
+                        '[]'
+                      )
+                  && daterange(
+                        b.valid_from,
+                        COALESCE(b.valid_to, 'infinity'::date),
+                        '[]'
+                      )
+                """
+            )
+        ).scalar_one()
     assert overlap == 0
 
 
