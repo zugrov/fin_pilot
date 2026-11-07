@@ -4,7 +4,13 @@ from decimal import Decimal
 
 from schema_sql import iter_statements
 from sqlalchemy import text
-from tests.integration.conftest import BACKEND, _TAX_NORM_VERSIONS_SEED_SQL, login, open_workspace, register_and_verify
+from tests.integration.conftest import (
+    _TAX_NORM_VERSIONS_SEED_SQL,
+    BACKEND,
+    login,
+    open_workspace,
+    register_and_verify,
+)
 
 NORM_2026_ID = "a0000000-0000-4000-8000-000000000001"
 NORM_2027_ID = "a0000000-0000-4000-8000-000000000003"
