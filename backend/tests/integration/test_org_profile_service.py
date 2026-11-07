@@ -222,7 +222,7 @@ def test_confirm_not_latest_rejected(migrated_database) -> None:
 
 
 def test_profile_resolution_and_isolation(migrated_database) -> None:
-    t1, c1, _ = _seed_company(migrated_database, tenant_name="t1")
+    t1, c1, owner1 = _seed_company(migrated_database, tenant_name="t1")
     t2, c2, _ = _seed_company(migrated_database, tenant_name="t2")
     snap = ProfileSnapshot(tax_system="usn", usn_tax_object="income", org_form="ooo")
     with Session(migrated_database) as session:
@@ -230,7 +230,7 @@ def test_profile_resolution_and_isolation(migrated_database) -> None:
             session,
             tenant_id=t1,
             company_id=c1,
-            created_by=uuid.uuid4(),
+            created_by=owner1,
             effective_from=date(2026, 2, 1),
             snapshot=snap,
             change_reason="v2",

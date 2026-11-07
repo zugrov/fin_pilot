@@ -72,7 +72,7 @@ def test_bootstrap_one_unconfirmed_version_per_company(migrated_database) -> Non
                     "INSERT INTO companies "
                     "(id, tenant_id, name, kind, timezone, created_at, updated_at) "
                     "VALUES (:id, :t, :n, 'company', 'Europe/Moscow', "
-                    ":c::timestamptz, :c::timestamptz)"
+                    "CAST(:c AS timestamptz), CAST(:c AS timestamptz))"
                 ),
                 {"id": cid, "t": tenant_id, "n": f"c-{cid.hex[:6]}", "c": created},
             )
