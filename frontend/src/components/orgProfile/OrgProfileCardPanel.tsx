@@ -2,6 +2,8 @@ import type { RefObject } from "react";
 
 import type { OrganizationProfile, OrganizationProfileVersion } from "../../api";
 import { formatDate } from "../../lib/dates";
+import { confirmedFutureVersion } from "../../lib/orgProfileVersionCreate";
+import { currentPeriodMonth } from "../../lib/orgProfileWizardPlan";
 import { OrgProfileSummarySection } from "./OrgProfileSummarySection";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -12,6 +14,7 @@ const ROLE_LABELS: Record<string, string> = {
 type Props = {
   profile: OrganizationProfile;
   versions: OrganizationProfileVersion[] | undefined;
+  companyTimeZone: string;
   readOnly: boolean;
   onChangeMode: () => void;
   changeModeButtonRef?: RefObject<HTMLButtonElement>;
@@ -20,6 +23,7 @@ type Props = {
 export function OrgProfileCardPanel({
   profile,
   versions,
+  companyTimeZone,
   readOnly,
   onChangeMode,
   changeModeButtonRef,
@@ -27,10 +31,19 @@ export function OrgProfileCardPanel({
   const role = profile.confirmed_role
     ? (ROLE_LABELS[profile.confirmed_role] ?? profile.confirmed_role)
     : "—";
+  const futureConfirmed = confirmedFutureVersion(
+    versions,
+    currentPeriodMonth(companyTimeZone),
+  );
 
   return (
     <div className="space-y-6">
       <div className="rounded-card border border-line bg-surface p-card">
+        {futureConfirmed ? (
+          <p className="mb-2 text-body text-warn" data-testid="org-profile-future-effective">
+            Новая версия вступит в силу с {formatDate(futureConfirmed.effective_from)}
+          </p>
+        ) : null}
         <p className="text-body">
           Подтверждено {profile.confirmed_at ? formatDate(profile.confirmed_at.slice(0, 10)) : "—"},
           роль: {role}. Действует с {formatDate(profile.effective_from)}.

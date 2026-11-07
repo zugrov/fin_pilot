@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { OrganizationProfile } from "../api";
 import { buildVersionCreateBody } from "./orgProfileVersionSnapshot";
+import { versionCreateSnapshotSource } from "./orgProfileVersionCreate";
 import {
   canConfirmOrganizationProfile,
   confirmTargetVersionId,
@@ -87,9 +88,13 @@ describe("сценарий b: новая версия с будущей даты
     expect(newDraft.tax_system).toBe("osno");
     expect(confirmedCard.tax_system).toBe("usn");
     expect(confirmTargetVersionId(latest, newDraft.version_id)).toBe("v2");
-    const body = buildVersionCreateBody(confirmedCard, "2026-07-01", "смена");
-    expect(body.tax_system).toBe("usn");
-    expect(body.effective_from).toBe("2026-07-01");
+    const body = buildVersionCreateBody(
+      versionCreateSnapshotSource(newDraft, confirmedCard)!,
+      "2026-10-01",
+      "ещё одно изменение",
+    );
+    expect(body.tax_system).toBe("osno");
+    expect(body.effective_from).toBe("2026-10-01");
   });
 });
 

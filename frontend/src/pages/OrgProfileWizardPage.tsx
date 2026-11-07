@@ -25,6 +25,8 @@ import {
   defaultEffectiveFromMonth,
   monthInputMinAfterVersion,
 } from "../lib/orgProfileEffectiveFrom";
+import { shouldPatchCurrentPeriodProfileCache } from "../lib/orgProfileConfirmCache";
+import { versionCreateSnapshotSource } from "../lib/orgProfileVersionCreate";
 import { buildVersionCreateBody } from "../lib/orgProfileVersionSnapshot";
 import {
   canConfirmOrganizationProfile,
@@ -206,7 +208,7 @@ export function OrgProfileWizardPage() {
   });
 
   const cardProfile = useQuery({
-    queryKey: ["organization-profile", companyId, currentPeriod, "card"],
+    queryKey: ["organization-profile", companyId, currentPeriod],
     queryFn: () => loadOrganizationProfile(companyId ?? "", currentPeriod),
     enabled: Boolean(companyId && currentPeriod),
   });
@@ -446,10 +448,27 @@ export function OrgProfileWizardPage() {
       }
       return confirmOrganizationProfileVersion(companyId, versionId, crypto.randomUUID());
     },
-    onSuccess: async () => {
+    onSuccess: async (data) => {
       setError("");
       setWizardOpen(false);
-      await client.invalidateQueries({ queryKey: ["organization-profile", companyId] });
+      if (companyId && wizardPeriod) {
+        client.setQueryData(["organization-profile", companyId, wizardPeriod], data);
+      }
+      if (
+        companyId &&
+        currentPeriod &&
+        shouldPatchCurrentPeriodProfileCache(data.effective_from, currentPeriod)
+      ) {
+        client.setQueryData(["organization-profile", companyId, currentPeriod], {
+          ...data,
+          period: currentPeriod,
+          profile_unconfirmed: !data.is_confirmed,
+        });
+      }
+      await client.invalidateQueries({
+        queryKey: ["organization-profile", companyId],
+        refetchType: "all",
+      });
       await client.invalidateQueries({ queryKey: ["organization-profile-versions", companyId] });
     },
     onError: async (exc) => {
@@ -470,7 +489,7 @@ export function OrgProfileWizardPage() {
       if (!companyId) {
         throw new Error("Выберите организацию");
       }
-      const snapshotSource = cardProfile.data ?? profile.data;
+      const snapshotSource = versionCreateSnapshotSource(profile.data, cardProfile.data);
       if (!snapshotSource) {
         throw new Error("Профиль не загружен");
       }
@@ -564,6 +583,7 @@ export function OrgProfileWizardPage() {
         <OrgProfileCardPanel
           profile={cardProfile.data}
           versions={versions.data?.versions}
+          companyTimeZone={company?.timezone ?? "Europe/Moscow"}
           readOnly={readOnly}
           changeModeButtonRef={changeModeButtonRef}
           onChangeMode={() => {
@@ -900,7 +920,7 @@ export function OrgProfileWizardPage() {
         </section>
       ) : null}
 
-      {wizardOpen ? (
+      {wizardOpen && writeActions ? (
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <button
             type="button"
@@ -941,7 +961,7 @@ export function OrgProfileWizardPage() {
               {step3Saved ? <span className="text-body text-muted">Сохранено</span> : null}
             </>
           ) : null}
-          {step === 6 && writeActions ? (
+          {step === 6 ? (
             <>
               <button
                 type="button"
