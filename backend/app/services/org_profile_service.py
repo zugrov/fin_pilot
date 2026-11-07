@@ -5,24 +5,49 @@ P1b: версии профиля организации (без API).
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.domain.org_profile.confirm import validate_confirm_readiness
 from app.domain.org_profile.resolution import (
     ResolvedOrganizationProfile,
     resolve_profile_for_period,
 )
-from app.domain.org_profile.validation import ProfileSnapshot, validate_profile_snapshot
+from app.domain.org_profile.validation import (
+    ProfileSnapshot,
+    validate_profile_draft_snapshot,
+)
 from app.errors import AppError
 from app.models.identity import Company, CompanyAccess, Membership
 from app.models.org_profile import OrganizationProfileVersion
 from app.security.access import ACCOUNTANT, OWNER, effective_role
 from sqlalchemy import select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
 PROFILE_CONFIRM_ROLES = frozenset({OWNER, ACCOUNTANT})
+
+_IMMUTABLE_DB_MARKERS = (
+    "organization_profile_confirmed_immutable",
+    "confirm_must_not_change_profile_fields",
+    "organization_profile_versions_delete_forbidden",
+)
+
+
+def _translate_profile_db_error(err: Exception) -> None:
+    orig = getattr(err, "orig", err)
+    message = str(orig)
+    if any(marker in message for marker in _IMMUTABLE_DB_MARKERS):
+        raise AppError(
+            409,
+            "profile_version_immutable",
+            "Версия профиля неизменяема",
+        ) from err
+    if isinstance(err, DBAPIError):
+        raise err
+    if isinstance(err, IntegrityError):
+        raise err
 
 
 def snapshot_from_row(row: OrganizationProfileVersion) -> ProfileSnapshot:
@@ -65,10 +90,12 @@ def _apply_snapshot_to_row(row: OrganizationProfileVersion, snapshot: ProfileSna
 
 
 def effective_from_for_company(company: Company) -> date:
-    created = company.created_at
-    if created.tzinfo is not None:
-        created = created.astimezone(UTC)
-    return date(created.year, created.month, 1)
+    try:
+        tz = ZoneInfo(company.timezone)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("Europe/Moscow")
+    local = company.created_at.astimezone(tz)
+    return date(local.year, local.month, 1)
 
 
 def bootstrap_organization_profile_version(
@@ -138,12 +165,12 @@ def list_versions_for_company(
     )
 
 
-def _validate_snapshot(
+def _validate_draft_snapshot(
     snapshot: ProfileSnapshot,
     *,
     company_inn: str | None,
 ) -> None:
-    result = validate_profile_snapshot(snapshot, company_inn=company_inn)
+    result = validate_profile_draft_snapshot(snapshot, company_inn=company_inn)
     if not result.is_valid:
         raise AppError(
             400,
@@ -198,7 +225,7 @@ def create_organization_profile_version(
     company = load_company_in_tenant(session, tenant_id=tenant_id, company_id=company_id)
     versions = list_versions_for_company(session, tenant_id=tenant_id, company_id=company_id)
     _assert_can_create_new_version(versions, effective_from)
-    _validate_snapshot(snapshot, company_inn=company.inn)
+    _validate_draft_snapshot(snapshot, company_inn=company.inn)
 
     row = OrganizationProfileVersion(
         tenant_id=tenant_id,
@@ -232,7 +259,7 @@ def update_draft_profile_version(
 ) -> OrganizationProfileVersion:
     load_company_in_tenant(session, tenant_id=tenant_id, company_id=company_id)
     company = session.scalar(select(Company).where(Company.id == company_id))
-    _validate_snapshot(snapshot, company_inn=company.inn if company else None)
+    _validate_draft_snapshot(snapshot, company_inn=company.inn if company else None)
 
     versions = list_versions_for_company(session, tenant_id=tenant_id, company_id=company_id)
     if not versions:
@@ -257,8 +284,8 @@ def update_draft_profile_version(
     row.change_reason = change_reason
     try:
         session.flush()
-    except IntegrityError as err:
-        raise AppError(409, "profile_update_rejected", "Обновление отклонено") from err
+    except (DBAPIError, IntegrityError) as err:
+        _translate_profile_db_error(err)
     return row
 
 
@@ -329,19 +356,23 @@ def confirm_organization_profile_version(
             details={"field_errors": readiness.field_errors},
         )
 
-    result = session.execute(
-        update(OrganizationProfileVersion)
-        .where(
-            OrganizationProfileVersion.id == version_id,
-            OrganizationProfileVersion.tenant_id == tenant_id,
-            OrganizationProfileVersion.company_id == company_id,
-            OrganizationProfileVersion.confirmed_at.is_(None),
+    try:
+        result = session.execute(
+            update(OrganizationProfileVersion)
+            .where(
+                OrganizationProfileVersion.id == version_id,
+                OrganizationProfileVersion.tenant_id == tenant_id,
+                OrganizationProfileVersion.company_id == company_id,
+                OrganizationProfileVersion.confirmed_at.is_(None),
+            )
+            .values(confirmed_at=at, confirmed_by=membership.user_id, confirmed_role=role)
+            .returning(OrganizationProfileVersion.id)
         )
-        .values(confirmed_at=at, confirmed_by=membership.user_id, confirmed_role=role)
-        .returning(OrganizationProfileVersion.id)
-    )
-    if result.scalar_one_or_none() is None:
-        raise AppError(409, "already_confirmed", "Версия уже подтверждена")
+        if result.scalar_one_or_none() is None:
+            raise AppError(409, "already_confirmed", "Версия уже подтверждена")
+        session.flush()
+    except (DBAPIError, IntegrityError) as err:
+        _translate_profile_db_error(err)
     session.expire(row)
     session.refresh(row)
 

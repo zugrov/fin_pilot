@@ -13,7 +13,6 @@ class ResolvedOrganizationProfile:
     effective_from: date
     snapshot: ProfileSnapshot
     is_confirmed: bool
-    period_confirmed: bool
     support: SupportAssessment
 
 
@@ -29,16 +28,17 @@ def resolve_profile_for_period(
     if period_month.day != 1:
         raise ValueError("period_month must be the first calendar day")
 
+    if not versions:
+        return None
+
     chosen: tuple[str, date, ProfileSnapshot, bool] | None = None
     for row in versions:
         vid, eff_from, snapshot, confirmed = row
         if eff_from <= period_month:
             chosen = (vid, eff_from, snapshot, confirmed)
-        else:
-            break
 
     if chosen is None:
-        return None
+        chosen = versions[0]
 
     vid, eff_from, snapshot, confirmed = chosen
     support = assess_product_support(
@@ -51,6 +51,5 @@ def resolve_profile_for_period(
         effective_from=eff_from,
         snapshot=snapshot,
         is_confirmed=confirmed,
-        period_confirmed=confirmed,
         support=support,
     )

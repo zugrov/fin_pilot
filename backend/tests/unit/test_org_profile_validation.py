@@ -1,10 +1,18 @@
+from app.domain.org_profile.confirm import validate_confirm_readiness
 from app.domain.org_profile.validation import ProfileSnapshot, validate_profile_snapshot
 
 
-def test_usn_requires_tax_object() -> None:
+def test_draft_allows_usn_without_tax_object() -> None:
     snap = ProfileSnapshot(tax_system="usn", usn_tax_object="unspecified")
     result = validate_profile_snapshot(snap)
-    assert "required_for_usn" in result.field_errors.get("usn_tax_object", [])
+    assert "required_for_usn" not in result.field_errors.get("usn_tax_object", [])
+    assert result.is_valid
+
+
+def test_confirm_readiness_requires_usn_tax_object() -> None:
+    snap = ProfileSnapshot(tax_system="usn", usn_tax_object="unspecified")
+    result = validate_confirm_readiness(snap)
+    assert "usn_tax_object" in result.field_errors.get("_confirm_minimum", [])
 
 
 def test_vat_deductions_only_for_payer() -> None:

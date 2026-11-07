@@ -167,7 +167,7 @@ SELECT
   gen_random_uuid(),
   c.tenant_id,
   c.id,
-  (date_trunc('month', c.created_at AT TIME ZONE 'UTC'))::date,
+  (date_trunc('month', c.created_at AT TIME ZONE c.timezone))::date,
   'migration_p1b_bootstrap',
   NULL
 FROM companies c;

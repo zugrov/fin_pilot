@@ -1,5 +1,7 @@
+import threading
 import uuid
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 
 import pytest
 from app.domain.org_profile.validation import ProfileSnapshot
@@ -16,7 +18,7 @@ from app.services.org_profile_service import (
 )
 from app.services.tenant_service import create_company
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from tests.integration.balances_test_util import assert_finpilot_test_database
 
 
@@ -112,26 +114,41 @@ def test_create_version_rejects_non_first_of_month(migrated_database) -> None:
         assert exc.value.code == "invalid_effective_from"
 
 
-def test_usn_requires_tax_object_on_draft_update(migrated_database) -> None:
+def test_draft_usn_without_tax_object_confirm_incomplete(migrated_database) -> None:
     tenant_id, company_id, owner_id = _seed_company(migrated_database)
     snap = ProfileSnapshot(tax_system="usn", usn_tax_object="unspecified")
+    version_id = None
     with Session(migrated_database) as session:
         version = session.scalar(
             select(OrganizationProfileVersion).where(
                 OrganizationProfileVersion.company_id == company_id
             )
         )
+        update_draft_profile_version(
+            session,
+            tenant_id=tenant_id,
+            company_id=company_id,
+            version_id=version.id,
+            snapshot=snap,
+            change_reason="partial",
+        )
+        session.commit()
+        version_id = version.id
+
+    with Session(migrated_database) as session:
+        membership = _membership(session, tenant_id, owner_id)
         with pytest.raises(AppError) as exc:
-            update_draft_profile_version(
+            confirm_organization_profile_version(
                 session,
                 tenant_id=tenant_id,
                 company_id=company_id,
-                version_id=version.id,
-                snapshot=snap,
-                change_reason="bad",
+                version_id=version_id,
+                membership=membership,
+                access=None,
+                at=datetime.now(UTC),
             )
-        assert exc.value.code == "profile_validation_failed"
-        assert "usn_tax_object" in exc.value.details["field_errors"]
+        assert exc.value.code == "profile_confirm_incomplete"
+        assert "usn_tax_object" in exc.value.details["field_errors"]["_confirm_minimum"]
 
 
 def test_update_draft_and_confirm(migrated_database) -> None:
@@ -535,7 +552,7 @@ def test_profile_resolution_and_isolation(migrated_database) -> None:
             session, tenant_id=t1, company_id=c1, period_month=date(2026, 6, 1)
         )
         assert resolved is not None
-        assert resolved.period_confirmed is False
+        assert resolved.is_confirmed is False
 
         with pytest.raises(AppError):
             list_versions_for_company(session, tenant_id=t1, company_id=c2)
@@ -546,3 +563,132 @@ def test_profile_resolution_and_isolation(migrated_database) -> None:
 def test_assert_first_day_of_month() -> None:
     with pytest.raises(AppError):
         assert_first_day_of_month(date(2026, 1, 15))
+
+
+def test_draft_update_after_parallel_confirm_returns_immutable(migrated_database) -> None:
+    tenant_id, company_id, owner_id = _seed_company(migrated_database)
+    version_id = None
+    with Session(migrated_database) as session:
+        version = session.scalar(
+            select(OrganizationProfileVersion).where(
+                OrganizationProfileVersion.company_id == company_id
+            )
+        )
+        update_draft_profile_version(
+            session,
+            tenant_id=tenant_id,
+            company_id=company_id,
+            version_id=version.id,
+            snapshot=_complete_snapshot(),
+            change_reason="ready",
+        )
+        session.commit()
+        version_id = version.id
+
+    with Session(migrated_database) as session:
+        membership = _membership(session, tenant_id, owner_id)
+        confirm_organization_profile_version(
+            session,
+            tenant_id=tenant_id,
+            company_id=company_id,
+            version_id=version_id,
+            membership=membership,
+            access=None,
+            at=datetime.now(UTC),
+        )
+        session.commit()
+
+    with Session(migrated_database) as session:
+        confirmed_row = session.scalar(
+            select(OrganizationProfileVersion).where(
+                OrganizationProfileVersion.id == version_id
+            )
+        )
+        assert confirmed_row is not None
+        assert confirmed_row.confirmed_at is not None
+        stale_latest = OrganizationProfileVersion(
+            id=confirmed_row.id,
+            tenant_id=confirmed_row.tenant_id,
+            company_id=confirmed_row.company_id,
+            effective_from=confirmed_row.effective_from,
+            confirmed_at=None,
+        )
+
+        def _stale_list(*args, **kwargs):
+            real = list_versions_for_company(*args, **kwargs)
+            if not real:
+                return real
+            patched = list(real)
+            patched[-1] = stale_latest
+            return patched
+
+        with patch(
+            "app.services.org_profile_service.list_versions_for_company",
+            side_effect=_stale_list,
+        ):
+            with pytest.raises(AppError) as exc:
+                update_draft_profile_version(
+                    session,
+                    tenant_id=tenant_id,
+                    company_id=company_id,
+                    version_id=version_id,
+                    snapshot=_complete_snapshot(org_form="ip"),
+                    change_reason="race",
+                )
+        assert exc.value.code == "profile_version_immutable"
+
+
+def test_concurrent_confirm_one_wins(migrated_database) -> None:
+    tenant_id, company_id, owner_id = _seed_company(migrated_database)
+    version_id = None
+    with Session(migrated_database) as session:
+        version = session.scalar(
+            select(OrganizationProfileVersion).where(
+                OrganizationProfileVersion.company_id == company_id
+            )
+        )
+        update_draft_profile_version(
+            session,
+            tenant_id=tenant_id,
+            company_id=company_id,
+            version_id=version.id,
+            snapshot=_complete_snapshot(),
+            change_reason="ready",
+        )
+        session.commit()
+        version_id = version.id
+
+    maker = sessionmaker(bind=migrated_database)
+    barrier = threading.Barrier(2)
+    results: list[str] = []
+    lock = threading.Lock()
+
+    def attempt_confirm() -> None:
+        barrier.wait()
+        with maker() as session:
+            membership = _membership(session, tenant_id, owner_id)
+            try:
+                confirm_organization_profile_version(
+                    session,
+                    tenant_id=tenant_id,
+                    company_id=company_id,
+                    version_id=version_id,
+                    membership=membership,
+                    access=None,
+                    at=datetime.now(UTC),
+                )
+                session.commit()
+                code = "ok"
+            except AppError as err:
+                session.rollback()
+                code = err.code
+            with lock:
+                results.append(code)
+
+    threads = [threading.Thread(target=attempt_confirm) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert set(results) == {"already_confirmed", "ok"}

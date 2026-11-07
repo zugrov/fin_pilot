@@ -18,14 +18,30 @@ def test_picks_latest_effective_on_or_before_period() -> None:
     resolved = resolve_profile_for_period(versions=versions, period_month=date(2026, 8, 1))
     assert resolved is not None
     assert resolved.effective_from == date(2026, 6, 1)
-    assert resolved.period_confirmed is True
+    assert resolved.is_confirmed is True
 
 
 def test_unconfirmed_latest_makes_period_unconfirmed() -> None:
     versions = [_version("2026-01-01", True, "usn"), _version("2026-06-01", False, "usn")]
     resolved = resolve_profile_for_period(versions=versions, period_month=date(2026, 8, 1))
     assert resolved is not None
-    assert resolved.period_confirmed is False
+    assert resolved.is_confirmed is False
+
+
+def test_period_before_first_version_uses_earliest() -> None:
+    versions = [_version("2026-06-01", True, "usn"), _version("2026-12-01", True, "osno")]
+    resolved = resolve_profile_for_period(versions=versions, period_month=date(2026, 3, 1))
+    assert resolved is not None
+    assert resolved.version_id == "id-2026-06-01"
+    assert resolved.effective_from == date(2026, 6, 1)
+
+
+def test_period_after_second_version_uses_second() -> None:
+    versions = [_version("2026-06-01", True, "usn"), _version("2026-12-01", True, "osno")]
+    resolved = resolve_profile_for_period(versions=versions, period_month=date(2027, 1, 1))
+    assert resolved is not None
+    assert resolved.version_id == "id-2026-12-01"
+    assert resolved.snapshot.tax_system == "osno"
 
 
 def test_month_boundary() -> None:

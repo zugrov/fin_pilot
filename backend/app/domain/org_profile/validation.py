@@ -63,20 +63,23 @@ class ProfileValidationResult:
         return not self.field_errors
 
 
-def validate_profile_snapshot(
+def validate_profile_draft_snapshot(
     snapshot: ProfileSnapshot,
     *,
     company_inn: str | None = None,
 ) -> ProfileValidationResult:
+    """Согласованность и перечни значений; без проверок полноты для подтверждения."""
     errors: dict[str, list[str]] = {}
 
     _validate_enums(snapshot, errors)
     _validate_form_tax_compatibility(snapshot, errors)
 
-    if snapshot.tax_system == USN:
-        if snapshot.usn_tax_object in (None, "", "unspecified", "unknown"):
-            errors.setdefault("usn_tax_object", []).append("required_for_usn")
-    elif snapshot.usn_tax_object not in (None, "", "unspecified", "unknown"):
+    if snapshot.tax_system != USN and snapshot.usn_tax_object not in (
+        None,
+        "",
+        "unspecified",
+        "unknown",
+    ):
         errors.setdefault("usn_tax_object", []).append("only_for_usn")
 
     _validate_vat_block(snapshot, errors)
@@ -92,6 +95,15 @@ def validate_profile_snapshot(
         accounting_source=snapshot.accounting_source,
     )
     return ProfileValidationResult(field_errors=errors, support=support)
+
+
+def validate_profile_snapshot(
+    snapshot: ProfileSnapshot,
+    *,
+    company_inn: str | None = None,
+) -> ProfileValidationResult:
+    """Алиас черновой валидации (полнота — в validate_confirm_readiness)."""
+    return validate_profile_draft_snapshot(snapshot, company_inn=company_inn)
 
 
 def _validate_enums(snapshot: ProfileSnapshot, errors: dict[str, list[str]]) -> None:

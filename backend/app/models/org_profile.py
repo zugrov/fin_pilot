@@ -9,7 +9,10 @@ from app.models.base import Base
 
 
 class OrganizationProfileVersion(Base):
-    """Версия профиля организации (append-only, P1b)."""
+    """
+    Версия профиля организации (P1b).
+    Черновик (confirmed_at IS NULL) редактируется; после подтверждения — неизменяем.
+    """
 
     __tablename__ = "organization_profile_versions"
 
