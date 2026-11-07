@@ -144,6 +144,44 @@ def test_unconfirmed_profile_banner(client, admin, app, fake) -> None:
     assert body["can_write"] is True
 
 
+def test_accountant_can_write_flag(client, admin, app, fake) -> None:
+    tenant_id, company_id = _company(client, admin, app, fake, "op-acct-owner@example.com")
+    invited = client.post(
+        f"/api/v1/workspaces/{tenant_id}/invitations",
+        json={"email": "op-acct@example.com", "role": "accountant"},
+    )
+    assert invited.status_code == 200, invited.text
+    token = token_from_link(latest_email_link(admin, "op-acct@example.com", "invite"))
+    guest = TestClient(client.app)
+    register_and_verify(guest, admin, "op-acct@example.com")
+    guest_login = login(guest, "op-acct@example.com")
+    accepted = guest.post("/api/v1/auth/invitations/accept", json={"token": token})
+    assert accepted.status_code == 200, accepted.text
+    granted = client.post(
+        f"/api/v1/workspaces/{tenant_id}/company-access",
+        json={"user_id": guest_login["user"]["id"], "company_id": company_id},
+    )
+    assert granted.status_code == 200, granted.text
+    guest.headers["X-Tenant-Id"] = tenant_id
+    response = guest.get(f"/api/v1/companies/{company_id}/organization-profile")
+    assert response.status_code == 200, response.text
+    assert response.json()["can_write"] is True
+
+
+def test_owner_unverified_email_can_write_false(client, admin, app, fake) -> None:
+    email = "op-unverified@example.com"
+    _, company_id = _company(client, admin, app, fake, email)
+    with admin.connect() as connection:
+        connection.execute(
+            text("UPDATE users SET email_verified_at = NULL WHERE normalized_email = :email"),
+            {"email": email},
+        )
+        connection.commit()
+    response = client.get(f"/api/v1/companies/{company_id}/organization-profile")
+    assert response.status_code == 200, response.text
+    assert response.json()["can_write"] is False
+
+
 def test_invalid_period_not_first_of_month(client, admin, app, fake) -> None:
     _, company_id = _company(client, admin, app, fake, "op-bad-period@example.com")
     response = client.get(
