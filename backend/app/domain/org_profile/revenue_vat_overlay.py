@@ -148,15 +148,15 @@ def apply_profile_vat_overlay(
 
     total = Decimal("0")
     for fact in facts:
-        row_month: date | None = None
+        fact_month: date | None = None
         if fact.recognition_date is not None:
-            row_month = month_start(fact.recognition_date)
-        resolved = profiles_by_month.get(row_month) if row_month is not None else None
+            fact_month = month_start(fact.recognition_date)
+        resolved = profiles_by_month.get(fact_month) if fact_month is not None else None
         treat_as_net = (
             _row_unknown(fact)
             and _overlay_applies(resolved)
             and resolved is not None
-            and row_month is not None
+            and fact_month is not None
         )
         total = money(total + _signed_row(fact, treat_gross_as_net=treat_as_net))
 
