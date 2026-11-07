@@ -1,5 +1,8 @@
 -- P2c: нейтральные коды диапазона выручки (без привязки к конкретным суммам в имени enum).
 
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
+
 ALTER TABLE organization_profile_versions DISABLE TRIGGER organization_profile_versions_guard_tr;
 
 ALTER TABLE organization_profile_versions

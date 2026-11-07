@@ -467,3 +467,48 @@ def test_profile_mutations_include_support_and_confirm_readiness(client, admin) 
     created = _post_version(client, company_id, next_eff.isoformat())
     assert created.status_code == 200, created.text
     assert created.json()["confirm_readiness"]["ready"] is True
+
+
+def test_confirm_readiness_field_errors_invalid_inn(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-bad-inn@example.com")
+    patched = _patch_draft(client, company_id)
+    assert patched.status_code == 200, patched.text
+
+    with admin.begin() as connection:
+        connection.execute(
+            text("UPDATE companies SET inn = '111111111111' WHERE id = :cid"),
+            {"cid": company_id},
+        )
+
+    read = client.get(f"/api/v1/companies/{company_id}/organization-profile")
+    assert read.status_code == 200, read.text
+    readiness = read.json()["confirm_readiness"]
+    assert readiness["ready"] is False
+    assert readiness["missing"] == []
+    assert "inn_checksum_mismatch" in readiness["field_errors"].get("inn", [])
+
+
+def test_confirm_readiness_field_errors_incompatible_vat(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-bad-vat@example.com")
+    patched = _patch_draft(client, company_id)
+    assert patched.status_code == 200, patched.text
+    version_id = patched.json()["version_id"]
+    with admin.begin() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE organization_profile_versions
+                SET tax_system = 'osno', vat_status = 'special_rates_5_7',
+                    vat_regime_detail = 'special_without_deductions',
+                    usn_tax_object = 'unspecified'
+                WHERE id = :vid
+                """
+            ),
+            {"vid": version_id},
+        )
+    read = client.get(f"/api/v1/companies/{company_id}/organization-profile")
+    assert read.status_code == 200, read.text
+    readiness = read.json()["confirm_readiness"]
+    assert readiness["ready"] is False
+    assert readiness["missing"] == []
+    assert "special_rates_requires_usn" in readiness["field_errors"].get("vat_status", [])

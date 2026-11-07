@@ -252,7 +252,11 @@ def _confirm_readiness_payload(snapshot: ProfileSnapshot, *, company_inn: str | 
     return {
         "support_level": support.level if support else "partial",
         "support_code": support.code if support else None,
-        "confirm_readiness": {"ready": readiness.is_valid, "missing": missing},
+        "confirm_readiness": {
+            "ready": readiness.is_valid,
+            "missing": missing,
+            "field_errors": dict(readiness.field_errors),
+        },
     }
 
 

@@ -62,6 +62,7 @@ class CompanyIn(BaseModel):
 class CompanyPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     legal_name: str | None = None
+    inn: str | None = Field(default=None, max_length=12)
     min_cash_reserve: Decimal | None = None
 
 
@@ -325,6 +326,7 @@ def patch_company(
         company,
         name=payload.name,
         legal_name=payload.legal_name,
+        inn=payload.inn,
         min_cash_reserve=payload.min_cash_reserve,
         can_write_finance=writable or payload.min_cash_reserve is None,
     )

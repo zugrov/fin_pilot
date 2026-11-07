@@ -116,6 +116,7 @@ def update_company(
     *,
     name: str | None,
     legal_name: str | None,
+    inn: str | None,
     min_cash_reserve,
     can_write_finance: bool,
 ) -> Company:
@@ -123,11 +124,18 @@ def update_company(
         company.name = name.strip()
     if legal_name is not None:
         company.legal_name = legal_name
+    if inn is not None:
+        company.inn = inn.strip() or None
     if min_cash_reserve is not None:
         if not can_write_finance:
             raise AppError(402, "payment_required", "Оплаченный период закончился")
         company.min_cash_reserve = min_cash_reserve
     company.updated_at = now()
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        raise AppError(409, "conflict", "ИНН уже используется в этом пространстве") from None
     return company
 
 
