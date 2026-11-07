@@ -74,7 +74,7 @@ def get_version_for_date(session: Session, as_of: date) -> TaxNormVersion | None
 def version_to_payload(version: TaxNormVersion) -> dict:
     cap5 = derived_special_cap_5_rub(version)
     cap7 = derived_special_cap_7_rub(version)
-    needs_banner = version.status == "needs_review"
+    needs_banner = version.status in ("needs_review", "partially_confirmed")
     return {
         "id": str(version.id),
         "valid_from": version.valid_from.isoformat(),
