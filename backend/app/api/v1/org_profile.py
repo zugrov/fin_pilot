@@ -410,6 +410,12 @@ def _assert_profile_writer(membership, access) -> str:
     return role
 
 
+def _profile_can_write(user: User, membership, access) -> bool:
+    if user.email_verified_at is None:
+        return False
+    return effective_role(membership, access) in PROFILE_WRITE_ROLES
+
+
 def _company_read(request: Request, session: DbSession, company_id: UUID):
     _row, user, _m, company, _a = _company_session(request, session, company_id, mutate=False)
     _ = (_row, user, _a)
@@ -422,7 +428,11 @@ def get_organization_profile_for_period(
     request: Request,
     session: DbSession,
 ) -> dict:
-    company, at = _company_read(request, session, company_id)
+    _row, user, membership, company, access = _company_session(
+        request, session, company_id, mutate=False
+    )
+    _ = _row
+    at = now()
     period_month = _parse_period(request, company.timezone, at)
     resolved = get_profile_for_period(
         session,
@@ -442,6 +452,7 @@ def get_organization_profile_for_period(
         "confirmed_at": _ts_iso(resolved.confirmed_at),
         "confirmed_role": resolved.confirmed_role,
         "profile_unconfirmed": not resolved.is_confirmed,
+        "can_write": _profile_can_write(user, membership, access),
         **_snapshot_payload(snap),
     }
     return {**base, **_confirm_readiness_payload(snap, company_inn=company.inn)}

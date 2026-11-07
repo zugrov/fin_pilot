@@ -36,7 +36,7 @@ export function mapVatQuestionToSnapshot(
         vat_status: "exemption",
         vat_regime_detail: "unspecified",
         vat_default_rate: null,
-        vat_exemption_article_145: opts.taxSystem === "osno",
+        vat_exemption_article_145: true,
       };
     case "not_applicable":
       return {
@@ -83,13 +83,48 @@ export function step3FieldVisibility(snapshot: {
 }): {
   showUsnObject: boolean;
   showVatRate: boolean;
-  showArticle145: boolean;
   showRevenueBand: boolean;
 } {
   return {
     showUsnObject: snapshot.tax_system === "usn",
     showVatRate: snapshot.vat_status === "vat_payer",
-    showArticle145: snapshot.tax_system === "osno" && snapshot.vat_status === "exemption",
     showRevenueBand: snapshot.is_new_organization !== true,
   };
+}
+
+export function buildStep3DraftPatch(args: {
+  taxSystem: string;
+  vatAnswer: VatQuestionId;
+  vatRate: string;
+  pricesIncludeVat: string;
+  isNewOrg: boolean | null;
+  revenueBand: string;
+}): Record<string, unknown> {
+  const mapped = mapVatQuestionToSnapshot(args.vatAnswer, {
+    taxSystem: args.taxSystem,
+    vatDefaultRate: args.vatRate,
+  });
+  const body: Record<string, unknown> = {
+    ...mapped,
+    prices_include_vat: args.pricesIncludeVat,
+    is_new_organization: args.isNewOrg,
+  };
+  if (args.isNewOrg === true) {
+    body.prior_year_revenue_band = "unknown";
+  } else {
+    body.prior_year_revenue_band = args.revenueBand;
+  }
+  return body;
+}
+
+export function showUsnExemptionThresholdHint(args: {
+  taxSystem: string;
+  revenueBand: string;
+  vatAnswer: VatQuestionId;
+}): boolean {
+  return (
+    args.taxSystem === "usn" &&
+    args.revenueBand === "under_exemption_threshold" &&
+    args.vatAnswer === "unknown"
+  );
 }

@@ -92,6 +92,7 @@ def test_viewer_can_read_profile(client, admin, app, fake) -> None:
     body = response.json()
     assert body["company_id"] == company_id
     assert "confirmed_by" not in body
+    assert body["can_write"] is False
 
 
 def test_period_before_first_version_is_retroactive(client, admin, app, fake) -> None:
@@ -140,6 +141,7 @@ def test_unconfirmed_profile_banner(client, admin, app, fake) -> None:
     assert body["profile_unconfirmed"] is True
     assert body["confirmed_at"] is None
     assert body["confirmed_role"] is None
+    assert body["can_write"] is True
 
 
 def test_invalid_period_not_first_of_month(client, admin, app, fake) -> None:

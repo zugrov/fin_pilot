@@ -16,6 +16,8 @@ import { Banner } from "../components/system/Banner";
 import { StatusChip } from "../components/system/StatusChip";
 import { companyDate } from "../lib/forecast";
 import { useWritableCompanySelection } from "../lib/companySelection";
+import { isOrgProfileReadOnly } from "../lib/orgProfileAccess";
+import { fieldErrorsFromUnknown } from "../lib/orgProfileErrors";
 import {
   orgProfileApiMessage,
   orgProfileFieldMessage,
@@ -23,7 +25,9 @@ import {
 } from "../lib/orgProfileMessages";
 import { formatThresholdLine, priorYearBandLabels } from "../lib/orgProfileTaxNorms";
 import {
+  buildStep3DraftPatch,
   mapVatQuestionToSnapshot,
+  showUsnExemptionThresholdHint,
   snapshotToVatQuestion,
   step3FieldVisibility,
   type VatQuestionId,
@@ -79,12 +83,14 @@ function innLengthHint(inn: string, orgForm: string): string | null {
   return null;
 }
 
+type SaveVars = { advance: boolean };
+
 export function OrgProfileWizardPage() {
   const client = useQueryClient();
   const [step, setStep] = useState(1);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
-  const [readOnly, setReadOnly] = useState(false);
+  const [step3Saved, setStep3Saved] = useState(false);
   const [innDraft, setInnDraft] = useState("");
   const [orgForm, setOrgForm] = useState("unspecified");
   const [taxSystem, setTaxSystem] = useState("unspecified");
@@ -94,13 +100,13 @@ export function OrgProfileWizardPage() {
   const [pricesIncludeVat, setPricesIncludeVat] = useState("unknown");
   const [isNewOrg, setIsNewOrg] = useState<boolean | null>(null);
   const [revenueBand, setRevenueBand] = useState("unknown");
-  const [article145, setArticle145] = useState(false);
 
   const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
   const onCompanyChanged = useCallback(() => {
     setError("");
     setFieldErrors({});
     setStep(1);
+    setStep3Saved(false);
   }, []);
   const selection = useWritableCompanySelection(companies, { onCompanyChanged });
   const { companyId, company } = selection;
@@ -111,6 +117,8 @@ export function OrgProfileWizardPage() {
     queryFn: () => loadOrganizationProfile(companyId ?? "", period),
     enabled: Boolean(companyId && period),
   });
+
+  const readOnly = isOrgProfileReadOnly(profile.data?.can_write);
 
   const asOf = company?.timezone ? companyDate(company.timezone) : "";
   const taxNorms = useQuery({
@@ -128,9 +136,7 @@ export function OrgProfileWizardPage() {
     setPricesIncludeVat(data.prices_include_vat);
     setIsNewOrg(data.is_new_organization);
     setRevenueBand(data.prior_year_revenue_band);
-    setArticle145(Boolean(data.vat_exemption_article_145));
     setFieldErrors(data.confirm_readiness?.field_errors ?? {});
-    setReadOnly(false);
   }, []);
 
   useEffect(() => {
@@ -159,6 +165,12 @@ export function OrgProfileWizardPage() {
     is_new_organization: isNewOrg,
   });
 
+  const thresholdHint = showUsnExemptionThresholdHint({
+    taxSystem,
+    revenueBand,
+    vatAnswer,
+  });
+
   const supportText = orgProfileSupportBanner(profile.data?.support_code);
   const supportTone =
     profile.data?.support_level === "unsupported"
@@ -168,7 +180,7 @@ export function OrgProfileWizardPage() {
         : "info";
 
   const saveStep = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ advance }: SaveVars) => {
       if (!companyId) {
         throw new Error("Выберите организацию");
       }
@@ -190,44 +202,35 @@ export function OrgProfileWizardPage() {
         }
         await patchOrganizationProfileDraft(companyId, body);
       } else if (step === 3) {
-        const mapped = mapVatQuestionToSnapshot(vatAnswer, {
+        const body = buildStep3DraftPatch({
           taxSystem,
-          vatDefaultRate: vatRate,
+          vatAnswer,
+          vatRate,
+          pricesIncludeVat,
+          isNewOrg,
+          revenueBand,
         });
-        const body: Record<string, unknown> = {
-          ...mapped,
-          prices_include_vat: pricesIncludeVat,
-          is_new_organization: isNewOrg,
-          vat_exemption_article_145:
-            taxSystem === "osno" && vatAnswer === "exemption_145" ? article145 : false,
-        };
-        if (isNewOrg === true) {
-          body.prior_year_revenue_band = "unknown";
-        } else if (revenueBand !== "unknown") {
-          body.prior_year_revenue_band = revenueBand;
-          if (
-            taxSystem === "usn" &&
-            revenueBand === "under_exemption_threshold" &&
-            vatAnswer === "unknown"
-          ) {
-            body.vat_status = "not_applicable";
-          }
-        }
         await patchOrganizationProfileDraft(companyId, body);
       }
+      return advance;
     },
-    onSuccess: async () => {
+    onSuccess: async (advance) => {
       setError("");
+      setFieldErrors({});
       await client.invalidateQueries({ queryKey: ["organization-profile", companyId] });
-      if (step < 3) {
+      if (step < 3 && advance) {
         setStep(step + 1);
+      }
+      if (step === 3) {
+        setStep3Saved(true);
       }
     },
     onError: (exc) => {
+      const serverFields = fieldErrorsFromUnknown(exc);
+      if (Object.keys(serverFields).length > 0) {
+        setFieldErrors(serverFields);
+      }
       if (exc instanceof WalletRequestError) {
-        if (exc.status === 403) {
-          setReadOnly(true);
-        }
         setError(orgProfileApiMessage(exc.code, exc.message));
         return;
       }
@@ -237,13 +240,27 @@ export function OrgProfileWizardPage() {
 
   const onNext = () => {
     setError("");
-    saveStep.mutate();
+    setStep3Saved(false);
+    saveStep.mutate({ advance: true });
+  };
+
+  const onSaveStep3 = () => {
+    setError("");
+    saveStep.mutate({ advance: false });
   };
 
   const onBack = () => {
     setError("");
+    setStep3Saved(false);
     setStep((value) => Math.max(1, value - 1));
   };
+
+  const renderFieldErrors = (field: string) =>
+    (fieldErrors[field] ?? []).map((code) => (
+      <p key={`${field}-${code}`} className="text-caption text-danger">
+        {orgProfileFieldMessage(field, code)}
+      </p>
+    ));
 
   const statusChip = profile.data?.is_confirmed ? (
     <StatusChip tone="ok">Подтверждён</StatusChip>
@@ -253,7 +270,7 @@ export function OrgProfileWizardPage() {
 
   return (
     <Shell title="Профиль организации">
-      <p className="mb-4 text-sm text-ink-muted">Настройка режима и налоговых правил (шаги 1–3).</p>
+      <p className="mb-4 text-sm text-ink-muted">Настройка режима и налоговых правил.</p>
       <CompanyWritePicker
         listPhase={selection.listPhase}
         list={selection.list}
@@ -279,7 +296,9 @@ export function OrgProfileWizardPage() {
       {profile.data ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
           {statusChip}
-          <span className="text-caption text-muted">Шаг {step} из 3 (P3a)</span>
+          {import.meta.env.DEV ? (
+            <span className="text-caption text-muted">Шаг {step} из 3</span>
+          ) : null}
         </div>
       ) : null}
       {supportText ? (
@@ -320,6 +339,7 @@ export function OrgProfileWizardPage() {
               ))}
             </select>
           </label>
+          {renderFieldErrors("org_form")}
           <label className="block text-body">
             ИНН
             <input
@@ -334,11 +354,7 @@ export function OrgProfileWizardPage() {
           {innLengthHint(innDraft, orgForm) ? (
             <p className="text-caption text-warn">{innLengthHint(innDraft, orgForm)}</p>
           ) : null}
-          {fieldErrors.inn?.map((code) => (
-            <p key={code} className="text-caption text-danger">
-              {orgProfileFieldMessage("inn", code)}
-            </p>
-          ))}
+          {renderFieldErrors("inn")}
         </section>
       ) : null}
 
@@ -360,6 +376,7 @@ export function OrgProfileWizardPage() {
               ))}
             </select>
           </label>
+          {renderFieldErrors("tax_system")}
           {taxSystem === "usn" ? (
             <label className="block text-body">
               Объект УСН
@@ -380,6 +397,7 @@ export function OrgProfileWizardPage() {
               </span>
             </label>
           ) : null}
+          {renderFieldErrors("usn_tax_object")}
         </section>
       ) : null}
 
@@ -398,12 +416,17 @@ export function OrgProfileWizardPage() {
                   name="vat-question"
                   checked={vatAnswer === item.value}
                   disabled={readOnly}
-                  onChange={() => setVatAnswer(item.value)}
+                  onChange={() => {
+                    setVatAnswer(item.value);
+                    setStep3Saved(false);
+                  }}
                 />
                 {item.label}
               </label>
             ))}
           </fieldset>
+          {renderFieldErrors("vat_status")}
+          {renderFieldErrors("vat_regime_detail")}
           {visibility.showVatRate ? (
             <label className="block text-body">
               Ставка НДС по умолчанию
@@ -419,17 +442,7 @@ export function OrgProfileWizardPage() {
               </select>
             </label>
           ) : null}
-          {visibility.showArticle145 ? (
-            <label className="flex items-center gap-2 text-body">
-              <input
-                type="checkbox"
-                checked={article145}
-                disabled={readOnly}
-                onChange={(event) => setArticle145(event.target.checked)}
-              />
-              Освобождение по ст. 145 НК РФ
-            </label>
-          ) : null}
+          {renderFieldErrors("vat_default_rate")}
           <label className="block text-body">
             Цены в учёте с НДС?
             <select
@@ -443,6 +456,7 @@ export function OrgProfileWizardPage() {
               <option value="no">Нет</option>
             </select>
           </label>
+          {renderFieldErrors("prices_include_vat")}
           <label className="block text-body">
             Новая организация (не было выручки в прошлом году)?
             <select
@@ -456,6 +470,7 @@ export function OrgProfileWizardPage() {
                 } else {
                   setIsNewOrg(v === "yes");
                 }
+                setStep3Saved(false);
               }}
             >
               <option value="unknown">Не указано</option>
@@ -470,7 +485,10 @@ export function OrgProfileWizardPage() {
                 className="mt-1 w-full rounded border border-line px-3 py-2"
                 value={revenueBand}
                 disabled={readOnly}
-                onChange={(event) => setRevenueBand(event.target.value)}
+                onChange={(event) => {
+                  setRevenueBand(event.target.value);
+                  setStep3Saved(false);
+                }}
               >
                 <option value="unknown">Не указано</option>
                 {Object.entries(bandLabels).map(([code, label]) => (
@@ -481,6 +499,26 @@ export function OrgProfileWizardPage() {
               </select>
             </label>
           ) : null}
+          {renderFieldErrors("prior_year_revenue_band")}
+          {thresholdHint ? (
+            <Banner tone="info" label="Подсказка по НДС">
+              Для УСН с выручкой прошлого года до порога обычно выбирают «Нет, освобождён по
+              ст. 145».
+              <div className="mt-2">
+                <button
+                  type="button"
+                  className="rounded border border-line px-3 py-1 min-h-tap"
+                  disabled={readOnly}
+                  onClick={() => {
+                    setVatAnswer("exemption_145");
+                    setStep3Saved(false);
+                  }}
+                >
+                  Выбрать
+                </button>
+              </div>
+            </Banner>
+          ) : null}
           <p className="text-caption text-muted">
             Освобождение по ст. 145 — отсутствие обязанности исчислять НДС, а не нулевая ставка
             в ценах.
@@ -488,7 +526,7 @@ export function OrgProfileWizardPage() {
         </section>
       ) : null}
 
-      <div className="mt-6 flex flex-wrap gap-3">
+      <div className="mt-6 flex flex-wrap items-center gap-3">
         <button
           type="button"
           className="rounded border border-line px-4 py-2 min-h-tap"
@@ -507,9 +545,17 @@ export function OrgProfileWizardPage() {
             {saveStep.isPending ? "Сохраняем…" : "Далее"}
           </button>
         ) : (
-          <p className="text-body text-muted self-center">
-            Шаги 4–6 и подтверждение — в следующих релизах (P3b).
-          </p>
+          <>
+            <button
+              type="button"
+              className="rounded bg-accent px-4 py-2 text-on-accent min-h-tap"
+              disabled={readOnly || saveStep.isPending || !companyId}
+              onClick={onSaveStep3}
+            >
+              {saveStep.isPending ? "Сохраняем…" : "Сохранить"}
+            </button>
+            {step3Saved ? <span className="text-body text-muted">Сохранено</span> : null}
+          </>
         )}
       </div>
     </Shell>

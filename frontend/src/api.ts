@@ -6,17 +6,25 @@ import { authHeaders, setCsrf, setTenant } from "./session";
 export type ApiError = {
   code: string;
   message: string;
+  details?: { field_errors?: Record<string, string[]> };
 };
 
 export class WalletRequestError extends Error {
   readonly status: number;
   readonly code: string;
+  readonly fieldErrors: Record<string, string[]>;
 
-  constructor(message: string, status: number, code: string) {
+  constructor(
+    message: string,
+    status: number,
+    code: string,
+    fieldErrors: Record<string, string[]> = {},
+  ) {
     super(message);
     this.name = "WalletRequestError";
     this.status = status;
     this.code = code;
+    this.fieldErrors = fieldErrors;
   }
 }
 
@@ -32,6 +40,7 @@ async function walletRequest<T>(path: string, init: RequestInit = {}): Promise<T
       body?.message ?? "Запрос не выполнен",
       response.status,
       body?.code ?? "",
+      body?.details?.field_errors ?? {},
     );
   }
   return (await response.json()) as T;
@@ -160,6 +169,7 @@ export type OrganizationProfile = {
   is_confirmed: boolean;
   confirmed_at: string | null;
   profile_unconfirmed: boolean;
+  can_write: boolean;
   support_level: "supported" | "partial" | "unsupported";
   support_code: string | null;
   confirm_readiness: ConfirmReadiness;
