@@ -1,154 +1,125 @@
 # Вертикальный срез §8 · `vat_basis_unknown` и профиль организации
 
-**Статус:** разведка (без кода), ветка `docs/vertical-slice-vat-profile`.  
+**Статус:** спецификация реализации (носитель A: dashboard / `revenue_snapshot`).  
 **Основание:** [profile-implementation-plan.md](profile-implementation-plan.md) §8, [ADR-003](ADR-003-organization-profile-and-tax-rules.md) §5.
 
-**Контекст main после P2b:** merge PR #14 → `ca520ec`, CI/e2e зелёные, OpenAPI **122** (`test_http_db_dependency_guard.py`).
+**Контекст main:** P2b (`ca520ec`), OpenAPI **122**.
 
 ---
 
-## 1. Где сегодня живёт флаг
-
-### 1.1 Вычисление (единственная точка продукта)
+## 1. Где живёт флаг (исходное состояние)
 
 | Слой | Файл | Поведение |
 | --- | --- | --- |
-| Домен | `backend/app/domain/revenue.py` → `assess_revenue()` | Если есть хотя бы одна строка с `vat_basis != "net"` **или** `amount_ex_vat is None` → `quality_flags` содержит **`vat_basis_unknown`**, сумма — **gross** (`amount_inc_vat`), подпись **`сумма продаж по данным источника`**, `metric_basis` = **`source`**. Иначе — net-выручка, флаг не ставится. |
-| Сервис | `backend/app/services/report_service.py` → `revenue_snapshot()` | Читает `RevenueEntry` за период + покрытие `SourceConnection` (dataset `revenue`), собирает `SaleFact`, вызывает `assess_revenue`. |
-| Unit-тест | `backend/tests/unit/test_revenue.py` | `test_unknown_vat_is_not_net_revenue` — эталон контракта флага. |
+| Домен | `assess_revenue()` | Строка с `vat_basis != "net"` или без `amount_ex_vat` → **`vat_basis_unknown`**, gross-сумма, `SOURCE_LABEL`, `metric_basis` = `source`. |
+| Сервис | `revenue_snapshot()` | Журнал `revenue_entries` + coverage; после §8 — оверлей профиля. |
+| API | `dashboard`, `group-summary`, Telegram digest/bot | Общий `revenue_snapshot`. |
 
-**Профиль организации в расчёт выручки сегодня не входит** (`get_profile_for_period` используется только в API org-profile).
+**Вне среза:** дебиторка, бюджет, ОДДС (отдельные флаги).
 
-### 1.2 API, пробрасывающие флаг
+**Frontend:** `quality_flags` на Обзоре; для §8 — явные подписи в `overview.ts`.
 
-| Эндпоинт | Как попадает флаг |
+---
+
+## 2. Данные (импорт, ОСВ)
+
+- `SourceConnection.vat_basis` и поля `RevenueEntry` задают «грязность» строк.
+- ОСВ напрямую флаг не ставит — только через revenue-факты.
+- **Спец. ставки 5/7:** в учёте НДС **входит в цену** (5/105, 7/107); брутто **не** равно «выручка без НДС»; в профиле **не** хранится отдельно 5 или 7 → **`special_rates_5_7` не снимает** `vat_basis_unknown`.
+
+---
+
+## 3. Экран-носитель
+
+**Обзор** (`GET .../dashboard`) — один контракт, e2e/integration, group-summary и digest получают тот же результат через `revenue_snapshot`.
+
+---
+
+## 4. Оверлей профиля (целевое поведение)
+
+### 4.1 Когда включается
+
+Оверлей — **только** для подтверждённой версии профиля, действующей на **месяц строки** (`recognition_date`), при:
+
+| `vat_status` | Оверлей §8 |
 | --- | --- |
-| `GET /api/v1/companies/{company_id}/dashboard` | `dashboard_payload()` мержит `revenue_snapshot().quality_flags` в общий `quality_flags` (+ cashflow, cash). |
-| `GET /api/v1/workspaces/{tenant_id}/group-summary` | Для каждой фирмы — `revenue_snapshot()`; флаги объединяются в ответ. |
-| Косвенно: Telegram digest / bot | `telegram_digest.py`, `telegram_bot.py` вызывают `revenue_snapshot()` (тот же контракт, без отдельного UI). |
+| **`not_applicable`** | **Да** — снять `vat_basis_unknown` для **этой строки** (брутто трактуется как выручка без НДС, без пересчёта ex-VAT). |
+| **`exemption`** (общий случай) | **Нет** — отдельное решение владельца, **не** в §8. |
+| **`exemption` + `vat_exemption_article_145` = true** | **Да** — как `not_applicable` (уточнение приёмки). |
+| **`special_rates_5_7`** | **Нет** — флаг **остаётся** (см. §2). |
+| **`vat_payer`**, **`unknown`**, неподтверждённая версия | **Нет** — прежняя оценка `assess_revenue` (**защита пилота**). |
 
-Другие отчёты **не выставляют** `vat_basis_unknown` в коде:
+Контракт **`assess_revenue` без параметров профиля не меняется**; оверлей — тонкий слой **после** него.
 
-- **Дебиторка** (`receivable_aging_service.py`) — в FA-R06.1 описано поведение при флаге, но сейчас флаг **не добавляется** (только `missing_revenue_source`, `missing_counterparty`, …).
-- **Бюджет** (`budget_service._revenue_fact`) — при «грязных» строках возвращает `(False, None)` без явного quality flag.
-- **ОДДС** (`cashflow_payload`) — свой набор флагов, без НДС-базы выручки.
+### 4.2 Период из нескольких месяцев
 
-### 1.3 Frontend
+1. Для каждого календарного месяца в **[date_from, date_to]** (первое число месяца) и для месяца **каждой** `recognition_date` в выборке — `resolve_profile_for_period` по **одной** загрузке версий (без N+1).
+2. Оверлей построчно: по `recognition_date` строки → месяц → версия на этот месяц.
+3. Строки без даты: **не применимо** для `revenue_entries` (NOT NULL); если появятся в другом контексте — оверлей **не** применять, оставить оценку `assess_revenue`.
+4. Итог: смешанный период — часть строк со снятым флагом (+ информационный признак), часть с **`vat_basis_unknown`**; агрегат суммирует net/ex-vat и брутто по правилам строки.
 
-Строка **`vat_basis_unknown` в UI не именована**: нет записи в `frontend/src/lib/overview.ts` → `FLAG_TEXT`, пользователь видит общую фразу *«У отчёта есть замечание к полноте данных.»*
+После полного снятия `vat_basis_unknown` по периоду: `metric_basis` = **`net`**, `label` = **`Выручка без НДС`**, в `quality_flags` добавить **`vat_basis_from_profile`** (информация, **не** ошибка качества).
 
-| Экран | Источник данных | Связь с флагом |
-| --- | --- | --- |
-| **Обзор** (`OverviewPage.tsx`) | `loadDashboard` | `quality_flags` → `qualityNotes()`; выручка — `revenue_label` + `values.revenue` (`revenueDisplay`). |
-| **ОДДС** (`CashflowPage.tsx`) | cashflow API | Собственные флаги; не дублирует `vat_basis_unknown` с дашборда, если не пришёл в том же ответе. |
-| **Дебиторка** (`ReceivablePage.tsx`) | receivable-aging | Сейчас без `vat_basis_unknown`. |
-| Group e2e | `group-summary` | Проверяют `revenue_label` и суммы, не флаг НДС. |
+**Возвраты (`return`):** в брутто-оценке участвуют со знаком минус; оверлей на gross-only return — та же шкала `amount_inc_vat`, что для sale.
 
-Импорт на фронте: при создании источника в тестах/моках чаще `vat_basis: "net"` (`api.ts`).
+### 4.3 `input_revision` и пересчёт снимков
 
----
+В хеш дашборда (и любой `input_revision`, включающий revenue из `revenue_snapshot`) добавить поле **`revenue_profile`** — компактная строка:
 
-## 2. Зависимость от данных (ОСВ, импорт)
+`YYYY-MM:version_id:confirmed` для **месяцев, где к хотя бы одной строке применён оверлей**; месяцы без оверлея не входят.
 
-### 2.1 Импорт и хранение
-
-1. **Подключение источника** (`SourceConnection.vat_basis`: `net` \| `unknown`) — `POST .../sources`, `import_service`, `models/imports.py`.
-2. **Строки выручки** (`RevenueEntry.vat_basis`, `amount_ex_vat`, `amount_inc_vat`) — импорт CSV (`domain/imports/revenue_reader.py`, `revenue_import.py`), ручной `POST` revenue API (`revenue_service._checked_amounts`: при `unknown` допустимо пустое `amount_ex_vat`).
-3. **Покрытие периода** — без активного revenue-источника и `coverage_through >= date_to` срабатывает `missing_revenue_source` / `partial_period`, а не обязательно `vat_basis_unknown`.
-
-### 2.2 ОСВ и балансы
-
-Прямой связи «ОСВ → `vat_basis_unknown`» **нет**: агрегат смотрит только на журнал **`revenue_entries`**. ОСВ/62 влияют на дебиторку и сверки, но не меняют доменную оценку выручки за период, пока не залиты как revenue-факты с соответствующими полями.
-
-### 2.3 Типичный сценарий флага в пилоте
-
-Источник или строки с `vat_basis: "unknown"` / без `amount_ex_vat` (gross-only выгрузка) при полном coverage → на дашборде выручка с подписью *«сумма продаж…»* и `vat_basis_unknown` в `quality_flags`.
-
----
-
-## 3. Кандидаты «экран-носитель» (§8)
-
-| # | Носитель | Плюсы | Минусы |
-| --- | --- | --- | --- |
-| **A. Обзор (dashboard)** | Один вызов `GET .../dashboard`; выручка и quality в одном месте; заметно пользователю; интеграционные тесты (`test_revenue_api.py`, synthetic polygon); **минимальный** путь: только `revenue_snapshot` + тот же JSON-контракт. | UI не показывает имя флага; на блоке «Состояние данных» флаг теряется среди других; смешение cash + revenue flags. |
-| **B. Group-summary** | Тот же `revenue_snapshot` на фирму; e2e `group-e-synthetic-polygon`; проверка tenant-scope. | Менее заметен в UI (нет отдельной страницы в продукте); агрегация revenue по фирмам не показывает per-company флаги в UI. |
-| **C. Дебиторка** | FA-R06.1 явно требует gross + флаг при неизвестной базе. | **Сейчас флаг не реализован** — для §8 пришлось бы дотянуть AR до спеки; шире срез, чем «приёмка модели». |
-
-**Рекомендация для §8:** **A (Обзор / dashboard API)** — изолированное изменение в `revenue_snapshot` + один интеграционный сценарий «профиль подтверждён → `vat_status` → флаг исчез / остаётся»; фронт можно не трогать для приёмки (достаточно API и при желании — одна подпись в `FLAG_TEXT`).
-
----
-
-## 4. Предлагаемое минимальное изменение (поведение)
-
-### 4.1 Условие включения профиля
-
-- Вызов `get_profile_for_period(session, tenant_id, company_id, period_month=first_day(date_from))`.
-- **Оверлей ADR-003 применяется только если** `resolved.is_confirmed` (см. plan §2, ADR §3).
-- Если профиля нет, версия на период **не подтверждена**, или `vat_status` в профиле — `unknown` / черновик → **текущее** поведение `assess_revenue` без изменений (**защита пилота**).
-
-### 4.2 Правила по `vat_status` (подтверждённый профиль)
-
-Ссылка: ADR-003 §5 (матрица `vat_status`).
-
-| `vat_status` (профиль) | Действие относительно `vat_basis_unknown` |
+| Снимок / канал | Пересчёт при смене/подтверждении профиля |
 | --- | --- |
-| **`not_applicable`** | Снять флаг; интерпретировать период в **согласованной** шкале (для §8 достаточно: не помечать gross-only строки как «неизвестная база»; целевая подпись/база — как для net/учётной политики «НДС не применяется», без выдачи gross за net revenue). |
-| **`special_rates_5_7`** (подтверждённый режим спец. ставок) | Снять флаг по ADR (аналог «база определена режимом»); суммы без пересчёта ставки в §8 — только quality/label. |
-| **`vat_payer`** | **§5:** ожидается разрез с/без НДС; если в данных есть `amount_ex_vat` и `vat_basis=net` — без флага; если данные по-прежнему только gross/unknown — **флаг сохранять** (профиль не подменяет плохой импорт). |
-| **`exemption`** | **§5:** освобождённые операции; для §8 — **не снимать** флаг автоматически только из-за профиля, если строки остаются `unknown`/без ex-VAT; уточнение подписи — отдельный инкремент P4. |
-| **`unknown` в профиле** | Как неподтверждённый: без оверлея. |
+| `GET .../dashboard` (`input_revision`) | **Да** |
+| `GET .../group-summary` | **Да** (тот же `revenue_snapshot` на фирму) |
+| Telegram digest / bot (day, MTD revenue) | **Да** |
+| Прогноз (`forecast_service.input_revision`) | **Нет** в §8 (revenue profile не входит) |
+| Cashflow `input_revision` | **Нет** |
 
-Реализация: тонкий слой **после** `assess_revenue` (или опциональный аргумент `profile_vat_status`) — не ломать чистый контракт домена для случая «нет профиля».
+### 4.4 Frontend (в срезе)
 
-### 4.3 Что намеренно не входит в срез
+`frontend/src/lib/overview.ts` → `FLAG_TEXT`:
 
-- Закрытые периоды / снимок на дату закрытия — только зафиксировать в тесте, что берётся версия по `effective_from` (уже есть `resolve_profile_for_period`).
-- Пересчёт `amount_ex_vat` из gross по `vat_default_rate` — **не** в минимуме (риск float; только Decimal при появлении).
-- Массовое P4 по всем отчётам.
+- `vat_basis_unknown` — явное замечание о неизвестной базе НДС.
+- `vat_basis_from_profile` — пояснение, что разрез опирается на подтверждённый профиль (НДС не применяется / ст. 145).
+
+### 4.5 Вне среза
+
+Дебиторка, бюджет, ОДДС; пересчёт `amount_ex_vat` из брутто по ставке; общий `exemption` без ст. 145; closed-period политика — только тест на выбор версии по `effective_from`.
 
 ---
 
-## 5. Файлы и тесты (ожидаемый дифф)
+## 5. Файлы реализации
 
 | Область | Файлы |
 | --- | --- |
-| Логика | `backend/app/domain/revenue.py` (или `backend/app/domain/org_profile/revenue_vat.py` — оверлей), `backend/app/services/report_service.py` (`revenue_snapshot`) |
-| Профиль | `backend/app/services/org_profile_service.py` (`get_profile_for_period` — уже есть) |
-| Константы | `backend/app/domain/org_profile/constants.py` (`VAT_STATUSES`) |
-| Unit | `backend/tests/unit/test_revenue.py` (+ кейсы оверлея), при выносе — `test_revenue_vat_profile.py` |
-| Интеграция | новый `test_org_profile_vat_vertical_slice.py` или расширение `test_revenue_api.py`: dashboard до/после confirm + `vat_status=not_applicable` при gross-only sales |
-| Регресс | `test_synthetic_polygon.py` / polygon ORACLE — только если меняется label/amount при тех же строках |
-| Frontend (опционально) | `frontend/src/lib/overview.ts` — человекочитаемый текст для `vat_basis_unknown`; `overview.test.ts` |
-| Документация | этот файл + одна строка в plan §8 «выбран носитель A» |
+| Оверлей | `backend/app/domain/org_profile/revenue_vat_overlay.py`, `SaleFact.recognition_date` |
+| Сервис | `report_service.revenue_snapshot`, `dashboard_payload` (`input_revision`) |
+| Профиль | `list_versions_for_company` + резолв по месяцам в памяти |
+| Unit | `test_revenue_vat_profile_overlay.py`, `test_revenue.py` (регресс) |
+| Интеграция | `test_org_profile_vat_vertical_slice.py` (dashboard, group-summary, изоляция) |
+| UI | `overview.ts`, `overview.test.ts` |
 
-**OpenAPI:** новых операций нет → счётчик **122** не меняется.
+OpenAPI **122** без изменений.
 
 ---
 
-## 6. Оценка объёма
+## 6. Сценарии приёмки §8
 
-| Работа | Оценка |
-| --- | --- |
-| Оверлей + `revenue_snapshot` + unit | 0,5–1 д |
-| Интеграция профиль → dashboard (2–3 сценария) | 1 д |
-| Опционально UI-подпись флага + vitest | 0,25 д |
-| Приёмка / polygon / owner-checklist §8 | 0,5 д |
-| **Итого** | **~2–3 человеко-дня** (один разработчик), без P4 и без дебиторки |
-
----
-
-## 7. Сценарий приёмки §8 (черновик)
-
-1. Фирма с revenue coverage, строки sale `vat_basis=unknown`, gross only → dashboard: `vat_basis_unknown`, label *«сумма продаж…»*.
-2. Подтвердить профиль с `vat_status=not_applicable` (и `effective_from` ≤ периода).
-3. Тот же период и те же строки → **нет** `vat_basis_unknown`; подпись/база по таблице §4.2 (зафиксировать ожидаемый `revenue_label` и `metric_basis` в тесте).
-4. Снять подтверждение / черновик с `unknown` → снова как в п.1.
+1. **Неподтверждённый профиль** (черновик / `confirmed_at` пусто): gross-only → `vat_basis_unknown`, без `vat_basis_from_profile`.
+2. **Подтверждённый `not_applicable`**: те же строки → нет `vat_basis_unknown`, есть `vat_basis_from_profile`, `metric_basis` = `net`, label «Выручка без НДС».
+3. **Подтверждённый `special_rates_5_7`**: gross-only → **`vat_basis_unknown` сохраняется**.
+4. **Диапазон два месяца, две версии**: октябрь `not_applicable` подтверждён, ноябрь без оверлея / неподтверждён — флаг только по строкам ноября.
+5. **Возвраты**: sale + return gross-only при `not_applicable` — сумма и знаки, без ложного net из одной sale.
+6. **`group-summary` и digest** — те же флаги/суммы, что dashboard на том же периоде.
+7. **Tenant-изоляция**: профиль чужой фирмы не влияет на revenue snapshot.
+8. **Polygon / без профиля** — без регресса (как до среза).
+9. **Ст. 145**: `exemption` + `vat_exemption_article_145=true`, подтверждено — как п.2.
 
 ---
 
 ## Связанные документы
 
-- [ADR-003 · Профиль и налоговые правила](ADR-003-organization-profile-and-tax-rules.md)
-- [План внедрения профиля · §8](profile-implementation-plan.md)
-- [accounting-policy.md](../accounting-policy.md) — определение `vat_basis_unknown`
-- [FA-R06.1 · правила v1](FA-R06.1-management-rules-v1.md) §4.6
+- [ADR-003](ADR-003-organization-profile-and-tax-rules.md) §5 (обновлён)
+- [accounting-policy.md](../accounting-policy.md)
+- [FA-R06.1](FA-R06.1-management-rules-v1.md) §4.6
