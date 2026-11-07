@@ -6,7 +6,13 @@ from sqlalchemy import text
 from tests.integration.conftest import login, open_workspace, register_and_verify
 
 NORM_2026_ID = "a0000000-0000-4000-8000-000000000001"
+NORM_2027_PARTIAL_ID = "a0000000-0000-4000-8000-000000000003"
+NORM_2030_DRAFT_ID = "a0000000-0000-4000-8000-000000000004"
 FNS_2026_SOURCE = "https://www.nalog.gov.ru/rn95/taxation/taxes/nds_usn/"
+FNS_2027_SOURCE = "https://www.nalog.gov.ru/rn11/news/activities_fts/16668026/"
+EXPECTED_NORM_ROW_IDS = frozenset(
+    {NORM_2026_ID, NORM_2027_PARTIAL_ID, NORM_2030_DRAFT_ID}
+)
 
 
 def _auth(client, admin, email: str) -> None:
@@ -58,9 +64,47 @@ def test_tax_norms_current_2026_matches_adr_caps(client, admin) -> None:
     assert dec31.status_code == 200
     assert jan1.status_code == 200
     assert dec31.json()["id"] != jan1.json()["id"]
-    assert jan1.json()["status"] == "needs_review"
-    assert jan1.json()["needs_review_banner"] is True
-    assert jan1.json()["values"]["usn_vat_exemption_threshold_rub"] is None
+
+
+def test_tax_norms_2027_partially_confirmed(client, admin) -> None:
+    _auth(client, admin, "norms2027@example.com")
+    response = client.get("/api/v1/tax-norms/current", params={"as_of": "2027-06-01"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == NORM_2027_PARTIAL_ID
+    assert body["status"] == "partially_confirmed"
+    assert body["needs_review_banner"] is True
+    assert body["source_url"] == FNS_2027_SOURCE
+    assert body["verified_by"] == "editorial"
+    assert "228-ФЗ" in body["notes"] or "414502711" in body["notes"]
+    values = body["values"]
+    assert values["usn_vat_exemption_threshold_rub"] == "20000000.00"
+    assert values["computed_special_cap_5_rub"] is None
+    assert values["computed_special_cap_7_rub"] is None
+    assert values["special_rates_deflator"] is None
+    assert values["vat_rates_general_percent"] == ["22", "10", "0"]
+    assert values["vat_rates_special_percent"] == ["5", "7"]
+
+
+def test_tax_norms_2029_vs_2030_versions(client, admin) -> None:
+    _auth(client, admin, "norms2030@example.com")
+    y2029 = client.get("/api/v1/tax-norms/current", params={"as_of": "2029-12-31"})
+    y2030 = client.get("/api/v1/tax-norms/current", params={"as_of": "2030-01-01"})
+    assert y2029.status_code == 200
+    assert y2030.status_code == 200
+    assert y2029.json()["id"] == NORM_2027_PARTIAL_ID
+    assert y2030.json()["id"] == NORM_2030_DRAFT_ID
+    assert y2030.json()["status"] == "needs_review"
+    assert y2030.json()["needs_review_banner"] is True
+    assert y2030.json()["values"]["usn_vat_exemption_threshold_rub"] is None
+
+
+def test_tax_norms_seed_row_ids(admin) -> None:
+    with admin.connect() as connection:
+        rows = connection.execute(
+            text("SELECT id::text FROM tax_norm_versions ORDER BY valid_from")
+        ).scalars().all()
+    assert set(rows) == EXPECTED_NORM_ROW_IDS
 
 
 def test_tax_norms_deflator_precision_via_api(client, admin) -> None:

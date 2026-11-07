@@ -33,7 +33,7 @@ from tests.integration.conftest import (
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 RECEIVED = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 SCOPE_SEED_AT = RECEIVED
-REVISION = "20261106_0018"
+REVISION = "20261107_0019"
 REV_0011 = "20261018_0011"
 PREV = "20261017_0010"
 _PG_PORT = __import__("os").environ.get("TEST_PG_PORT", "5432")
