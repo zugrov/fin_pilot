@@ -59,6 +59,34 @@ def _patch_draft(client, company_id: str, **kwargs) -> dict:
     return response
 
 
+def _patch_draft_json(client, company_id: str, body: dict):
+    return client.patch(
+        f"/api/v1/companies/{company_id}/organization-profile/draft",
+        json=body,
+    )
+
+
+def _assert_audit_payloads_clean(admin, action: str) -> None:
+    with admin.connect() as connection:
+        rows = connection.execute(
+            text(
+                """
+                SELECT before_redacted::text, after_redacted::text
+                FROM audit_log WHERE action = :a
+                """
+            ),
+            {"a": action},
+        ).all()
+    for before_raw, after_raw in rows:
+        for raw in (before_raw, after_raw):
+            if raw is None:
+                continue
+            lowered = raw.lower()
+            assert "inn" not in lowered
+            assert "email" not in lowered
+            assert "password" not in lowered
+
+
 def _confirm(client, company_id: str, version_id: str, *, key: str | None = None) -> dict:
     response = client.post(
         f"/api/v1/companies/{company_id}/organization-profile/versions/{version_id}/confirm",
@@ -134,13 +162,11 @@ def test_owner_draft_confirm_and_immutable(client, admin) -> None:
     assert confirmed.json()["is_confirmed"] is True
     assert confirm_before + 1 == _audit_count(admin, "organization_profile_confirmed")
 
-    blocked = _patch_draft(client, company_id, industry_sphere="services", change_reason="поздно")
-    assert blocked.status_code in {400, 409}
-    assert blocked.json()["code"] in {
-        "already_confirmed",
-        "profile_version_immutable",
-        "not_latest_version",
-    }
+    blocked = _patch_draft(
+        client, company_id, industry_sphere="services", change_reason="поздно"
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["code"] == "already_confirmed"
 
 
 def test_create_version_after_confirm(client, admin) -> None:
@@ -218,6 +244,159 @@ def test_confirm_idempotent(client, admin) -> None:
     assert second.status_code == 200, second.text
     assert second.json()["version_id"] == first.json()["version_id"]
     assert _audit_count(admin, "organization_profile_confirmed") == audit_after_first
+
+
+def test_patch_partial_keeps_other_fields(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-partial@example.com")
+    first = _patch_draft(client, company_id)
+    assert first.status_code == 200, first.text
+    assert first.json()["org_form"] == "ooo"
+    assert first.json()["tax_system"] == "usn"
+    second = _patch_draft_json(
+        client,
+        company_id,
+        {"industry_sphere": "services", "change_reason": "только сфера"},
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["org_form"] == "ooo"
+    assert second.json()["tax_system"] == "usn"
+    assert second.json()["industry_sphere"] == "services"
+
+
+def test_patch_unknown_field_validation_error(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-extra@example.com")
+    response = _patch_draft_json(
+        client,
+        company_id,
+        {"change_reason": "x", "extra_field": "nope"},
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "validation_error"
+
+
+def test_post_without_idempotency_key(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-no-idem@example.com")
+    response = client.post(
+        f"/api/v1/companies/{company_id}/organization-profile/versions",
+        json=_complete_body(effective_from="2099-01-01", change_reason="x"),
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "validation_error"
+    version_id = _latest_version_id(client, company_id)
+    confirm = client.post(
+        f"/api/v1/companies/{company_id}/organization-profile/versions/{version_id}/confirm",
+    )
+    assert confirm.status_code == 400
+    assert confirm.json()["code"] == "validation_error"
+
+
+def test_viewer_cannot_post_or_confirm(client, admin) -> None:
+    tenant_id, company_id = _company_bare(client, admin, "opw-viewer-post@example.com")
+    _patch_draft(client, company_id)
+    version_id = _latest_version_id(client, company_id)
+    invited = client.post(
+        f"/api/v1/workspaces/{tenant_id}/invitations",
+        json={"email": "opw-viewer-post-guest@example.com", "role": "viewer"},
+    )
+    assert invited.status_code == 200
+    token = token_from_link(
+        latest_email_link(admin, "opw-viewer-post-guest@example.com", "invite")
+    )
+    guest = TestClient(client.app)
+    register_and_verify(guest, admin, "opw-viewer-post-guest@example.com")
+    guest_login = login(guest, "opw-viewer-post-guest@example.com")
+    guest.post("/api/v1/auth/invitations/accept", json={"token": token})
+    client.post(
+        f"/api/v1/workspaces/{tenant_id}/company-access",
+        json={"user_id": guest_login["user"]["id"], "company_id": company_id},
+    )
+    guest.headers["X-CSRF-Token"] = guest_login["csrf_token"]
+    guest.headers["X-Tenant-Id"] = tenant_id
+    denied_confirm = _confirm(guest, company_id, version_id)
+    assert denied_confirm.status_code == 403
+    denied_create = _post_version(guest, company_id, "2099-02-01")
+    assert denied_create.status_code == 403
+
+
+def test_write_without_csrf(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-csrf@example.com")
+    token = client.headers.pop("X-CSRF-Token")
+    try:
+        denied = _patch_draft_json(
+            client, company_id, {"tax_system": "usn", "change_reason": "csrf"}
+        )
+        assert denied.status_code == 403
+        assert denied.json()["code"] == "csrf"
+    finally:
+        client.headers["X-CSRF-Token"] = token
+
+
+def test_invalid_profile_field_errors(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-invalid@example.com")
+    response = _patch_draft_json(
+        client,
+        company_id,
+        {"tax_system": "llc", "change_reason": "bad"},
+    )
+    assert response.status_code == 400
+    body = response.json()
+    assert body["code"] == "profile_validation_failed"
+    assert "tax_system" in body["details"]["field_errors"]
+
+
+def test_confirm_incomplete_lists_missing(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-incomplete@example.com")
+    _patch_draft_json(client, company_id, {"tax_system": "usn", "change_reason": "мин"})
+    version_id = _latest_version_id(client, company_id)
+    response = _confirm(client, company_id, version_id)
+    assert response.status_code == 400
+    assert response.json()["code"] == "profile_confirm_incomplete"
+    missing = response.json()["details"]["field_errors"]["_confirm_minimum"]
+    assert "usn_tax_object" in missing
+
+
+def test_version_create_idempotency_replay_and_conflict(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-idem-ver@example.com")
+    _patch_draft(client, company_id)
+    version_id = _latest_version_id(client, company_id)
+    _confirm(client, company_id, version_id)
+    with admin.connect() as connection:
+        eff = date.fromisoformat(
+            connection.execute(
+                text(
+                    "SELECT effective_from::text FROM organization_profile_versions "
+                    "WHERE company_id = :cid ORDER BY effective_from DESC LIMIT 1"
+                ),
+                {"cid": company_id},
+            ).scalar_one()
+        )
+    next_eff = date(eff.year + 1, 1, 1) if eff.month == 12 else date(eff.year, eff.month + 1, 1)
+    key = uuid.uuid4().hex
+    before = _audit_count(admin, "organization_profile_version_created")
+    first = _post_version(client, company_id, next_eff.isoformat(), key=key)
+    assert first.status_code == 200, first.text
+    second = _post_version(client, company_id, next_eff.isoformat(), key=key)
+    assert second.status_code == 200, second.text
+    assert second.json()["version_id"] == first.json()["version_id"]
+    assert _audit_count(admin, "organization_profile_version_created") == before + 1
+
+    conflict = client.post(
+        f"/api/v1/companies/{company_id}/organization-profile/versions",
+        json=_complete_body(effective_from="2099-03-01", change_reason="другой"),
+        headers={"Idempotency-Key": key},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "idempotency_conflict"
+
+
+def test_audit_records_exclude_pii(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-audit@example.com")
+    _patch_draft(client, company_id)
+    version_id = _latest_version_id(client, company_id)
+    _confirm(client, company_id, version_id)
+    _assert_audit_payloads_clean(admin, "organization_profile_draft_updated")
+    _assert_audit_payloads_clean(admin, "organization_profile_confirmed")
+    _assert_audit_payloads_clean(admin, "organization_profile_version_created")
 
 
 def test_accountant_can_write(client, admin) -> None:

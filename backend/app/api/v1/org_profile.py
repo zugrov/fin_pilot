@@ -30,7 +30,7 @@ from app.services.org_profile_service import (
     update_draft_profile_version,
 )
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -90,7 +90,58 @@ def _ts_iso(value: datetime | None) -> str | None:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-class ProfileFieldsIn(BaseModel):
+_CHANGE_REASON = Field(
+    ...,
+    min_length=1,
+    max_length=500,
+    description="Краткая причина изменения, без персональных данных",
+)
+
+_PROFILE_FIELD_NAMES = (
+    "org_form",
+    "tax_system",
+    "usn_tax_object",
+    "vat_status",
+    "vat_regime_detail",
+    "vat_default_rate",
+    "prices_include_vat",
+    "vat_exemption_article_145",
+    "is_new_organization",
+    "revenue_recognition_method",
+    "accounting_source",
+    "industry_sphere",
+    "money_channels",
+    "prior_year_revenue_band",
+    "month_close_policy",
+)
+
+
+class DraftProfilePatchIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    org_form: str | None = None
+    tax_system: str | None = None
+    usn_tax_object: str | None = None
+    vat_status: str | None = None
+    vat_regime_detail: str | None = None
+    vat_default_rate: str | None = None
+    prices_include_vat: str | None = None
+    vat_exemption_article_145: bool | None = None
+    is_new_organization: bool | None = None
+    revenue_recognition_method: str | None = None
+    accounting_source: str | None = None
+    industry_sphere: str | None = None
+    money_channels: list[str] | None = None
+    prior_year_revenue_band: str | None = None
+    month_close_policy: str | None = None
+    change_reason: str = _CHANGE_REASON
+
+
+class ProfileVersionCreateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    effective_from: date
+    change_reason: str = _CHANGE_REASON
     org_form: str = "unspecified"
     tax_system: str = "unspecified"
     usn_tax_object: str = "unspecified"
@@ -108,16 +159,20 @@ class ProfileFieldsIn(BaseModel):
     month_close_policy: str = "unknown"
 
 
-class DraftProfilePatchIn(ProfileFieldsIn):
-    change_reason: str = Field(min_length=1, max_length=2000)
+def _snapshot_from_row_values(snapshot: ProfileSnapshot) -> dict:
+    return {name: getattr(snapshot, name) for name in _PROFILE_FIELD_NAMES}
 
 
-class ProfileVersionCreateIn(ProfileFieldsIn):
-    effective_from: date
-    change_reason: str = Field(min_length=1, max_length=2000)
+def _merge_draft_patch(current: ProfileSnapshot, patch: DraftProfilePatchIn) -> ProfileSnapshot:
+    data = _snapshot_from_row_values(current)
+    for key in patch.model_fields_set:
+        if key == "change_reason":
+            continue
+        data[key] = getattr(patch, key)
+    return ProfileSnapshot(**data)
 
 
-def _snapshot_from_in(payload: ProfileFieldsIn) -> ProfileSnapshot:
+def _snapshot_from_create(payload: ProfileVersionCreateIn) -> ProfileSnapshot:
     return ProfileSnapshot(
         org_form=payload.org_form,
         tax_system=payload.tax_system,
@@ -404,13 +459,14 @@ def patch_organization_profile_draft(
         raise AppError(404, "not_found", "Версия профиля не найдена")
     latest = versions[-1]
     before = snapshot_from_row(latest)
+    merged = _merge_draft_patch(before, payload)
     at = now()
     row = update_draft_profile_version(
         session,
         tenant_id=company.tenant_id,
         company_id=company.id,
         version_id=latest.id,
-        snapshot=_snapshot_from_in(payload),
+        snapshot=merged,
         change_reason=payload.change_reason,
     )
     after = snapshot_from_row(row)
@@ -463,7 +519,7 @@ def post_organization_profile_version(
         company_id=company.id,
         created_by=user.id,
         effective_from=payload.effective_from,
-        snapshot=_snapshot_from_in(payload),
+        snapshot=_snapshot_from_create(payload),
         change_reason=payload.change_reason,
         at=at,
     )
@@ -478,7 +534,7 @@ def post_organization_profile_version(
         after={
             "effective_from": row.effective_from.isoformat(),
             "change_reason": payload.change_reason,
-            **_snapshot_payload(_snapshot_from_in(payload)),
+            **_snapshot_payload(_snapshot_from_create(payload)),
         },
         at=at,
         request=request,
