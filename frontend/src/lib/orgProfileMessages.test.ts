@@ -9,12 +9,23 @@ import {
   orgProfileSupportBanner,
 } from "./orgProfileMessages";
 
+const VERSION_FLOW_CODES = [
+  "draft_exists",
+  "effective_from_not_after_latest",
+  "profile_version_conflict",
+  "not_latest_version",
+] as const;
+
 describe("orgProfileMessages API codes", () => {
   for (const code of Object.keys(ORG_PROFILE_API_MESSAGES)) {
     it(`маппит API ${code}`, () => {
       expect(orgProfileApiMessage(code).length).toBeGreaterThan(5);
     });
   }
+
+  it.each(VERSION_FLOW_CODES)("текст версии %s", (code) => {
+    expect(orgProfileApiMessage(code)).toMatch(/верси|черновик|дата/i);
+  });
 });
 
 describe("orgProfileMessages field_errors", () => {

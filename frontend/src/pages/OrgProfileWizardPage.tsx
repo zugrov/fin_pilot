@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   confirmOrganizationProfileVersion,
@@ -21,8 +21,22 @@ import { Banner } from "../components/system/Banner";
 import { StatusChip } from "../components/system/StatusChip";
 import { formatDate } from "../lib/dates";
 import { companyDate } from "../lib/forecast";
-import { defaultEffectiveFromMonth } from "../lib/orgProfileEffectiveFrom";
+import {
+  defaultEffectiveFromMonth,
+  monthInputMinAfterVersion,
+} from "../lib/orgProfileEffectiveFrom";
 import { buildVersionCreateBody } from "../lib/orgProfileVersionSnapshot";
+import {
+  canConfirmOrganizationProfile,
+  confirmTargetVersionId,
+  currentPeriodMonth,
+  isFutureUnconfirmedDraft,
+  latestProfileVersion,
+  maxYearMonth,
+  shouldShowWizard,
+  wizardProfilePeriod,
+  wizardWriteActionsVisible,
+} from "../lib/orgProfileWizardPlan";
 import { useWritableCompanySelection } from "../lib/companySelection";
 import { isOrgProfileReadOnly } from "../lib/orgProfileAccess";
 import { fieldErrorsFromUnknown } from "../lib/orgProfileErrors";
@@ -108,11 +122,6 @@ const VAT_QUESTIONS: { value: VatQuestionId; label: string }[] = [
   { value: "unknown", label: "Не знаю" },
 ];
 
-function periodMonth(timezone: string): string {
-  const local = companyDate(timezone);
-  return `${local.slice(0, 7)}-01`;
-}
-
 function innLengthHint(inn: string, orgForm: string): string | null {
   const digits = inn.replace(/\D/g, "");
   if (!digits) {
@@ -153,6 +162,7 @@ export function OrgProfileWizardPage() {
   const [changeModalOpen, setChangeModalOpen] = useState(false);
   const [changeReason, setChangeReason] = useState("");
   const [effectiveFromMonth, setEffectiveFromMonth] = useState("");
+  const changeModeButtonRef = useRef<HTMLButtonElement>(null);
 
   const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
   const onCompanyChanged = useCallback(() => {
@@ -165,13 +175,6 @@ export function OrgProfileWizardPage() {
   }, []);
   const selection = useWritableCompanySelection(companies, { onCompanyChanged });
   const { companyId, company } = selection;
-  const period = company?.timezone ? periodMonth(company.timezone) : undefined;
-
-  const profile = useQuery({
-    queryKey: ["organization-profile", companyId, period],
-    queryFn: () => loadOrganizationProfile(companyId ?? "", period),
-    enabled: Boolean(companyId && period),
-  });
 
   const versions = useQuery({
     queryKey: ["organization-profile-versions", companyId],
@@ -179,8 +182,39 @@ export function OrgProfileWizardPage() {
     enabled: Boolean(companyId),
   });
 
+  const latestVersion = useMemo(
+    () => latestProfileVersion(versions.data?.versions),
+    [versions.data?.versions],
+  );
+
+  const currentPeriod = useMemo(
+    () => (company?.timezone ? currentPeriodMonth(company.timezone) : undefined),
+    [company?.timezone],
+  );
+
+  const wizardPeriod = useMemo(() => {
+    if (!company?.timezone) {
+      return undefined;
+    }
+    return wizardProfilePeriod(company.timezone, latestVersion?.effective_from);
+  }, [company?.timezone, latestVersion?.effective_from]);
+
+  const profile = useQuery({
+    queryKey: ["organization-profile", companyId, wizardPeriod],
+    queryFn: () => loadOrganizationProfile(companyId ?? "", wizardPeriod),
+    enabled: Boolean(companyId && wizardPeriod),
+  });
+
+  const cardProfile = useQuery({
+    queryKey: ["organization-profile", companyId, currentPeriod, "card"],
+    queryFn: () => loadOrganizationProfile(companyId ?? "", currentPeriod),
+    enabled: Boolean(companyId && currentPeriod),
+  });
+
   const readOnly = isOrgProfileReadOnly(profile.data?.can_write);
-  const showCard = Boolean(profile.data?.is_confirmed && !wizardOpen);
+  const writeActions = wizardWriteActionsVisible(profile.data?.can_write);
+  const showCard = Boolean(cardProfile.data?.is_confirmed);
+  const futureDraft = isFutureUnconfirmedDraft(latestVersion, currentPeriod ?? "");
 
   const asOf = company?.timezone ? companyDate(company.timezone) : "";
   const taxNorms = useQuery({
@@ -211,17 +245,43 @@ export function OrgProfileWizardPage() {
       return;
     }
     syncFromProfile(profile.data);
-    if (!profile.data.is_confirmed) {
-      setWizardOpen(true);
-    }
   }, [profile.data, syncFromProfile]);
 
   useEffect(() => {
-    if (!company?.timezone) {
+    if (!latestVersion) {
+      setWizardOpen(true);
       return;
     }
-    setEffectiveFromMonth(defaultEffectiveFromMonth(company.timezone).slice(0, 7));
-  }, [company?.timezone, companyId]);
+    setWizardOpen(shouldShowWizard(latestVersion));
+  }, [latestVersion?.version_id, latestVersion?.is_confirmed]);
+
+  useEffect(() => {
+    if (!company?.timezone || !latestVersion) {
+      return;
+    }
+    const minMonth = monthInputMinAfterVersion(latestVersion.effective_from);
+    const suggested = defaultEffectiveFromMonth(company.timezone).slice(0, 7);
+    setEffectiveFromMonth(maxYearMonth(suggested, minMonth));
+  }, [company?.timezone, companyId, latestVersion?.effective_from]);
+
+  useEffect(() => {
+    if (!changeModalOpen) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setChangeModalOpen(false);
+        changeModeButtonRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [changeModalOpen]);
+
+  const closeChangeModal = () => {
+    setChangeModalOpen(false);
+    changeModeButtonRef.current?.focus();
+  };
 
   useEffect(() => {
     const match = companies.data?.companies?.find((item) => item.id === companyId);
@@ -295,11 +355,6 @@ export function OrgProfileWizardPage() {
           money_channels: moneyChannels.length ? moneyChannels : ["unspecified"],
           industry_sphere: industrySphere,
         });
-      } else if (step === 6) {
-        await patchOrganizationProfileDraft(companyId, {
-          month_close_policy: monthClosePolicy,
-          revenue_recognition_method: revenueRecognition,
-        });
       }
       return advance;
     },
@@ -350,20 +405,46 @@ export function OrgProfileWizardPage() {
     );
   };
 
-  const confirmProfile = useMutation({
+  const saveAndCheckStep6 = useMutation({
     mutationFn: async () => {
-      if (!companyId || !profile.data?.version_id) {
+      if (!companyId || !wizardPeriod) {
         throw new Error("Выберите организацию");
       }
       await patchOrganizationProfileDraft(companyId, {
         month_close_policy: monthClosePolicy,
         revenue_recognition_method: revenueRecognition,
       });
-      return confirmOrganizationProfileVersion(
-        companyId,
-        profile.data.version_id,
-        crypto.randomUUID(),
-      );
+      return loadOrganizationProfile(companyId, wizardPeriod);
+    },
+    onSuccess: (data) => {
+      setError("");
+      setFieldErrors({});
+      client.setQueryData(["organization-profile", companyId, wizardPeriod], data);
+      syncFromProfile(data);
+    },
+    onError: (exc) => {
+      const serverFields = fieldErrorsFromUnknown(exc);
+      if (Object.keys(serverFields).length > 0) {
+        setFieldErrors(serverFields);
+      }
+      if (exc instanceof WalletRequestError) {
+        setError(orgProfileApiMessage(exc.code, exc.message));
+        return;
+      }
+      setError(exc instanceof Error ? exc.message : "Ошибка сохранения");
+    },
+  });
+
+  const confirmProfile = useMutation({
+    mutationFn: async () => {
+      if (!companyId) {
+        throw new Error("Выберите организацию");
+      }
+      const versionId = confirmTargetVersionId(latestVersion, profile.data?.version_id);
+      if (!versionId) {
+        throw new Error("Версия профиля не найдена");
+      }
+      return confirmOrganizationProfileVersion(companyId, versionId, crypto.randomUUID());
     },
     onSuccess: async () => {
       setError("");
@@ -386,11 +467,15 @@ export function OrgProfileWizardPage() {
 
   const createVersion = useMutation({
     mutationFn: async () => {
-      if (!companyId || !profile.data) {
+      if (!companyId) {
         throw new Error("Выберите организацию");
       }
+      const snapshotSource = cardProfile.data ?? profile.data;
+      if (!snapshotSource) {
+        throw new Error("Профиль не загружен");
+      }
       const effectiveFrom = `${effectiveFromMonth}-01`;
-      const body = buildVersionCreateBody(profile.data, effectiveFrom, changeReason);
+      const body = buildVersionCreateBody(snapshotSource, effectiveFrom, changeReason);
       return postOrganizationProfileVersion(companyId, body, crypto.randomUUID());
     },
     onSuccess: async () => {
@@ -417,7 +502,7 @@ export function OrgProfileWizardPage() {
       </p>
     ));
 
-  const statusChip = profile.data?.is_confirmed ? (
+  const wizardStatusChip = profile.data?.is_confirmed ? (
     <StatusChip tone="ok">
       Подтверждён
       {profile.data.confirmed_at
@@ -428,7 +513,14 @@ export function OrgProfileWizardPage() {
     <StatusChip tone="warn">Черновик</StatusChip>
   );
 
-  const confirmReady = profile.data?.confirm_readiness.ready === true;
+  const canConfirm = canConfirmOrganizationProfile(
+    profile.data,
+    monthClosePolicy,
+    revenueRecognition,
+  );
+  const minEffectiveMonth = latestVersion
+    ? monthInputMinAfterVersion(latestVersion.effective_from)
+    : undefined;
 
   return (
     <Shell title="Профиль организации">
@@ -455,23 +547,31 @@ export function OrgProfileWizardPage() {
           Изменять профиль могут владелец и бухгалтер с подтверждённой почтой.
         </Banner>
       ) : null}
-      {profile.data ? (
+      {wizardOpen && profile.data ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          {statusChip}
-          {wizardOpen && import.meta.env.DEV ? (
+          {wizardStatusChip}
+          {futureDraft && latestVersion ? (
+            <span className="text-body text-warn">
+              Черновик нового режима с {formatDate(latestVersion.effective_from)}
+            </span>
+          ) : null}
+          {import.meta.env.DEV ? (
             <span className="text-caption text-muted">Шаг {step} из 6 (P3b)</span>
           ) : null}
         </div>
       ) : null}
-      {showCard && profile.data ? (
+      {showCard && cardProfile.data ? (
         <OrgProfileCardPanel
-          profile={profile.data}
+          profile={cardProfile.data}
           versions={versions.data?.versions}
           readOnly={readOnly}
+          changeModeButtonRef={changeModeButtonRef}
           onChangeMode={() => {
             setError("");
-            if (company?.timezone) {
-              setEffectiveFromMonth(defaultEffectiveFromMonth(company.timezone).slice(0, 7));
+            if (company?.timezone && latestVersion) {
+              const minMonth = monthInputMinAfterVersion(latestVersion.effective_from);
+              const suggested = defaultEffectiveFromMonth(company.timezone).slice(0, 7);
+              setEffectiveFromMonth(maxYearMonth(suggested, minMonth));
             }
             setChangeModalOpen(true);
           }}
@@ -841,15 +941,28 @@ export function OrgProfileWizardPage() {
               {step3Saved ? <span className="text-body text-muted">Сохранено</span> : null}
             </>
           ) : null}
-          {step === 6 && !readOnly ? (
-            <button
-              type="button"
-              className="rounded bg-accent px-4 py-2 text-on-accent min-h-tap"
-              disabled={!confirmReady || confirmProfile.isPending || saveStep.isPending}
-              onClick={() => confirmProfile.mutate()}
-            >
-              {confirmProfile.isPending ? "Подтверждаем…" : "Подтвердить профиль"}
-            </button>
+          {step === 6 && writeActions ? (
+            <>
+              <button
+                type="button"
+                className="rounded border border-line px-4 py-2 min-h-tap"
+                disabled={saveAndCheckStep6.isPending || confirmProfile.isPending}
+                onClick={() => saveAndCheckStep6.mutate()}
+              >
+                {saveAndCheckStep6.isPending ? "Сохраняем…" : "Сохранить и проверить"}
+              </button>
+              <button
+                type="button"
+                className="rounded bg-accent px-4 py-2 text-on-accent min-h-tap"
+                disabled={!canConfirm || confirmProfile.isPending || saveAndCheckStep6.isPending}
+                onClick={() => confirmProfile.mutate()}
+              >
+                {confirmProfile.isPending ? "Подтверждаем…" : "Подтвердить профиль"}
+              </button>
+              {!canConfirm ? (
+                <span className="text-caption text-muted">Сохраните изменения</span>
+              ) : null}
+            </>
           ) : null}
         </div>
       ) : null}
@@ -871,6 +984,7 @@ export function OrgProfileWizardPage() {
                 type="month"
                 className="mt-1 w-full rounded border border-line px-3 py-2"
                 value={effectiveFromMonth}
+                min={minEffectiveMonth}
                 onChange={(event) => setEffectiveFromMonth(event.target.value)}
               />
             </label>
@@ -889,7 +1003,7 @@ export function OrgProfileWizardPage() {
               <button
                 type="button"
                 className="rounded border border-line px-4 py-2 min-h-tap"
-                onClick={() => setChangeModalOpen(false)}
+                onClick={closeChangeModal}
               >
                 Отмена
               </button>

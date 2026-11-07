@@ -1,3 +1,5 @@
+import type { RefObject } from "react";
+
 import type { OrganizationProfile, OrganizationProfileVersion } from "../../api";
 import { formatDate } from "../../lib/dates";
 import { OrgProfileSummarySection } from "./OrgProfileSummarySection";
@@ -12,9 +14,16 @@ type Props = {
   versions: OrganizationProfileVersion[] | undefined;
   readOnly: boolean;
   onChangeMode: () => void;
+  changeModeButtonRef?: RefObject<HTMLButtonElement>;
 };
 
-export function OrgProfileCardPanel({ profile, versions, readOnly, onChangeMode }: Props) {
+export function OrgProfileCardPanel({
+  profile,
+  versions,
+  readOnly,
+  onChangeMode,
+  changeModeButtonRef,
+}: Props) {
   const role = profile.confirmed_role
     ? (ROLE_LABELS[profile.confirmed_role] ?? profile.confirmed_role)
     : "—";
@@ -28,6 +37,7 @@ export function OrgProfileCardPanel({ profile, versions, readOnly, onChangeMode 
         </p>
         {!readOnly ? (
           <button
+            ref={changeModeButtonRef}
             type="button"
             className="mt-4 rounded bg-accent px-4 py-2 text-on-accent min-h-tap"
             onClick={onChangeMode}
