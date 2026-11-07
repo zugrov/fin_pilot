@@ -9,8 +9,8 @@ from sqlalchemy.exc import DBAPIError
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import BACKEND
 
-HEAD = "20261107_0020"
-PREV = "20261107_0019"
+HEAD = "20261107_0021"
+PREV = "20261107_0020"
 
 
 @pytest.fixture(autouse=True)
@@ -50,13 +50,80 @@ def test_org_profile_migration_up_down(migrated_database, restore_head) -> None:
         exists = connection.execute(
             text("SELECT to_regclass('public.organization_profile_versions')")
         ).scalar_one()
-    assert exists is None
+    assert exists is not None
     _run_alembic("upgrade", HEAD)
     assert _current_revision(migrated_database) == HEAD
 
 
-def test_bootstrap_on_upgrade_after_companies_inserted(migrated_database, restore_head) -> None:
+def test_prior_year_band_neutral_migration_roundtrip(migrated_database, restore_head) -> None:
+    tenant_id = uuid.uuid4()
+    company_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    owner_id = uuid.uuid4()
     _run_alembic("downgrade", PREV)
+    with migrated_database.begin() as connection:
+        connection.execute(
+            text("INSERT INTO tenants (id, name, created_at) VALUES (:id, 't', now())"),
+            {"id": tenant_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO users (id, email, normalized_email, password_hash, name, created_at) "
+                "VALUES (:id, 'band@x.com', 'band@x.com', 'h', 'u', now())"
+            ),
+            {"id": owner_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO companies "
+                "(id, tenant_id, name, kind, timezone, created_at, updated_at) "
+                "VALUES (:id, :t, 'c', 'company', 'Europe/Moscow', now(), now())"
+            ),
+            {"id": company_id, "t": tenant_id},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO organization_profile_versions (
+                  id, tenant_id, company_id, effective_from, prior_year_revenue_band
+                ) VALUES (:vid, :t, :c, '2026-01-01', 'from_20m_to_272_5m')
+                """
+            ),
+            {"vid": version_id, "t": tenant_id, "c": company_id},
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE organization_profile_versions
+                SET confirmed_at = now(), confirmed_by = :u, confirmed_role = 'owner'
+                WHERE id = :vid
+                """
+            ),
+            {"vid": version_id, "u": owner_id},
+        )
+    _run_alembic("upgrade", HEAD)
+    with migrated_database.connect() as connection:
+        band = connection.execute(
+            text(
+                "SELECT prior_year_revenue_band FROM organization_profile_versions WHERE id = :vid"
+            ),
+            {"vid": version_id},
+        ).scalar_one()
+    assert band == "from_threshold_to_cap_5"
+    _run_alembic("downgrade", PREV)
+    with migrated_database.connect() as connection:
+        band = connection.execute(
+            text(
+                "SELECT prior_year_revenue_band FROM organization_profile_versions WHERE id = :vid"
+            ),
+            {"vid": version_id},
+        ).scalar_one()
+    assert band == "from_20m_to_272_5m"
+    _run_alembic("upgrade", HEAD)
+
+
+def test_bootstrap_on_upgrade_after_companies_inserted(migrated_database, restore_head) -> None:
+    _run_alembic("downgrade", "20261107_0019")
     tenant_id = uuid.uuid4()
     company_a = uuid.uuid4()
     company_b = uuid.uuid4()

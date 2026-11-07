@@ -37,7 +37,9 @@ def test_article_145_exemption_only() -> None:
 
 
 def test_new_org_clears_prior_band() -> None:
-    snap = ProfileSnapshot(is_new_organization=True, prior_year_revenue_band="under_20m")
+    snap = ProfileSnapshot(
+        is_new_organization=True, prior_year_revenue_band="under_exemption_threshold"
+    )
     result = validate_profile_snapshot(snap)
     assert "must_be_empty_for_new_org" in result.field_errors["prior_year_revenue_band"]
 

@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from app.api.deps import DbSession, current_session, require_csrf
 from app.clock import now
+from app.domain.org_profile.confirm import validate_confirm_readiness
 from app.domain.org_profile.validation import ProfileSnapshot
 from app.errors import AppError
 from app.models.identity import AuditLog, IdempotencyRecord, User
@@ -90,11 +91,20 @@ def _ts_iso(value: datetime | None) -> str | None:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-_CHANGE_REASON = Field(
+_DRAFT_CHANGE_REASON_DEFAULT = "правка черновика"
+
+_CHANGE_REASON_REQUIRED = Field(
     ...,
     min_length=1,
     max_length=500,
     description="Краткая причина изменения, без персональных данных",
+)
+
+_CHANGE_REASON_OPTIONAL = Field(
+    default=None,
+    min_length=1,
+    max_length=500,
+    description="Краткая причина правки черновика, без персональных данных",
 )
 
 _PROFILE_FIELD_NAMES = (
@@ -134,14 +144,14 @@ class DraftProfilePatchIn(BaseModel):
     money_channels: list[str] | None = None
     prior_year_revenue_band: str | None = None
     month_close_policy: str | None = None
-    change_reason: str = _CHANGE_REASON
+    change_reason: str | None = _CHANGE_REASON_OPTIONAL
 
 
 class ProfileVersionCreateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     effective_from: date
-    change_reason: str = _CHANGE_REASON
+    change_reason: str = _CHANGE_REASON_REQUIRED
     org_form: str = "unspecified"
     tax_system: str = "unspecified"
     usn_tax_object: str = "unspecified"
@@ -229,9 +239,28 @@ def _diff_snapshots(before: ProfileSnapshot, after: ProfileSnapshot) -> dict:
     return changed
 
 
-def _version_write_payload(row: OrganizationProfileVersion) -> dict:
-    snap = snapshot_from_row(row)
+def _draft_change_reason(patch: DraftProfilePatchIn) -> str:
+    if "change_reason" not in patch.model_fields_set or patch.change_reason is None:
+        return _DRAFT_CHANGE_REASON_DEFAULT
+    return patch.change_reason
+
+
+def _confirm_readiness_payload(snapshot: ProfileSnapshot, *, company_inn: str | None) -> dict:
+    readiness = validate_confirm_readiness(snapshot, company_inn=company_inn)
+    missing = list(readiness.field_errors.get("_confirm_minimum", []))
+    support = readiness.support
     return {
+        "support_level": support.level if support else "partial",
+        "support_code": support.code if support else None,
+        "confirm_readiness": {"ready": readiness.is_valid, "missing": missing},
+    }
+
+
+def _version_write_payload(
+    row: OrganizationProfileVersion, *, company_inn: str | None
+) -> dict:
+    snap = snapshot_from_row(row)
+    base = {
         "version_id": str(row.id),
         "company_id": str(row.company_id),
         "effective_from": row.effective_from.isoformat(),
@@ -242,6 +271,7 @@ def _version_write_payload(row: OrganizationProfileVersion) -> dict:
         "created_at": _ts_iso(row.created_at),
         **_snapshot_payload(snap),
     }
+    return {**base, **_confirm_readiness_payload(snap, company_inn=company_inn)}
 
 
 def _request_id(request: Request) -> str | None:
@@ -398,8 +428,8 @@ def get_organization_profile_for_period(
     )
     if resolved is None:
         raise AppError(404, "not_found", "Профиль не найден")
-    support = resolved.support
-    return {
+    snap = resolved.snapshot
+    base = {
         "company_id": str(company.id),
         "period": period_month.isoformat(),
         "version_id": resolved.version_id,
@@ -408,10 +438,9 @@ def get_organization_profile_for_period(
         "confirmed_at": _ts_iso(resolved.confirmed_at),
         "confirmed_role": resolved.confirmed_role,
         "profile_unconfirmed": not resolved.is_confirmed,
-        "support_level": support.level,
-        "support_code": support.code,
-        **_snapshot_payload(resolved.snapshot),
+        **_snapshot_payload(snap),
     }
+    return {**base, **_confirm_readiness_payload(snap, company_inn=company.inn)}
 
 
 @router.get("/companies/{company_id}/organization-profile/versions")
@@ -461,13 +490,14 @@ def patch_organization_profile_draft(
     before = snapshot_from_row(latest)
     merged = _merge_draft_patch(before, payload)
     at = now()
+    change_reason = _draft_change_reason(payload)
     row = update_draft_profile_version(
         session,
         tenant_id=company.tenant_id,
         company_id=company.id,
         version_id=latest.id,
         snapshot=merged,
-        change_reason=payload.change_reason,
+        change_reason=change_reason,
     )
     after = snapshot_from_row(row)
     changed = _diff_snapshots(before, after)
@@ -479,11 +509,11 @@ def patch_organization_profile_draft(
             action="organization_profile_draft_updated",
             entity_id=row.id,
             before={k: _snapshot_audit_values(before)[k] for k in changed},
-            after={**changed, "change_reason": payload.change_reason},
+            after={**changed, "change_reason": change_reason},
             at=at,
             request=request,
         )
-    return _version_write_payload(row)
+    return _version_write_payload(row, company_inn=company.inn)
 
 
 @router.post("/companies/{company_id}/organization-profile/versions")
@@ -523,7 +553,7 @@ def post_organization_profile_version(
         change_reason=payload.change_reason,
         at=at,
     )
-    result = _version_write_payload(row)
+    result = _version_write_payload(row, company_inn=company.inn)
     _write_audit(
         session,
         user=user,
@@ -588,7 +618,7 @@ def post_confirm_organization_profile_version(
         at=at,
     )
     role = effective_role(membership, access)
-    result = _version_write_payload(row)
+    result = _version_write_payload(row, company_inn=company.inn)
     _write_audit(
         session,
         user=user,
