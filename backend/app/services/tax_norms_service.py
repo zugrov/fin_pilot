@@ -6,7 +6,13 @@
 from datetime import date
 from decimal import Decimal
 
-from app.domain.money import money, money_str, percent
+from app.domain.money import (
+    money,
+    money_str,
+    numeric_scale_6_str,
+    vat_rate_fraction,
+    vat_rate_fraction_str,
+)
 from app.models.tax_norms import TaxNormVersion
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
@@ -38,13 +44,14 @@ def derived_vat_calc_rates() -> list[dict[str, str]]:
     for num_s, den_s in specs:
         num = Decimal(num_s)
         den = Decimal(den_s)
-        value = percent(num / den) if den != 0 else Decimal("0")
+        raw = (num / den) if den != 0 else Decimal("0")
+        value = vat_rate_fraction(raw)
         out.append(
             {
                 "label": f"{num_s}/{den_s}",
                 "numerator": num_s,
                 "denominator": den_s,
-                "fraction": money_str(value),
+                "fraction": vat_rate_fraction_str(value),
             }
         )
     return out
@@ -75,6 +82,7 @@ def version_to_payload(version: TaxNormVersion) -> dict:
         "status": version.status,
         "source_url": version.source_url,
         "verified_at": version.verified_at.isoformat(),
+        "verified_by": version.verified_by,
         "notes": version.notes,
         "needs_review_banner": needs_banner,
         "values": {
@@ -87,7 +95,7 @@ def version_to_payload(version: TaxNormVersion) -> dict:
             "special_rate_base_7_cap_base_rub": money_str(version.special_rate_base_7_cap_base_rub)
             if version.special_rate_base_7_cap_base_rub is not None
             else None,
-            "special_rates_deflator": money_str(version.special_rates_deflator)
+            "special_rates_deflator": numeric_scale_6_str(version.special_rates_deflator)
             if version.special_rates_deflator is not None
             else None,
             "computed_special_cap_5_rub": money_str(cap5) if cap5 is not None else None,

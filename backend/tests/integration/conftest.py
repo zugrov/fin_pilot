@@ -69,7 +69,7 @@ tax_norm_versions
 _TAX_NORM_VERSIONS_SEED = text(
     """
     INSERT INTO tax_norm_versions (
-      id, valid_from, valid_to, status, source_url, verified_at, notes,
+      id, valid_from, valid_to, status, source_url, verified_at, verified_by, notes,
       usn_vat_exemption_threshold_rub,
       special_rate_base_5_cap_base_rub,
       special_rate_base_7_cap_base_rub,
@@ -81,9 +81,11 @@ _TAX_NORM_VERSIONS_SEED = text(
       '2026-01-01',
       '2026-12-31',
       'confirmed',
-      'https://www.nalog.gov.ru/rn77/news/activities_fts/17591920/',
+      'https://www.nalog.gov.ru/rn95/taxation/taxes/nds_usn/',
       '2026-11-06T00:00:00Z',
-      'Ориентир 2026 по ADR-003; сверка с материалами ФНС при приёмке владельцем.',
+      'editorial',
+      'сверено редакцией по ссылкам выше, финальное подтверждение — при приёмке владельцем. '
+      'Методичка: https://www.nalog.gov.ru/html/sites/www.rn18.nalog.ru/fls/2026dn/2026_0204_UsnNds.pdf',
       20000000,
       250000000,
       450000000,
@@ -93,7 +95,7 @@ _TAX_NORM_VERSIONS_SEED = text(
     );
 
     INSERT INTO tax_norm_versions (
-      id, valid_from, valid_to, status, source_url, verified_at, notes,
+      id, valid_from, valid_to, status, source_url, verified_at, verified_by, notes,
       usn_vat_exemption_threshold_rub,
       special_rate_base_5_cap_base_rub,
       special_rate_base_7_cap_base_rub,
@@ -107,6 +109,7 @@ _TAX_NORM_VERSIONS_SEED = text(
       'needs_review',
       'https://www.nalog.gov.ru/',
       '2026-11-06T00:00:00Z',
+      NULL,
       'Источники 2027+ расходятся; суммы не заполнены до решения редакции (ADR-003 §4.2).',
       NULL,
       NULL,

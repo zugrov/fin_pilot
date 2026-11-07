@@ -23,6 +23,7 @@ class TaxNormVersion(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    verified_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     usn_vat_exemption_threshold_rub: Mapped[Decimal | None] = mapped_column(
         Numeric(20, 4), nullable=True
