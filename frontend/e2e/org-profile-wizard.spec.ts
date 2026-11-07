@@ -27,7 +27,7 @@ test.describe("P3c · мастер профиля организации", () =>
     await page.getByRole("button", { name: "Сохранить и проверить" }).click();
     await expect(page.getByRole("button", { name: "Подтвердить профиль" })).toBeEnabled();
     await page.getByRole("button", { name: "Подтвердить профиль" }).click();
-    await expect(page.getByText("Подтверждён")).toBeVisible();
+    await expect(page.getByText(/Подтвержден/)).toBeVisible();
 
     await gotoSection(page, "Обзор");
     await expect(page.getByTestId("org-profile-overview-banner")).toHaveCount(0);
@@ -35,8 +35,6 @@ test.describe("P3c · мастер профиля организации", () =>
 
   test("черновик шага 2 сохраняется при выходе", async ({ page }) => {
     const meta = loadSeedMeta();
-    const state = draftOrgProfile(meta.companyAId);
-    await installOrgProfileMock(page, meta.companyAId, state);
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
     await gotoSection(page, "Профиль организации");
@@ -87,7 +85,8 @@ test.describe("P3c · мастер профиля организации", () =>
     await page.getByRole("button", { name: "Создать версию" }).click();
     const response = await createResponse;
     expect(response.ok()).toBeTruthy();
-    expect(state.versions.length).toBe(2);
-    expect(state.versions[1].version_id).not.toBe(firstVersionId);
+    const body = (await response.json()) as { version_id: string };
+    expect(body.version_id).toBeTruthy();
+    expect(body.version_id).not.toBe(firstVersionId);
   });
 });

@@ -207,7 +207,7 @@ export function OrgProfileWizardPage() {
   });
 
   const cardProfile = useQuery({
-    queryKey: ["organization-profile", companyId, currentPeriod, "card"],
+    queryKey: ["organization-profile", companyId, currentPeriod],
     queryFn: () => loadOrganizationProfile(companyId ?? "", currentPeriod),
     enabled: Boolean(companyId && currentPeriod),
   });

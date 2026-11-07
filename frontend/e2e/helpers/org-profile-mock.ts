@@ -202,7 +202,7 @@ export async function installOrgProfileMock(page: Page, companyId: string, state
     await route.continue();
   };
 
-  await page.route(`**/api/v1/companies/${companyId}/organization-profile**`, handler);
+  await page.route(`**/api/v1/companies/${companyId}/organization-profile*`, handler);
   await page.route("**/api/v1/tax-norms/current**", async (route) => {
     await route.fulfill({
       status: 200,
