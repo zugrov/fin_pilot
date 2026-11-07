@@ -80,6 +80,49 @@ def test_unconfirmed_profile_no_overlay() -> None:
     assert "vat_basis_unknown" in view.quality_flags
 
 
+def test_net_row_with_overlaid_unknown_keeps_base_gross() -> None:
+    facts = (
+        SaleFact(
+            "n",
+            "sale",
+            "net",
+            Decimal("100000.00"),
+            Decimal("120000.00"),
+            date(2026, 10, 5),
+        ),
+        SaleFact(
+            "u",
+            "sale",
+            "unknown",
+            None,
+            Decimal("50000.00"),
+            date(2026, 11, 5),
+        ),
+    )
+    profiles = {
+        date(2026, 10, 1): _resolved(vat_status="vat_payer", confirmed=True),
+        date(2026, 11, 1): _resolved(vat_status="not_applicable", confirmed=True),
+    }
+    base = assess_revenue(facts, covered=True)
+    view, rev = assess_revenue_with_profile(facts, covered=True, profiles_by_month=profiles)
+    assert base.metric_basis == "source"
+    assert view.amount == base.amount
+    assert view.label == base.label
+    assert view.metric_basis == base.metric_basis
+    assert "vat_basis_unknown" in view.quality_flags
+    assert VAT_BASIS_FROM_PROFILE in view.quality_flags
+    assert rev == "2026-11-01:v1:1"
+
+
+def test_exemption_without_article_145_no_overlay() -> None:
+    facts = (_gross_sale(),)
+    profiles = {date(2026, 10, 1): _resolved(vat_status="exemption", confirmed=True)}
+    view, rev = assess_revenue_with_profile(facts, covered=True, profiles_by_month=profiles)
+    assert view.metric_basis == "source"
+    assert VAT_BASIS_FROM_PROFILE not in view.quality_flags
+    assert rev == ""
+
+
 def test_mixed_months_partial_flag() -> None:
     facts = (
         _gross_sale("2026-10-10"),

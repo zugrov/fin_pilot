@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from fastapi.testclient import TestClient
 from tests.integration.conftest import login, open_workspace, pay, register_and_verify
 from tests.integration.test_org_profile_write_api import _latest_version_id, _patch_draft
 from tests.integration.test_revenue_api import PERIOD, _dashboard, _ready
@@ -99,10 +100,9 @@ def test_group_summary_matches_dashboard(client, admin, app, fake, tmp_path) -> 
     group = client.get(f"/api/v1/workspaces/{tenant_id}/group-summary?{PERIOD}")
     assert group.status_code == 200, group.text
     payload = group.json()
-    assert dash["values"]["revenue"] in (payload["metrics"]["revenue"],)
-    for flag in ("vat_basis_from_profile",):
-        if flag in dash["quality_flags"]:
-            assert flag in payload["quality_flags"]
+    assert payload["metrics"]["revenue"] == dash["values"]["revenue"]
+    assert "vat_basis_from_profile" in dash["quality_flags"]
+    assert "vat_basis_from_profile" in payload["quality_flags"]
 
 
 def test_isolation_other_tenant_profile(client, admin, app, fake, tmp_path) -> None:
@@ -113,10 +113,27 @@ def test_isolation_other_tenant_profile(client, admin, app, fake, tmp_path) -> N
     own = _dashboard(client, company_a)
     assert "vat_basis_from_profile" in own["quality_flags"]
 
-    register_and_verify(client, admin, "vat-iso-b@example.com")
-    login(client, "vat-iso-b@example.com")
-    tenant_b = open_workspace(client, "B")
-    pay(client, app, fake, 1, "month")
-    foreign = client.get(f"/api/v1/companies/{company_a}/dashboard?{PERIOD}")
+    client_b = TestClient(client.app)
+    register_and_verify(client_b, admin, "vat-iso-b@example.com")
+    login(client_b, "vat-iso-b@example.com")
+    tenant_b = open_workspace(client_b, "B")
+    pay(client_b, app, fake, 1, "month")
+    company_b = client_b.post(
+        f"/api/v1/workspaces/{tenant_b}/companies",
+        json={"name": "Фирма B", "kind": "company"},
+    )
+    assert company_b.status_code == 200, company_b.text
+    company_b_id = company_b.json()["id"]
+    pay(client_b, app, fake, 1, "month")
+    activated = client_b.post(f"/api/v1/billing/companies/{company_b_id}/activate")
+    assert activated.status_code == 200, activated.text
+    _revenue_source_ready(client_b, company_b_id)
+    _sale_gross(client_b, company_b_id, "iso-2", "2026-10-12", "50000.00")
+
+    foreign = client_b.get(f"/api/v1/companies/{company_a}/dashboard?{PERIOD}")
     assert foreign.status_code == 404
-    assert client.headers.get("X-Tenant-Id") == tenant_b or tenant_b
+
+    dash_b = _dashboard(client_b, company_b_id)
+    assert "vat_basis_from_profile" not in dash_b["quality_flags"]
+    assert "vat_basis_unknown" in dash_b["quality_flags"]
+    assert client_b.headers.get("X-Tenant-Id") == tenant_b
