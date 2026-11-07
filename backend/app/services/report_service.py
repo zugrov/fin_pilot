@@ -6,12 +6,17 @@ from zoneinfo import ZoneInfo
 from app.domain.billing.periods import MOSCOW
 from app.domain.cash.unclassified import SECTIONS, UNMAPPED, is_internal_transfer, section_of
 from app.domain.money import money, money_str
+from app.domain.org_profile.revenue_vat_overlay import (
+    assess_revenue_with_profile,
+    month_start,
+    months_in_range,
+)
 from app.domain.revenue import (
     GROUP_REVENUE_LABEL,
     SaleFact,
-    assess_revenue,
     input_revision,
 )
+from app.services.org_profile_service import resolve_profiles_for_months
 from app.models.cash import CashCategory, CashTransaction, OpeningBalance, TransferGroup, Wallet
 from app.models.imports import SourceConnection
 from app.models.revenue import RevenueEntry
@@ -67,10 +72,24 @@ def revenue_snapshot(session: Session, company_id: uuid.UUID, tenant_id: uuid.UU
             item.vat_basis,
             item.amount_ex_vat,
             item.amount_inc_vat,
+            item.recognition_date,
         )
         for item in entries
     )
-    view = assess_revenue(facts, covered=covered)
+    months: set[date] = set(months_in_range(date_from, date_to))
+    for item in entries:
+        months.add(month_start(item.recognition_date))
+    profiles_by_month = resolve_profiles_for_months(
+        session,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        months=months,
+    )
+    view, revenue_profile_revision = assess_revenue_with_profile(
+        facts,
+        covered=covered,
+        profiles_by_month=profiles_by_month,
+    )
     flags = list(view.quality_flags)
     if sources and not covered and "partial_period" not in flags and not entries:
         flags = ["partial_period"]
@@ -92,6 +111,7 @@ def revenue_snapshot(session: Session, company_id: uuid.UUID, tenant_id: uuid.UU
         "coverage_through": None if coverage is None else coverage.isoformat(),
         "count": len(entries),
         "net_sum": _net_sum(entries),
+        "revenue_profile_revision": revenue_profile_revision,
     }
 
 
@@ -116,6 +136,7 @@ def dashboard_payload(session: Session, company, at: datetime, period: tuple[dat
             "revenue": revenue["amount"] or "",
             "revenue_count": str(revenue["count"]),
             "coverage": revenue["coverage_through"] or "",
+            "revenue_profile": revenue.get("revenue_profile_revision") or "",
             "flow": net_flow or "",
         }
     )

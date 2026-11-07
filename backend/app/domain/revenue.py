@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 from app.domain.money import money
@@ -18,6 +19,7 @@ class SaleFact:
     vat_basis: str
     amount_ex_vat: Decimal | None
     amount_inc_vat: Decimal
+    recognition_date: date | None = None
 
 
 @dataclass(frozen=True)
