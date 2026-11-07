@@ -60,6 +60,9 @@ const FIELD_LABELS: Record<string, string> = {
   accounting_source: "Источник учёта",
   money_channels: "Каналы денег",
   inn: "ИНН",
+  industry_sphere: "Сфера деятельности",
+  month_close_policy: "Закрытие месяца",
+  revenue_recognition_method: "Признание выручки",
 };
 
 export function orgProfileApiMessage(code: string, fallback?: string): string {
