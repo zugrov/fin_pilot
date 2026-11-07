@@ -450,15 +450,16 @@ export function OrgProfileWizardPage() {
     onSuccess: async (data) => {
       setError("");
       setWizardOpen(false);
-      if (companyId) {
-        client.setQueryData(["organization-profile", companyId, data.period], data);
-        if (currentPeriod) {
-          const cardData =
-            currentPeriod === data.period
-              ? data
-              : await loadOrganizationProfile(companyId, currentPeriod);
-          client.setQueryData(["organization-profile", companyId, currentPeriod], cardData);
-        }
+      if (companyId && wizardPeriod) {
+        client.setQueryData(["organization-profile", companyId, wizardPeriod], data);
+      }
+      if (companyId && currentPeriod) {
+        client.setQueryData(["organization-profile", companyId, currentPeriod], {
+          ...data,
+          period: currentPeriod,
+          profile_unconfirmed: false,
+          is_confirmed: true,
+        });
       }
       await client.invalidateQueries({ queryKey: ["organization-profile", companyId] });
       await client.invalidateQueries({ queryKey: ["organization-profile-versions", companyId] });
