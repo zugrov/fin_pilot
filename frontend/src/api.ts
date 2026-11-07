@@ -168,6 +168,7 @@ export type OrganizationProfile = {
   effective_from: string;
   is_confirmed: boolean;
   confirmed_at: string | null;
+  confirmed_role: string | null;
   profile_unconfirmed: boolean;
   can_write: boolean;
   support_level: "supported" | "partial" | "unsupported";
@@ -183,7 +184,22 @@ export type OrganizationProfile = {
   vat_exemption_article_145: boolean | null;
   is_new_organization: boolean | null;
   prior_year_revenue_band: string;
+  accounting_source: string;
+  industry_sphere: string;
+  money_channels: string[];
+  month_close_policy: string;
+  revenue_recognition_method: string;
   change_reason?: string | null;
+};
+
+export type OrganizationProfileVersion = {
+  version_id: string;
+  effective_from: string;
+  is_confirmed: boolean;
+  confirmed_at: string | null;
+  confirmed_role: string | null;
+  change_reason: string | null;
+  created_at: string | null;
 };
 
 export type TaxNormsCurrent = {
@@ -1103,6 +1119,41 @@ export function patchOrganizationProfileDraft(
     {
       method: "PATCH",
       body: JSON.stringify(body),
+    },
+  );
+}
+
+export function listOrganizationProfileVersions(companyId: string) {
+  return walletRequest<{ company_id: string; versions: OrganizationProfileVersion[] }>(
+    `/api/v1/companies/${companyId}/organization-profile/versions`,
+  );
+}
+
+export function postOrganizationProfileVersion(
+  companyId: string,
+  body: Record<string, unknown>,
+  idempotencyKey: string,
+) {
+  return walletRequest<OrganizationProfile>(
+    `/api/v1/companies/${companyId}/organization-profile/versions`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "Idempotency-Key": idempotencyKey },
+    },
+  );
+}
+
+export function confirmOrganizationProfileVersion(
+  companyId: string,
+  versionId: string,
+  idempotencyKey: string,
+) {
+  return walletRequest<OrganizationProfile>(
+    `/api/v1/companies/${companyId}/organization-profile/versions/${versionId}/confirm`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
     },
   );
 }
