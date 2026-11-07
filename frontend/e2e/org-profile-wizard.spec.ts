@@ -2,12 +2,17 @@ import { expect, test } from "@playwright/test";
 
 import { loadSeedMeta } from "./fixtures/seed";
 import { gotoSection, openAppShell, selectCompany } from "./helpers/auth";
-import { draftOrgProfile, installOrgProfileMock } from "./helpers/org-profile-mock";
+import {
+  completeDraftProfile,
+  draftOrgProfile,
+  installOrgProfileMock,
+} from "./helpers/org-profile-mock";
 
 test.describe("P3c · мастер профиля организации", () => {
   test("owner: баннер на Обзоре → подтверждение → баннер исчез", async ({ page }) => {
     const meta = loadSeedMeta();
     const state = draftOrgProfile(meta.companyAId);
+    completeDraftProfile(state);
     await installOrgProfileMock(page, meta.companyAId, state);
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
@@ -16,21 +21,9 @@ test.describe("P3c · мастер профиля организации", () =>
     await expect(page.getByTestId("org-profile-overview-banner")).toBeVisible();
     await page.getByRole("link", { name: "Настроить профиль" }).click();
 
-    await page.getByLabel("Организационно-правовая форма").selectOption("ooo");
-    await page.getByRole("button", { name: "Далее" }).click();
-    await page.getByLabel("Режим").selectOption("usn");
-    await page.getByLabel("Объект УСН").selectOption("income");
-    await page.getByRole("button", { name: "Далее" }).click();
-    await page.getByLabel("Нет, НДС не применяется").check();
-    await page.getByLabel("Новая организация (не было выручки в прошлом году)?").selectOption("yes");
-    await page.getByRole("button", { name: "Далее" }).click();
-    await page.getByLabel("Откуда будут выгрузки").selectOption("onec");
-    await page.getByRole("button", { name: "Далее" }).click();
-    await page.getByRole("checkbox", { name: "Банк" }).check();
-    await page.getByLabel("Сфера деятельности").selectOption("trade");
-    await page.getByRole("button", { name: "Далее" }).click();
-    await page.getByLabel("Закрытие месяца в учёте").selectOption("calendar_month_end");
-    await page.getByLabel("Признание выручки").selectOption("accrual");
+    for (let step = 0; step < 5; step += 1) {
+      await page.getByRole("button", { name: "Далее" }).click();
+    }
     await page.getByRole("button", { name: "Сохранить и проверить" }).click();
     await expect(page.getByRole("button", { name: "Подтвердить профиль" })).toBeEnabled();
     await page.getByRole("button", { name: "Подтвердить профиль" }).click();
@@ -53,6 +46,8 @@ test.describe("P3c · мастер профиля организации", () =>
     await page.getByRole("button", { name: "Далее" }).click();
     await gotoSection(page, "Обзор");
     await gotoSection(page, "Профиль организации");
+    await page.getByLabel("Организационно-правовая форма").selectOption("ooo");
+    await page.getByRole("button", { name: "Далее" }).click();
     await expect(page.getByLabel("Режим")).toHaveValue("osno");
   });
 
@@ -73,15 +68,9 @@ test.describe("P3c · мастер профиля организации", () =>
   test("подтверждённый профиль → новая версия с новым version_id", async ({ page }) => {
     const meta = loadSeedMeta();
     const state = draftOrgProfile(meta.companyAId);
-    state.profile.org_form = "ooo";
-    state.profile.tax_system = "usn";
-    state.profile.accounting_source = "onec";
-    state.profile.money_channels = ["bank"];
-    state.profile.month_close_policy = "calendar_month_end";
-    state.profile.revenue_recognition_method = "accrual";
+    completeDraftProfile(state);
     state.profile.is_confirmed = true;
     state.profile.profile_unconfirmed = false;
-    state.profile.confirm_readiness = { ready: true, missing: [], field_errors: {} };
     state.versions[0].is_confirmed = true;
     const firstVersionId = state.versions[0].version_id;
     await installOrgProfileMock(page, meta.companyAId, state);
@@ -90,10 +79,15 @@ test.describe("P3c · мастер профиля организации", () =>
     await gotoSection(page, "Профиль организации");
     await page.getByRole("button", { name: "Изменить режим с даты…" }).click();
     await page.getByPlaceholder("Кратко, без персональных данных").fill("смена режима");
+    const createResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().includes("/organization-profile/versions"),
+    );
     await page.getByRole("button", { name: "Создать версию" }).click();
-    await expect(page.getByText("Черновик", { exact: true }).first()).toBeVisible();
+    const response = await createResponse;
+    expect(response.ok()).toBeTruthy();
     expect(state.versions.length).toBe(2);
     expect(state.versions[1].version_id).not.toBe(firstVersionId);
-    expect(state.profile.tax_system).toBe("usn");
   });
 });

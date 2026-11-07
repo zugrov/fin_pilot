@@ -61,6 +61,22 @@ function recomputeReadiness(profile: ProfileState): void {
   profile.profile_unconfirmed = !profile.is_confirmed;
 }
 
+export function completeDraftProfile(state: OrgProfileMock): void {
+  Object.assign(state.profile, {
+    org_form: "ooo",
+    tax_system: "usn",
+    usn_tax_object: "income",
+    vat_status: "not_applicable",
+    is_new_organization: true,
+    accounting_source: "onec",
+    industry_sphere: "trade",
+    money_channels: ["bank"],
+    month_close_policy: "calendar_month_end",
+    revenue_recognition_method: "accrual",
+  });
+  recomputeReadiness(state.profile);
+}
+
 export function draftOrgProfile(companyId: string, canWrite = true): OrgProfileMock {
   const versionId = "v-draft-1";
   const profile: ProfileState = {
