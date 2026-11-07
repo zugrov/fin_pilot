@@ -65,7 +65,8 @@ wallet_access, wallets, cash_categories,
 billing_audit, refunds, billing_activations, billing_webhook_inbox,
 payment_attempts, invoice_lines, invoices, billing_quotes, company_entitlements,
 billing_periods, subscriptions, billing_accounts, idempotency_records, invitations,
-company_access, companies, memberships, tenants, audit_log, transactional_email_outbox,
+company_access, companies, organization_profile_versions, memberships, tenants, audit_log,
+transactional_email_outbox,
 verification_tokens, sessions, users,
 tax_norm_versions
 """
@@ -101,7 +102,7 @@ def migrated_database():
     engine.dispose()
 
 
-HEAD_REVISION = "20261107_0019"
+HEAD_REVISION = "20261107_0020"
 
 # Baseline из alembic/sql/0002_billing.sql — после очистки test-only строк в annual_offer_versions.
 _ANNUAL_OFFER_BASELINE = text(
