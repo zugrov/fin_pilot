@@ -461,7 +461,6 @@ export function OrgProfileWizardPage() {
           is_confirmed: true,
         });
       }
-      await client.invalidateQueries({ queryKey: ["organization-profile", companyId] });
       await client.invalidateQueries({ queryKey: ["organization-profile-versions", companyId] });
     },
     onError: async (exc) => {
