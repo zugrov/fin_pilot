@@ -25,6 +25,7 @@ import {
   defaultEffectiveFromMonth,
   monthInputMinAfterVersion,
 } from "../lib/orgProfileEffectiveFrom";
+import { versionCreateSnapshotSource } from "../lib/orgProfileVersionCreate";
 import { buildVersionCreateBody } from "../lib/orgProfileVersionSnapshot";
 import {
   canConfirmOrganizationProfile,
@@ -470,7 +471,7 @@ export function OrgProfileWizardPage() {
       if (!companyId) {
         throw new Error("Выберите организацию");
       }
-      const snapshotSource = cardProfile.data ?? profile.data;
+      const snapshotSource = versionCreateSnapshotSource(profile.data, cardProfile.data);
       if (!snapshotSource) {
         throw new Error("Профиль не загружен");
       }
@@ -564,6 +565,7 @@ export function OrgProfileWizardPage() {
         <OrgProfileCardPanel
           profile={cardProfile.data}
           versions={versions.data?.versions}
+          companyTimeZone={company?.timezone ?? "Europe/Moscow"}
           readOnly={readOnly}
           changeModeButtonRef={changeModeButtonRef}
           onChangeMode={() => {

@@ -35,6 +35,10 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    title: "Настройки",
+    items: [{ path: "/settings/org-profile", label: "Профиль организации", icon: "target" }],
+  },
+  {
     title: "Прочее",
     items: [
       { path: "/alerts", label: "Алерты", icon: "bell" },

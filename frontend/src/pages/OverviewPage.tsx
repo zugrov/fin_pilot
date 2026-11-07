@@ -11,6 +11,7 @@ import {
   loadSources,
   loadUnclassifiedSummary,
 } from "../api";
+import { OrgProfileOverviewBanner } from "../components/orgProfile/OrgProfileOverviewBanner";
 import { Shell } from "../components/Shell";
 import { Amount } from "../components/system/Amount";
 import { DonutChart } from "../components/system/DonutChart";
@@ -179,6 +180,9 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
         </div>
       }
     >
+      {companyId ? (
+        <OrgProfileOverviewBanner companyId={companyId} timeZone={timezone} />
+      ) : null}
       {companies.isLoading || dashboard.isLoading ? <p className="mb-4">Загрузка</p> : null}
       {companies.isError || dashboard.isError ? (
         <p className="mb-4 text-body text-danger">Не удалось загрузить обзор. Проверьте вход.</p>
