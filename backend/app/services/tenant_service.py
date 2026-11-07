@@ -126,16 +126,16 @@ def update_company(
         company.legal_name = legal_name
     if inn is not None:
         company.inn = inn.strip() or None
+        try:
+            session.flush()
+        except IntegrityError:
+            session.rollback()
+            raise AppError(409, "conflict", "ИНН уже используется в этом пространстве") from None
     if min_cash_reserve is not None:
         if not can_write_finance:
             raise AppError(402, "payment_required", "Оплаченный период закончился")
         company.min_cash_reserve = min_cash_reserve
     company.updated_at = now()
-    try:
-        session.flush()
-    except IntegrityError:
-        session.rollback()
-        raise AppError(409, "conflict", "ИНН уже используется в этом пространстве") from None
     return company
 
 
