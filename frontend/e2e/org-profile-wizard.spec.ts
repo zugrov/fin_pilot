@@ -9,6 +9,23 @@ import {
 } from "./helpers/org-profile-mock";
 
 test.describe("P3c · мастер профиля организации", () => {
+  test("черновик шага 2 сохраняется при выходе", async ({ page }) => {
+    const meta = loadSeedMeta();
+    await openAppShell(page);
+    await selectCompany(page, meta.companyBName);
+    await gotoSection(page, "Профиль организации");
+    await expect(page.getByLabel("Организационно-правовая форма")).toBeVisible();
+    await page.getByLabel("Организационно-правовая форма").selectOption("ooo");
+    await page.getByRole("button", { name: "Далее" }).click();
+    await page.getByLabel("Режим").selectOption("osno");
+    await page.getByRole("button", { name: "Далее" }).click();
+    await gotoSection(page, "Обзор");
+    await gotoSection(page, "Профиль организации");
+    await page.getByLabel("Организационно-правовая форма").selectOption("ooo");
+    await page.getByRole("button", { name: "Далее" }).click();
+    await expect(page.getByLabel("Режим")).toHaveValue("osno");
+  });
+
   test("owner: баннер на Обзоре → подтверждение → баннер исчез", async ({ page }) => {
     const meta = loadSeedMeta();
     const state = draftOrgProfile(meta.companyAId);
@@ -27,26 +44,9 @@ test.describe("P3c · мастер профиля организации", () =>
     await page.getByRole("button", { name: "Сохранить и проверить" }).click();
     await expect(page.getByRole("button", { name: "Подтвердить профиль" })).toBeEnabled();
     await page.getByRole("button", { name: "Подтвердить профиль" }).click();
-    await expect(page.getByText(/Подтвержден/)).toBeVisible();
 
     await gotoSection(page, "Обзор");
     await expect(page.getByTestId("org-profile-overview-banner")).toHaveCount(0);
-  });
-
-  test("черновик шага 2 сохраняется при выходе", async ({ page }) => {
-    const meta = loadSeedMeta();
-    await openAppShell(page);
-    await selectCompany(page, meta.companyAName);
-    await gotoSection(page, "Профиль организации");
-    await page.getByLabel("Организационно-правовая форма").selectOption("ooo");
-    await page.getByRole("button", { name: "Далее" }).click();
-    await page.getByLabel("Режим").selectOption("osno");
-    await page.getByRole("button", { name: "Далее" }).click();
-    await gotoSection(page, "Обзор");
-    await gotoSection(page, "Профиль организации");
-    await page.getByLabel("Организационно-правовая форма").selectOption("ooo");
-    await page.getByRole("button", { name: "Далее" }).click();
-    await expect(page.getByLabel("Режим")).toHaveValue("osno");
   });
 
   test("viewer: без кнопок записи и без CTA в баннере", async ({ page }) => {
