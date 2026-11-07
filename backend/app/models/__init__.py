@@ -65,6 +65,7 @@ from app.models.signals import (
     BudgetLine,
     BudgetVersion,
 )
+from app.models.tax_norms import TaxNormVersion
 from app.models.telegram import (
     BotDraft,
     DigestSnapshot,
@@ -131,6 +132,7 @@ __all__ = [
     "SourceIdentity",
     "Subscription",
     "TariffVersion",
+    "TaxNormVersion",
     "TelegramBinding",
     "TelegramLinkToken",
     "TelegramUpdate",

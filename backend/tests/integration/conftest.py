@@ -62,8 +62,64 @@ billing_audit, refunds, billing_activations, billing_webhook_inbox,
 payment_attempts, invoice_lines, invoices, billing_quotes, company_entitlements,
 billing_periods, subscriptions, billing_accounts, idempotency_records, invitations,
 company_access, companies, memberships, tenants, audit_log, transactional_email_outbox,
-verification_tokens, sessions, users
+verification_tokens, sessions, users,
+tax_norm_versions
 """
+
+_TAX_NORM_VERSIONS_SEED = text(
+    """
+    INSERT INTO tax_norm_versions (
+      id, valid_from, valid_to, status, source_url, verified_at, verified_by, notes,
+      usn_vat_exemption_threshold_rub,
+      special_rate_base_5_cap_base_rub,
+      special_rate_base_7_cap_base_rub,
+      special_rates_deflator,
+      vat_rates_general,
+      vat_rates_special
+    ) VALUES (
+      'a0000000-0000-4000-8000-000000000001',
+      '2026-01-01',
+      '2026-12-31',
+      'confirmed',
+      'https://www.nalog.gov.ru/rn95/taxation/taxes/nds_usn/',
+      '2026-11-06T00:00:00Z',
+      'editorial',
+      'сверено редакцией по ссылкам выше, финальное подтверждение — при приёмке владельцем. '
+      'Методичка: https://www.nalog.gov.ru/html/sites/www.rn18.nalog.ru/fls/2026dn/2026_0204_UsnNds.pdf',
+      20000000,
+      250000000,
+      450000000,
+      1.090000,
+      '["22", "10", "0"]'::jsonb,
+      '["5", "7"]'::jsonb
+    );
+
+    INSERT INTO tax_norm_versions (
+      id, valid_from, valid_to, status, source_url, verified_at, verified_by, notes,
+      usn_vat_exemption_threshold_rub,
+      special_rate_base_5_cap_base_rub,
+      special_rate_base_7_cap_base_rub,
+      special_rates_deflator,
+      vat_rates_general,
+      vat_rates_special
+    ) VALUES (
+      'a0000000-0000-4000-8000-000000000002',
+      '2027-01-01',
+      NULL,
+      'needs_review',
+      'https://www.nalog.gov.ru/',
+      '2026-11-06T00:00:00Z',
+      NULL,
+      'Источники 2027+ расходятся; суммы не заполнены до решения редакции (ADR-003 §4.2).',
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL
+    );
+    """
+)
 
 
 def _admin():
@@ -92,7 +148,7 @@ def migrated_database():
     engine.dispose()
 
 
-HEAD_REVISION = "20261027_0017"
+HEAD_REVISION = "20261106_0018"
 
 # Baseline из alembic/sql/0002_billing.sql — после очистки test-only строк в annual_offer_versions.
 _ANNUAL_OFFER_BASELINE = text(
@@ -130,6 +186,7 @@ def truncate_integration_tables(engine) -> None:
     with engine.begin() as connection:
         connection.execute(text(f"TRUNCATE {TRUNCATE} RESTART IDENTITY CASCADE"))
         _reset_annual_offer_versions(connection)
+        connection.execute(_TAX_NORM_VERSIONS_SEED)
 
 
 @pytest.fixture(autouse=True)
