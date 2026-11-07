@@ -3,6 +3,10 @@ import { expect, test } from "@playwright/test";
 import { loadSeedMeta } from "./fixtures/seed";
 import { gotoSection, openAppShell, selectCompany } from "./helpers/auth";
 import {
+  e2eFutureVersionMonthInput,
+  formatEffectiveFromLabel,
+} from "./helpers/org-profile-dates";
+import {
   completeDraftProfile,
   confirmLatestInMock,
   draftOrgProfile,
@@ -119,8 +123,11 @@ test.describe("P3c · мастер профиля организации", () =>
     await expect(page.getByRole("button", { name: "Изменить режим с даты…" })).toBeVisible();
     await expect(page.locator("dd", { hasText: "УСН" })).toBeVisible();
 
+    const futureMonth = e2eFutureVersionMonthInput(2);
+    const futureEffectiveLabel = formatEffectiveFromLabel(futureMonth);
+
     await page.getByRole("button", { name: "Изменить режим с даты…" }).click();
-    await page.locator('input[type="month"]').fill("2027-04");
+    await page.locator('input[type="month"]').fill(futureMonth);
     await page.getByPlaceholder("Кратко, без персональных данных").fill("смена режима");
     const createResponse = page.waitForResponse(
       (response) =>
@@ -156,7 +163,9 @@ test.describe("P3c · мастер профиля организации", () =>
     const confirm = await confirmResponse;
     expect(confirm.ok()).toBeTruthy();
 
-    await expect(page.getByTestId("org-profile-future-effective")).toContainText("2027");
+    await expect(page.getByTestId("org-profile-future-effective")).toContainText(
+      futureEffectiveLabel,
+    );
     await expect(page.locator("dd", { hasText: "УСН" })).toBeVisible();
     await expect(page.locator("dd", { hasText: "ОСНО" })).toHaveCount(0);
   });
