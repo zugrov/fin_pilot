@@ -47,3 +47,21 @@ def test_inn_validation_on_company() -> None:
     snap = ProfileSnapshot()
     result = validate_profile_snapshot(snap, company_inn="7707083890")
     assert "inn_checksum_mismatch" in result.field_errors.get("inn", [])
+
+
+def test_special_rates_requires_usn() -> None:
+    snap = ProfileSnapshot(tax_system="osno", vat_status="special_rates_5_7")
+    result = validate_profile_snapshot(snap)
+    assert "special_rates_requires_usn" in result.field_errors.get("vat_status", [])
+
+
+def test_ooo_psn_incompatible() -> None:
+    snap = ProfileSnapshot(org_form="ooo", tax_system="psn")
+    result = validate_profile_snapshot(snap)
+    assert "ooo_incompatible_with_ip_regime" in result.field_errors.get("tax_system", [])
+
+
+def test_invalid_enum_org_form() -> None:
+    snap = ProfileSnapshot(org_form="llc")
+    result = validate_profile_snapshot(snap)
+    assert "invalid_value" in result.field_errors.get("org_form", [])

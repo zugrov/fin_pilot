@@ -10,6 +10,7 @@ from app.security.access import INVITE_ROLES, OWNER
 from app.security.context import set_context
 from app.security.tokens import new_secret
 from app.services.auth_service import normalize_email
+from app.services.org_profile_service import bootstrap_organization_profile_version
 from app.services.outbox import build_link, enqueue_email
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
@@ -103,6 +104,9 @@ def create_company(
     except IntegrityError:
         session.rollback()
         raise AppError(409, "conflict", "ИНН уже используется в этом пространстве") from None
+    bootstrap_organization_profile_version(
+        session, company, created_by=membership.user_id, at=moment
+    )
     return company
 
 

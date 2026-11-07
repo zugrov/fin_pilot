@@ -2,6 +2,22 @@
 
 from dataclasses import dataclass, field
 
+from app.domain.org_profile.constants import (
+    ACCOUNTING_SOURCES,
+    INDUSTRY_SPHERES,
+    IP_ONLY_TAX_SYSTEMS,
+    MONEY_CHANNELS,
+    MONTH_CLOSE_POLICIES,
+    ORG_FORMS,
+    PRICES_INCLUDE_VAT,
+    PRIOR_YEAR_REVENUE_BANDS,
+    REVENUE_RECOGNITION_METHODS,
+    TAX_SYSTEMS,
+    USN_TAX_OBJECTS,
+    VAT_DEFAULT_RATE_VALUES,
+    VAT_REGIME_DETAIL_VALUES,
+    VAT_STATUSES,
+)
 from app.domain.org_profile.inn import validate_inn_checksum
 from app.domain.org_profile.support_matrix import SupportAssessment, assess_product_support
 
@@ -14,6 +30,8 @@ WITH_DEDUCTIONS = "with_deductions"
 SPECIAL_WITHOUT = "special_without_deductions"
 
 USN = "usn"
+OOO = "ooo"
+IP = "ip"
 
 
 @dataclass(slots=True)
@@ -52,6 +70,9 @@ def validate_profile_snapshot(
 ) -> ProfileValidationResult:
     errors: dict[str, list[str]] = {}
 
+    _validate_enums(snapshot, errors)
+    _validate_form_tax_compatibility(snapshot, errors)
+
     if snapshot.tax_system == USN:
         if snapshot.usn_tax_object in (None, "", "unspecified", "unknown"):
             errors.setdefault("usn_tax_object", []).append("required_for_usn")
@@ -71,6 +92,59 @@ def validate_profile_snapshot(
         accounting_source=snapshot.accounting_source,
     )
     return ProfileValidationResult(field_errors=errors, support=support)
+
+
+def _validate_enums(snapshot: ProfileSnapshot, errors: dict[str, list[str]]) -> None:
+    if snapshot.org_form not in ORG_FORMS:
+        errors.setdefault("org_form", []).append("invalid_value")
+    if snapshot.tax_system not in TAX_SYSTEMS:
+        errors.setdefault("tax_system", []).append("invalid_value")
+    if snapshot.usn_tax_object not in USN_TAX_OBJECTS:
+        errors.setdefault("usn_tax_object", []).append("invalid_value")
+    if snapshot.vat_status not in VAT_STATUSES:
+        errors.setdefault("vat_status", []).append("invalid_value")
+    if snapshot.vat_regime_detail is not None and snapshot.vat_regime_detail not in (
+        VAT_REGIME_DETAIL_VALUES
+    ):
+        errors.setdefault("vat_regime_detail", []).append("invalid_value")
+    if snapshot.vat_default_rate is not None and snapshot.vat_default_rate not in (
+        VAT_DEFAULT_RATE_VALUES
+    ):
+        errors.setdefault("vat_default_rate", []).append("invalid_value")
+    if snapshot.prices_include_vat not in PRICES_INCLUDE_VAT:
+        errors.setdefault("prices_include_vat", []).append("invalid_value")
+    if snapshot.revenue_recognition_method not in REVENUE_RECOGNITION_METHODS:
+        errors.setdefault("revenue_recognition_method", []).append("invalid_value")
+    if snapshot.accounting_source not in ACCOUNTING_SOURCES:
+        errors.setdefault("accounting_source", []).append("invalid_value")
+    if snapshot.industry_sphere not in INDUSTRY_SPHERES:
+        errors.setdefault("industry_sphere", []).append("invalid_value")
+    if snapshot.prior_year_revenue_band not in PRIOR_YEAR_REVENUE_BANDS:
+        errors.setdefault("prior_year_revenue_band", []).append("invalid_value")
+    if snapshot.month_close_policy not in MONTH_CLOSE_POLICIES:
+        errors.setdefault("month_close_policy", []).append("invalid_value")
+    channels = snapshot.money_channels or []
+    for ch in channels:
+        if ch not in MONEY_CHANNELS:
+            errors.setdefault("money_channels", []).append("invalid_value")
+            break
+
+
+def _validate_form_tax_compatibility(
+    snapshot: ProfileSnapshot, errors: dict[str, list[str]]
+) -> None:
+    ts = snapshot.tax_system
+    form = snapshot.org_form
+    vs = snapshot.vat_status
+
+    if vs == SPECIAL_RATES and ts != USN:
+        errors.setdefault("vat_status", []).append("special_rates_requires_usn")
+
+    if ts in IP_ONLY_TAX_SYSTEMS and form != IP:
+        errors.setdefault("tax_system", []).append("regime_requires_ip")
+
+    if form == OOO and ts in IP_ONLY_TAX_SYSTEMS:
+        errors.setdefault("tax_system", []).append("ooo_incompatible_with_ip_regime")
 
 
 def _validate_vat_block(snapshot: ProfileSnapshot, errors: dict[str, list[str]]) -> None:
