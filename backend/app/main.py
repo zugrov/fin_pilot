@@ -15,6 +15,7 @@ from app.api.v1 import (
     imports,
     ingestions,
     mail_quarantine,
+    org_profile,
     plan,
     reconciliation,
     revenue,
@@ -114,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(reconciliation.router, prefix="/api/v1")
     app.include_router(billing.router, prefix="/api/v1")
     app.include_router(tax_norms.router, prefix="/api/v1")
+    app.include_router(org_profile.router, prefix="/api/v1")
     app.include_router(webhooks.router, prefix="/api/v1")
     return app
 
