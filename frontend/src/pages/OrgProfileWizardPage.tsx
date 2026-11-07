@@ -902,7 +902,7 @@ export function OrgProfileWizardPage() {
         </section>
       ) : null}
 
-      {wizardOpen ? (
+      {wizardOpen && writeActions ? (
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <button
             type="button"
@@ -943,7 +943,7 @@ export function OrgProfileWizardPage() {
               {step3Saved ? <span className="text-body text-muted">Сохранено</span> : null}
             </>
           ) : null}
-          {step === 6 && writeActions ? (
+          {step === 6 ? (
             <>
               <button
                 type="button"

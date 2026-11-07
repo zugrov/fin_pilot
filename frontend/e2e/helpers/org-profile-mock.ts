@@ -32,14 +32,26 @@ function recomputeReadiness(profile: ProfileState): void {
   const missing: string[] = [];
   if (profile.org_form === "unspecified") missing.push("org_form");
   if (profile.tax_system === "unspecified") missing.push("tax_system");
+  if (profile.tax_system === "usn" && profile.usn_tax_object === "unspecified") {
+    missing.push("usn_tax_object");
+  }
+  if (profile.vat_status === "unknown" || profile.vat_status === "unspecified") {
+    missing.push("vat_status");
+  }
   if (profile.accounting_source === "unspecified") missing.push("accounting_source");
   const channels = profile.money_channels as string[];
-  if (!channels?.length || channels.every((c) => c === "unspecified")) {
+  const usable = (channels ?? []).filter((c) => c !== "unspecified");
+  if (!usable.length) {
     missing.push("money_channels");
   }
   if (profile.month_close_policy === "unknown") missing.push("month_close_policy");
   if (profile.revenue_recognition_method === "unknown") {
     missing.push("revenue_recognition_method");
+  }
+  if (profile.is_new_organization !== true) {
+    if (profile.prior_year_revenue_band === "unknown") {
+      missing.push("prior_year_revenue_band");
+    }
   }
   profile.confirm_readiness = {
     ready: missing.length === 0,

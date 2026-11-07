@@ -32,6 +32,7 @@ test.describe("P3c · мастер профиля организации", () =>
     await page.getByLabel("Закрытие месяца в учёте").selectOption("calendar_month_end");
     await page.getByLabel("Признание выручки").selectOption("accrual");
     await page.getByRole("button", { name: "Сохранить и проверить" }).click();
+    await expect(page.getByRole("button", { name: "Подтвердить профиль" })).toBeEnabled();
     await page.getByRole("button", { name: "Подтвердить профиль" }).click();
     await expect(page.getByText("Подтверждён")).toBeVisible();
 
@@ -46,6 +47,8 @@ test.describe("P3c · мастер профиля организации", () =>
     await openAppShell(page);
     await selectCompany(page, meta.companyAName);
     await gotoSection(page, "Профиль организации");
+    await page.getByLabel("Организационно-правовая форма").selectOption("ooo");
+    await page.getByRole("button", { name: "Далее" }).click();
     await page.getByLabel("Режим").selectOption("osno");
     await page.getByRole("button", { name: "Далее" }).click();
     await gotoSection(page, "Обзор");
@@ -88,7 +91,7 @@ test.describe("P3c · мастер профиля организации", () =>
     await page.getByRole("button", { name: "Изменить режим с даты…" }).click();
     await page.getByPlaceholder("Кратко, без персональных данных").fill("смена режима");
     await page.getByRole("button", { name: "Создать версию" }).click();
-    await expect(page.getByText("Черновик")).toBeVisible();
+    await expect(page.getByText("Черновик", { exact: true }).first()).toBeVisible();
     expect(state.versions.length).toBe(2);
     expect(state.versions[1].version_id).not.toBe(firstVersionId);
     expect(state.profile.tax_system).toBe("usn");
