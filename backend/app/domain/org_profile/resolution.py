@@ -1,7 +1,7 @@
 """Выбор действующей версии профиля на месяц (ADR-003 §3)."""
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from app.domain.org_profile.support_matrix import SupportAssessment, assess_product_support
 from app.domain.org_profile.validation import ProfileSnapshot
@@ -14,6 +14,8 @@ class ResolvedOrganizationProfile:
     snapshot: ProfileSnapshot
     is_confirmed: bool
     support: SupportAssessment
+    confirmed_at: datetime | None = None
+    confirmed_role: str | None = None
 
 
 def resolve_profile_for_period(

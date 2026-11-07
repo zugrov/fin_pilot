@@ -17,17 +17,21 @@ from tests.integration.conftest import (
 )
 
 
-def _company(client: TestClient, admin, app, fake, email: str) -> tuple[str, str]:
+def _company_bare(client: TestClient, admin, email: str) -> tuple[str, str]:
     register_and_verify(client, admin, email)
     login(client, email)
     tenant_id = open_workspace(client, "Org profile API")
-    pay(client, app, fake, 1, "month")
     created = client.post(
         f"/api/v1/workspaces/{tenant_id}/companies",
         json={"name": "Profile Co", "kind": "company", "timezone": "Europe/Moscow"},
     )
     assert created.status_code == 200, created.text
-    company_id = created.json()["id"]
+    return tenant_id, created.json()["id"]
+
+
+def _company(client: TestClient, admin, app, fake, email: str) -> tuple[str, str]:
+    tenant_id, company_id = _company_bare(client, admin, email)
+    pay(client, app, fake, 1, "month")
     activated = client.post(f"/api/v1/billing/companies/{company_id}/activate")
     assert activated.status_code == 200, activated.text
     return tenant_id, company_id
@@ -145,7 +149,68 @@ def test_invalid_period_not_first_of_month(client, admin, app, fake) -> None:
         params={"period": "2026-03-15"},
     )
     assert response.status_code == 400
-    assert response.json()["code"] == "invalid_effective_from"
+    assert response.json()["code"] == "validation_error"
+
+
+def test_organization_profile_readable_without_billing(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "op-no-billing@example.com")
+    response = client.get(f"/api/v1/companies/{company_id}/organization-profile")
+    assert response.status_code == 200, response.text
+    assert response.json()["company_id"] == company_id
+
+
+def test_tenant_member_without_company_access_404(client, admin, app, fake) -> None:
+    tenant_id, company_id = _company_bare(client, admin, "op-no-access-owner@example.com")
+    invited = client.post(
+        f"/api/v1/workspaces/{tenant_id}/invitations",
+        json={"email": "op-no-access@example.com", "role": "viewer"},
+    )
+    assert invited.status_code == 200, invited.text
+    token = token_from_link(latest_email_link(admin, "op-no-access@example.com", "invite"))
+    guest = TestClient(client.app)
+    register_and_verify(guest, admin, "op-no-access@example.com")
+    login(guest, "op-no-access@example.com")
+    accepted = guest.post("/api/v1/auth/invitations/accept", json={"token": token})
+    assert accepted.status_code == 200, accepted.text
+    guest.headers["X-Tenant-Id"] = tenant_id
+    response = guest.get(f"/api/v1/companies/{company_id}/organization-profile")
+    assert response.status_code == 404
+    assert response.json()["code"] == "not_found"
+
+
+def test_confirmed_profile_reflects_confirmation(client, admin, app, fake) -> None:
+    _, company_id = _company_bare(client, admin, "op-confirmed@example.com")
+    with admin.connect() as connection:
+        owner_id = connection.execute(
+            text(
+                """
+                SELECT u.id::text FROM users u
+                JOIN memberships m ON m.user_id = u.id
+                JOIN companies c ON c.tenant_id = m.tenant_id
+                WHERE c.id = :cid AND m.role = 'owner'
+                LIMIT 1
+                """
+            ),
+            {"cid": company_id},
+        ).scalar_one()
+        connection.execute(
+            text(
+                """
+                UPDATE organization_profile_versions
+                SET confirmed_at = now(), confirmed_by = :uid, confirmed_role = 'owner'
+                WHERE company_id = :cid
+                """
+            ),
+            {"cid": company_id, "uid": owner_id},
+        )
+        connection.commit()
+    response = client.get(f"/api/v1/companies/{company_id}/organization-profile")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["is_confirmed"] is True
+    assert body["profile_unconfirmed"] is False
+    assert body["confirmed_role"] == "owner"
+    assert body["confirmed_at"] is not None
 
 
 def test_tenant_isolation_versions_list(client, admin, app, fake) -> None:

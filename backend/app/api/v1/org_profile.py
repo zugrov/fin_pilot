@@ -6,19 +6,16 @@ from datetime import UTC, date, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from app.api.deps import DbSession, current_session, settings_of
+from app.api.deps import DbSession, current_session
 from app.clock import now
 from app.domain.org_profile.validation import ProfileSnapshot
 from app.errors import AppError
-from app.models.org_profile import OrganizationProfileVersion
-from app.security.access import assert_finance_access, find_company_across_memberships
+from app.security.access import find_company_across_memberships
 from app.services.org_profile_service import (
-    assert_first_day_of_month,
     get_profile_for_period,
     list_versions_for_company,
 )
 from fastapi import APIRouter, Request
-from sqlalchemy import select
 
 router = APIRouter(tags=["organization-profile"])
 
@@ -36,14 +33,12 @@ def _parse_period(request: Request, company_timezone: str, at: datetime) -> date
         parsed = date.fromisoformat(raw)
     except ValueError as exc:
         raise AppError(400, "validation_error", "Некорректный период period") from exc
-    try:
-        assert_first_day_of_month(parsed)
-    except AppError:
+    if parsed.day != 1:
         raise AppError(
             400,
-            "invalid_effective_from",
+            "validation_error",
             "period должно быть первым числом месяца (YYYY-MM-01)",
-        ) from None
+        )
     return parsed
 
 
@@ -74,22 +69,12 @@ def _ts_iso(value: datetime | None) -> str | None:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _finance_read(request: Request, session: DbSession, company_id: UUID):
+def _company_read(request: Request, session: DbSession, company_id: UUID):
+    """Как GET /api/v1/companies/{company_id}: сессия и видимость фирмы, без billing."""
     _row, user = current_session(request, session)
     membership, company = find_company_across_memberships(session, user.id, company_id)
-    settings = settings_of(request)
-    at = now()
-    assert_finance_access(
-        session,
-        membership=membership,
-        company=company,
-        user_verified=user.email_verified_at is not None,
-        at=at,
-        mode="read",
-        grace_days=settings.billing_grace_days,
-        bypass=settings.billing_bypass_allowed(),
-    )
-    return membership, company, at
+    _ = (membership, user)
+    return company, now()
 
 
 @router.get("/companies/{company_id}/organization-profile")
@@ -98,7 +83,7 @@ def get_organization_profile_for_period(
     request: Request,
     session: DbSession,
 ) -> dict:
-    _membership, company, at = _finance_read(request, session, company_id)
+    company, at = _company_read(request, session, company_id)
     period_month = _parse_period(request, company.timezone, at)
     resolved = get_profile_for_period(
         session,
@@ -108,15 +93,6 @@ def get_organization_profile_for_period(
     )
     if resolved is None:
         raise AppError(404, "not_found", "Профиль не найден")
-    version = session.scalar(
-        select(OrganizationProfileVersion).where(
-            OrganizationProfileVersion.id == UUID(resolved.version_id),
-            OrganizationProfileVersion.tenant_id == company.tenant_id,
-            OrganizationProfileVersion.company_id == company.id,
-        )
-    )
-    if version is None:
-        raise AppError(404, "not_found", "Профиль не найден")
     support = resolved.support
     return {
         "company_id": str(company.id),
@@ -124,8 +100,8 @@ def get_organization_profile_for_period(
         "version_id": resolved.version_id,
         "effective_from": resolved.effective_from.isoformat(),
         "is_confirmed": resolved.is_confirmed,
-        "confirmed_at": _ts_iso(version.confirmed_at),
-        "confirmed_role": version.confirmed_role,
+        "confirmed_at": _ts_iso(resolved.confirmed_at),
+        "confirmed_role": resolved.confirmed_role,
         "profile_unconfirmed": not resolved.is_confirmed,
         "support_level": support.level,
         "support_code": support.code,
@@ -139,7 +115,7 @@ def list_organization_profile_versions(
     request: Request,
     session: DbSession,
 ) -> dict:
-    _membership, company, _at = _finance_read(request, session, company_id)
+    company, _at = _company_read(request, session, company_id)
     versions = list_versions_for_company(
         session, tenant_id=company.tenant_id, company_id=company.id
     )

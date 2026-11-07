@@ -307,7 +307,19 @@ def get_profile_for_period(
         )
         for v in versions
     ]
-    return resolve_profile_for_period(versions=tuples, period_month=period_month)
+    resolved = resolve_profile_for_period(versions=tuples, period_month=period_month)
+    if resolved is None:
+        return None
+    version_row = next(v for v in versions if str(v.id) == resolved.version_id)
+    return ResolvedOrganizationProfile(
+        version_id=resolved.version_id,
+        effective_from=resolved.effective_from,
+        snapshot=resolved.snapshot,
+        is_confirmed=resolved.is_confirmed,
+        support=resolved.support,
+        confirmed_at=version_row.confirmed_at,
+        confirmed_role=version_row.confirmed_role,
+    )
 
 
 def _effective_confirm_role(membership: Membership, access: CompanyAccess | None) -> str:
