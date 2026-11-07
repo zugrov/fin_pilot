@@ -8,6 +8,7 @@ from datetime import date
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from tests.integration.conftest import (
+    PASSWORD,
     latest_email_link,
     login,
     open_workspace,
@@ -74,6 +75,26 @@ def _post_version(client, company_id: str, effective_from: str, *, key: str | No
         headers={"Idempotency-Key": key or uuid.uuid4().hex},
     )
     return response
+
+
+def test_write_requires_verified_email(client, admin) -> None:
+    email = "opw-unverified@example.com"
+    registered = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": PASSWORD, "name": "U"},
+    )
+    assert registered.status_code == 200
+    login(client, email)
+    tenant_id = open_workspace(client)
+    created = client.post(
+        f"/api/v1/workspaces/{tenant_id}/companies",
+        json={"name": "Co", "kind": "company"},
+    )
+    assert created.status_code == 200, created.text
+    company_id = created.json()["id"]
+    response = _patch_draft(client, company_id)
+    assert response.status_code == 403
+    assert response.json()["code"] == "email_not_verified"
 
 
 def test_viewer_cannot_write_profile(client, admin) -> None:

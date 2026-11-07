@@ -297,12 +297,18 @@ def _idempotent_store(
         ) from None
 
 
+def _assert_verified_email(user: User) -> None:
+    if user.email_verified_at is None:
+        raise AppError(403, "email_not_verified", "Подтвердите почту")
+
+
 def _company_session(
     request: Request, session: DbSession, company_id: UUID, *, mutate: bool
 ) -> tuple:
     row, user = current_session(request, session)
     if mutate:
         require_csrf(request, row)
+        _assert_verified_email(user)
     membership, company = find_company_across_memberships(session, user.id, company_id)
     access = access_row(session, membership, company.id)
     return row, user, membership, company, access
