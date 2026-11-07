@@ -9,7 +9,7 @@ from decimal import Decimal
 from app.domain.money import money
 from app.domain.org_profile.constants import VAT_STATUSES
 from app.domain.org_profile.resolution import ResolvedOrganizationProfile
-from app.domain.revenue import NET_LABEL, SaleFact, RevenueView, assess_revenue
+from app.domain.revenue import NET_LABEL, RevenueView, SaleFact, assess_revenue
 
 VAT_BASIS_FROM_PROFILE = "vat_basis_from_profile"
 NOT_APPLICABLE = "not_applicable"
