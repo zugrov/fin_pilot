@@ -55,7 +55,7 @@ def _row_unknown(fact: SaleFact) -> bool:
 def _signed_row(fact: SaleFact, *, treat_gross_as_net: bool) -> Decimal:
     if treat_gross_as_net:
         amount = fact.amount_inc_vat
-    elif not _row_unknown(fact):
+    elif not _row_unknown(fact) and fact.amount_ex_vat is not None:
         amount = fact.amount_ex_vat
     else:
         amount = fact.amount_inc_vat
@@ -94,6 +94,7 @@ def apply_profile_vat_overlay(
         if use_overlay:
             any_overlay = True
             assert resolved is not None
+            assert row_month is not None
             overlay_months[row_month] = resolved.version_id
             total = money(total + _signed_row(fact, treat_gross_as_net=True))
         elif _row_unknown(fact):
