@@ -21,10 +21,10 @@ PRIOR_YEAR_REVENUE_BANDS = frozenset(
     {
         "unknown",
         "unspecified",
-        "under_20m",
-        "from_20m_to_272_5m",
-        "from_272_5m_to_490_5m",
-        "over_490_5m",
+        "under_exemption_threshold",
+        "from_threshold_to_cap_5",
+        "from_cap_5_to_cap_7",
+        "over_cap_7",
     }
 )
 MONTH_CLOSE_POLICIES = frozenset({"unknown", "calendar_month_end", "manual", "other"})

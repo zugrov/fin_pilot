@@ -419,3 +419,96 @@ def test_accountant_can_write(client, admin) -> None:
     guest.headers["X-Tenant-Id"] = tenant_id
     response = _patch_draft(guest, company_id, tax_system="usn")
     assert response.status_code == 200, response.text
+
+
+def test_patch_draft_without_change_reason(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-no-reason@example.com")
+    response = _patch_draft_json(client, company_id, {"tax_system": "usn"})
+    assert response.status_code == 200, response.text
+    assert response.json()["change_reason"] == "правка черновика"
+
+
+def test_profile_mutations_include_support_and_confirm_readiness(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-ready@example.com")
+    read = client.get(f"/api/v1/companies/{company_id}/organization-profile")
+    assert read.status_code == 200, read.text
+    bootstrap = read.json()
+    assert bootstrap["confirm_readiness"]["ready"] is False
+    assert "org_form" in bootstrap["confirm_readiness"]["missing"]
+    assert "support_level" in bootstrap
+    assert "support_code" in bootstrap
+
+    patched = _patch_draft(client, company_id)
+    assert patched.status_code == 200, patched.text
+    body = patched.json()
+    assert body["confirm_readiness"]["ready"] is True
+    assert body["confirm_readiness"]["missing"] == []
+    assert body["support_level"] in {"supported", "partial", "unsupported"}
+
+    version_id = body["version_id"]
+    confirmed = _confirm(client, company_id, version_id)
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["confirm_readiness"]["ready"] is True
+
+    with admin.connect() as connection:
+        eff = date.fromisoformat(
+            connection.execute(
+                text(
+                    "SELECT effective_from::text FROM organization_profile_versions "
+                    "WHERE company_id = :cid ORDER BY effective_from DESC LIMIT 1"
+                ),
+                {"cid": company_id},
+            ).scalar_one()
+        )
+    if eff.month == 12:
+        next_eff = date(eff.year + 1, 1, 1)
+    else:
+        next_eff = date(eff.year, eff.month + 1, 1)
+    created = _post_version(client, company_id, next_eff.isoformat())
+    assert created.status_code == 200, created.text
+    assert created.json()["confirm_readiness"]["ready"] is True
+
+
+def test_confirm_readiness_field_errors_invalid_inn(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-bad-inn@example.com")
+    patched = _patch_draft(client, company_id)
+    assert patched.status_code == 200, patched.text
+
+    with admin.begin() as connection:
+        connection.execute(
+            text("UPDATE companies SET inn = '111111111111' WHERE id = :cid"),
+            {"cid": company_id},
+        )
+
+    read = client.get(f"/api/v1/companies/{company_id}/organization-profile")
+    assert read.status_code == 200, read.text
+    readiness = read.json()["confirm_readiness"]
+    assert readiness["ready"] is False
+    assert readiness["missing"] == []
+    assert "inn_checksum_mismatch" in readiness["field_errors"].get("inn", [])
+
+
+def test_confirm_readiness_field_errors_incompatible_vat(client, admin) -> None:
+    _, company_id = _company_bare(client, admin, "opw-bad-vat@example.com")
+    patched = _patch_draft(client, company_id)
+    assert patched.status_code == 200, patched.text
+    version_id = patched.json()["version_id"]
+    with admin.begin() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE organization_profile_versions
+                SET tax_system = 'osno', vat_status = 'special_rates_5_7',
+                    vat_regime_detail = 'special_without_deductions',
+                    usn_tax_object = 'unspecified'
+                WHERE id = :vid
+                """
+            ),
+            {"vid": version_id},
+        )
+    read = client.get(f"/api/v1/companies/{company_id}/organization-profile")
+    assert read.status_code == 200, read.text
+    readiness = read.json()["confirm_readiness"]
+    assert readiness["ready"] is False
+    assert readiness["missing"] == []
+    assert "special_rates_requires_usn" in readiness["field_errors"].get("vat_status", [])
