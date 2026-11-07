@@ -12,7 +12,9 @@ from app.domain.org_profile.validation import ProfileSnapshot
 from app.domain.revenue import NET_LABEL, SOURCE_LABEL, SaleFact, assess_revenue
 
 
-def _resolved(*, vat_status: str, confirmed: bool, article_145: bool = False) -> ResolvedOrganizationProfile:
+def _resolved(
+    *, vat_status: str, confirmed: bool, article_145: bool = False
+) -> ResolvedOrganizationProfile:
     snapshot = ProfileSnapshot(
         vat_status=vat_status,
         vat_exemption_article_145=article_145,

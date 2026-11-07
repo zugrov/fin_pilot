@@ -16,11 +16,11 @@ from app.domain.revenue import (
     SaleFact,
     input_revision,
 )
-from app.services.org_profile_service import resolve_profiles_for_months
 from app.models.cash import CashCategory, CashTransaction, OpeningBalance, TransferGroup, Wallet
 from app.models.imports import SourceConnection
 from app.models.revenue import RevenueEntry
 from app.services.cash_service import company_summary, summary_payload
+from app.services.org_profile_service import resolve_profiles_for_months
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

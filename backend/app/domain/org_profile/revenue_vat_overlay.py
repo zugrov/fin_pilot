@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
+from app.domain.money import money
 from app.domain.org_profile.constants import VAT_STATUSES
 from app.domain.org_profile.resolution import ResolvedOrganizationProfile
-from app.domain.money import money
-from app.domain.revenue import NET_LABEL, SOURCE_LABEL, SaleFact, RevenueView, assess_revenue
+from app.domain.revenue import NET_LABEL, SOURCE_LABEL, RevenueView, SaleFact, assess_revenue
 
 VAT_BASIS_FROM_PROFILE = "vat_basis_from_profile"
 NOT_APPLICABLE = "not_applicable"
