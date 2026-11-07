@@ -16,7 +16,7 @@ export function OrgProfileOverviewBanner({ companyId, timeZone }: Props) {
     queryKey: ["organization-profile", companyId, period],
     queryFn: () => loadOrganizationProfile(companyId, period),
     enabled: Boolean(companyId),
-    staleTime: 60_000,
+    staleTime: 0,
     retry: 1,
   });
 

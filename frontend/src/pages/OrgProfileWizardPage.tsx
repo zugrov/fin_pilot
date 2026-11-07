@@ -25,6 +25,7 @@ import {
   defaultEffectiveFromMonth,
   monthInputMinAfterVersion,
 } from "../lib/orgProfileEffectiveFrom";
+import { shouldPatchCurrentPeriodProfileCache } from "../lib/orgProfileConfirmCache";
 import { versionCreateSnapshotSource } from "../lib/orgProfileVersionCreate";
 import { buildVersionCreateBody } from "../lib/orgProfileVersionSnapshot";
 import {
@@ -453,14 +454,21 @@ export function OrgProfileWizardPage() {
       if (companyId && wizardPeriod) {
         client.setQueryData(["organization-profile", companyId, wizardPeriod], data);
       }
-      if (companyId && currentPeriod) {
+      if (
+        companyId &&
+        currentPeriod &&
+        shouldPatchCurrentPeriodProfileCache(data.effective_from, currentPeriod)
+      ) {
         client.setQueryData(["organization-profile", companyId, currentPeriod], {
           ...data,
           period: currentPeriod,
-          profile_unconfirmed: false,
-          is_confirmed: true,
+          profile_unconfirmed: !data.is_confirmed,
         });
       }
+      await client.invalidateQueries({
+        queryKey: ["organization-profile", companyId],
+        refetchType: "all",
+      });
       await client.invalidateQueries({ queryKey: ["organization-profile-versions", companyId] });
     },
     onError: async (exc) => {
