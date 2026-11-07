@@ -47,6 +47,7 @@ from app.models.imports import (
     SourceIdentity,
 )
 from app.models.mail_quarantine import MailQuarantineEntry
+from app.models.org_profile import OrganizationProfileVersion
 from app.models.plan import (
     ForecastContribution,
     ForecastPoint,
@@ -118,6 +119,7 @@ __all__ = [
     "NotificationOutbox",
     "Obligation",
     "ObligationCashLink",
+    "OrganizationProfileVersion",
     "OpeningBalance",
     "PaymentMatch",
     "PlannedCashEvent",
