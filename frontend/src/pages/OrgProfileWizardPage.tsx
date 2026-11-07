@@ -447,9 +447,19 @@ export function OrgProfileWizardPage() {
       }
       return confirmOrganizationProfileVersion(companyId, versionId, crypto.randomUUID());
     },
-    onSuccess: async () => {
+    onSuccess: async (data) => {
       setError("");
       setWizardOpen(false);
+      if (companyId) {
+        client.setQueryData(["organization-profile", companyId, data.period], data);
+        if (currentPeriod) {
+          const cardData =
+            currentPeriod === data.period
+              ? data
+              : await loadOrganizationProfile(companyId, currentPeriod);
+          client.setQueryData(["organization-profile", companyId, currentPeriod], cardData);
+        }
+      }
       await client.invalidateQueries({ queryKey: ["organization-profile", companyId] });
       await client.invalidateQueries({ queryKey: ["organization-profile-versions", companyId] });
     },
