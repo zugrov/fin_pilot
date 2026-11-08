@@ -144,8 +144,6 @@ class StagingAcceptanceSpecialRatesTests(unittest.TestCase):
             (200, {"csrf_token": "c"}, ""),
         ]
         with (
-            patch.object(mod, "create_company", return_value="company-special"),
-            patch.object(mod, "activate_company_slot", return_value=True),
             patch.object(mod, "ensure_revenue_source", return_value=True),
             patch.object(mod, "post_gross_sale", return_value=True),
             patch.object(mod, "patch_profile_draft", return_value=200),
@@ -161,7 +159,7 @@ class StagingAcceptanceSpecialRatesTests(unittest.TestCase):
                 return_value={"quality_flags": ["vat_basis_unknown"]},
             ),
         ):
-            mod.run_special_rates_company(client, "tenant", billing, "", report)
+            mod.run_special_rates_scenario(client, "company-special", billing, report)
         names = [row.step for row in report.rows]
         self.assertIn("org.special.dashboard.flags", names)
         self.assertTrue(any(row.step == "org.special.dashboard.flags" and row.ok for row in report.rows))
@@ -183,6 +181,80 @@ class StagingAcceptanceDryHttpTests(unittest.TestCase):
             code, body, _ = client.request("GET", "/health/live")
         self.assertEqual(code, 200)
         self.assertEqual(body, {"status": "ok"})
+
+
+class StagingBillingSqlTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module()
+
+    def test_resolve_billing_mode_default_sql(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(self.mod.resolve_billing_mode(), "sql")
+
+    def test_resolve_billing_mode_checkout_env(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"STAGING_BILLING_MODE": "checkout"},
+            clear=True,
+        ):
+            self.assertEqual(self.mod.resolve_billing_mode(), "checkout")
+
+    def test_render_sql_contains_tenant_and_company_ids(self) -> None:
+        tenant = "11111111-1111-4111-8111-111111111111"
+        companies = [
+            "22222222-2222-4222-8222-222222222222",
+            "33333333-3333-4333-8333-333333333333",
+        ]
+        period = "44444444-4444-4444-8444-444444444444"
+        grant, rollback = self.mod.render_staging_entitlement_sql(
+            tenant_id=tenant,
+            company_ids=companies,
+            period_id=period,
+            company_limit=4,
+        )
+        self.assertIn(tenant, grant)
+        self.assertIn(companies[0], grant)
+        self.assertIn(period, rollback)
+        self.assertIn("DELETE FROM company_entitlements", rollback)
+
+    def test_sql_billing_flow_mock_http(self) -> None:
+        mod = self.mod
+        report = mod.Report()
+        client = MagicMock()
+        tenant = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        companies = ["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"]
+        call_log: list[tuple[str, str]] = []
+
+        def fake_request(method: str, path: str, **kwargs: object) -> tuple[int, dict | None, str]:
+            call_log.append((method, path))
+            if method == "GET" and "/dashboard" in path:
+                return 200, {"quality_flags": []}, ""
+            if method == "POST" and "/activate" in path:
+                return 200, {}, ""
+            return 500, None, ""
+
+        client.request.side_effect = fake_request
+
+        with (
+            patch.dict("os.environ", {"STAGING_SQL_AUTO_CONTINUE": "1"}, clear=False),
+            patch.object(mod, "resolve_billing_mode", return_value="sql"),
+            patch("builtins.print"),
+        ):
+            prepared, period_id = mod.prepare_tenant_billing(
+                client,
+                report,
+                tenant_id=tenant,
+                company_ids=companies,
+                companies=1,
+                postgres_hint="psql",
+            )
+        self.assertTrue(prepared)
+        self.assertIsNotNone(period_id)
+        methods = [item[0] for item in call_log]
+        self.assertIn("GET", methods)
+        self.assertIn("POST", methods)
+        self.assertTrue(any(row.step == "billing.sql" and row.ok for row in report.rows))
 
 
 if __name__ == "__main__":

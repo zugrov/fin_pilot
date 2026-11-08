@@ -6,6 +6,13 @@
 
 HTTP-клиент для стенда с SESSION_COOKIE_SECURE=true: StagingCookiePolicy отправляет Secure-cookie
 по plain HTTP — только для приёмочного контура, не для боевого браузера.
+
+Переменные окружения (основные):
+  STAGING_BASE_URL, STAGING_PASSWORD, STAGING_VERIFY_TOKEN_OWNER, STAGING_VERIFY_TOKEN_TENANT_B
+  STAGING_BILLING_MODE=sql|checkout — по умолчанию sql, если нет STAGING_PROVIDER_PAYMENT_ID
+  STAGING_BILLING_COMPANIES (4), STAGING_SQL_AUTO_CONTINUE=1 (пропуск Enter после печати SQL)
+  STAGING_PROVIDER_PAYMENT_ID / STAGING_WEBHOOK_PAYMENT_OBJECT_ID — режим checkout
+  STAGING_SKIP_BILLING=1 — только activate (период уже выдан)
 """
 
 from __future__ import annotations
@@ -29,13 +36,24 @@ from uuid import uuid4
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_CSV = REPO_ROOT / "fixtures" / "staging_sales_gross_only.csv"
 REPORT_PATH = REPO_ROOT / "acceptance-report.md"
+GRANT_SQL_PATH = REPO_ROOT / "scripts" / "staging_grant_entitlements.sql"
+
+DEFAULT_PERIOD_START = "2026-10-01T00:00:00+00:00"
+DEFAULT_PERIOD_END = "2026-11-30T23:59:59+00:00"
 
 PERIOD_OCT = "date_from=2026-10-01&date_to=2026-10-31"
 PERIOD_YTD_OCT = "date_from=2026-01-01&date_to=2026-10-31"
 AS_OF_OCT = "2026-10-31"
 
-# Фирмы в tenant A: основная, спецставки, порог approaching, порог exceeded
+# Фирмы в tenant A: основная, порог approaching, порог exceeded, спецставки
 DEFAULT_BILLING_COMPANIES = 4
+
+COMPANY_DEFINITIONS: tuple[tuple[str, str], ...] = (
+    ("org.a", "Acceptance A"),
+    ("org.threshold.approaching", "Threshold approaching"),
+    ("org.threshold.exceeded", "Threshold exceeded"),
+    ("org.special", "Acceptance special rates"),
+)
 
 PROFILE_DRAFT_NA = {
     "org_form": "ooo",
@@ -285,23 +303,172 @@ def check_auth_me(client: HttpClient, report: Report, label: str) -> bool:
 @dataclass
 class TenantBilling:
     prepared: bool = False
+    period_id: str | None = None
+
+
+def resolve_billing_mode() -> str:
+    mode = (_env("STAGING_BILLING_MODE", "") or "").strip().lower()
+    if mode == "checkout":
+        return "checkout"
+    if mode == "sql":
+        return "sql"
+    if _env_flag("STAGING_SKIP_BILLING"):
+        return "skip"
+    if _env("STAGING_PROVIDER_PAYMENT_ID") or _env("STAGING_WEBHOOK_PAYMENT_OBJECT_ID"):
+        return "checkout"
+    return "sql"
+
+
+def _apply_sql_placeholders(text: str, mapping: dict[str, str]) -> str:
+    for key, value in mapping.items():
+        text = text.replace(key, value)
+    return text
+
+
+def render_staging_entitlement_sql(
+    *,
+    tenant_id: str,
+    company_ids: list[str],
+    period_id: str,
+    company_limit: int,
+    period_start: str = DEFAULT_PERIOD_START,
+    period_end: str = DEFAULT_PERIOD_END,
+) -> tuple[str, str]:
+    raw = GRANT_SQL_PATH.read_text(encoding="utf-8")
+    if "-- ===== ROLLBACK =====" not in raw:
+        raise ValueError("staging_grant_entitlements.sql: нет секции ROLLBACK")
+    grant_part, rollback_part = raw.split("-- ===== ROLLBACK =====", maxsplit=1)
+    company_array = ", ".join(f"'{cid}'" for cid in company_ids)
+    mapping = {
+        "@TENANT_ID@": tenant_id,
+        "@PERIOD_ID@": period_id,
+        "@PERIOD_START@": period_start,
+        "@PERIOD_END@": period_end,
+        "@COMPANY_LIMIT@": str(company_limit),
+        "@COMPANY_ID_ARRAY@": company_array,
+    }
+    grant_sql = _apply_sql_placeholders(grant_part.strip(), mapping)
+    rollback_sql = _apply_sql_placeholders(
+        rollback_part.replace("-- ===== ROLLBACK =====", "", 1).strip(),
+        mapping,
+    )
+    return grant_sql, rollback_sql
+
+
+def wait_for_sql_grant() -> None:
+    if _env_flag("STAGING_SQL_AUTO_CONTINUE"):
+        return
+    input("Выполните SQL на стенде (GRANT), затем нажмите Enter… ")
+
+
+def verify_finance_dashboard(
+    client: HttpClient,
+    company_id: str,
+    report: Report,
+    step: str,
+) -> bool:
+    code, _, _ = client.request("GET", f"/api/v1/companies/{company_id}/dashboard", query=PERIOD_OCT)
+    ok = code == 200
+    detail = str(code)
+    if code in {402, 403}:
+        detail = f"{code} (нет оплаченного доступа — проверьте GRANT SQL)"
+    report.record(step, "HTTP 200", detail, ok)
+    return ok
+
+
+def prepare_tenant_billing_sql(
+    client: HttpClient,
+    report: Report,
+    *,
+    tenant_id: str,
+    company_ids: list[str],
+    company_limit: int,
+) -> tuple[bool, str | None]:
+    period_id = str(uuid4())
+    grant_sql, rollback_sql = render_staging_entitlement_sql(
+        tenant_id=tenant_id,
+        company_ids=company_ids,
+        period_id=period_id,
+        company_limit=company_limit,
+    )
+    print("\n--- SQL GRANT (staging_grant_entitlements.sql) ---\n")
+    print(grant_sql)
+    print("\n--- SQL ROLLBACK (после приёмки) ---\n")
+    print(rollback_sql)
+    print("")
+    wait_for_sql_grant()
+    probe = company_ids[0] if company_ids else ""
+    if probe and not verify_finance_dashboard(client, probe, report, "billing.sql.probe_dashboard"):
+        return False, period_id
+    report.record("billing.sql", "GRANT применён", f"period_id={period_id}", True)
+    return True, period_id
+
+
+def activate_all_companies(
+    client: HttpClient,
+    report: Report,
+    company_ids: list[str],
+    prefixes: tuple[str, ...],
+) -> bool:
+    ok_all = True
+    for prefix, cid in zip(prefixes, company_ids):
+        code, _, _ = client.request("POST", f"/api/v1/billing/companies/{cid}/activate")
+        if code == 200:
+            report.record(f"{prefix}.activate", "HTTP 200", str(code), True)
+        elif code == 402:
+            report.record(
+                f"{prefix}.activate",
+                "HTTP 200 или не требуется",
+                "402 (entitlement уже в SQL)",
+                True,
+            )
+        else:
+            report.record(f"{prefix}.activate", "HTTP 200", str(code), False)
+            ok_all = False
+    return ok_all
 
 
 def prepare_tenant_billing(
     client: HttpClient,
     report: Report,
     *,
+    tenant_id: str,
+    company_ids: list[str],
     companies: int,
     postgres_hint: str,
-) -> bool:
-    if _env_flag("STAGING_SKIP_BILLING"):
+) -> tuple[bool, str | None]:
+    mode = resolve_billing_mode()
+    report.record("billing.mode", "sql|checkout|skip", mode, True)
+    if mode == "skip":
         report.record(
             "billing.prepare",
             "skip (STAGING_SKIP_BILLING=1)",
-            f"slots={companies}, только activate",
+            f"slots={companies}",
             True,
         )
-        return True
+        activate_all_companies(
+            client,
+            report,
+            company_ids,
+            tuple(item[0] for item in COMPANY_DEFINITIONS),
+        )
+        return True, None
+    if mode == "sql":
+        prepared, period_id = prepare_tenant_billing_sql(
+            client,
+            report,
+            tenant_id=tenant_id,
+            company_ids=company_ids,
+            company_limit=companies,
+        )
+        if prepared:
+            activate_all_companies(
+                client,
+                report,
+                company_ids,
+                tuple(item[0] for item in COMPANY_DEFINITIONS),
+            )
+        return prepared, period_id
 
     quoted = client.request(
         "POST",
@@ -311,7 +478,7 @@ def prepare_tenant_billing(
     ok_q, act_q = evaluate_http_status(quoted[0], 200)
     report.record("billing.quote", f"HTTP 200 (companies={companies})", act_q, ok_q)
     if not ok_q or not quoted[1]:
-        return False
+        return False, None
 
     checked = client.request(
         "POST",
@@ -325,7 +492,7 @@ def prepare_tenant_billing(
         detail = f"{act_c} (SEND_LIVE_PAYMENTS=false → DisabledPaymentProvider; см. runbook §3.2)"
     report.record("billing.checkout", "HTTP 200", detail, ok_c)
     if not ok_c or not checked[1]:
-        return False
+        return False, None
 
     payment_attempt_id = str(checked[1].get("payment_id", ""))
     provider_id = prompt_provider_payment_id()
@@ -337,7 +504,7 @@ def prepare_tenant_billing(
             "пропуск (нет STAGING_PROVIDER_PAYMENT_ID)",
             False,
         )
-        return False
+        return False, None
 
     webhook = client.request(
         "POST",
@@ -347,7 +514,7 @@ def prepare_tenant_billing(
     ok_w, act_w = evaluate_http_status(webhook[0], 200)
     report.record("billing.webhook", "HTTP 200", act_w, ok_w)
     if not ok_w:
-        return False
+        return False, None
 
     activated = False
     for attempt in range(30):
@@ -362,7 +529,14 @@ def prepare_tenant_billing(
         "true" if activated else "false (нужен celery billing.process_inbox?)",
         activated,
     )
-    return activated
+    if activated:
+        activate_all_companies(
+            client,
+            report,
+            company_ids,
+            tuple(item[0] for item in COMPANY_DEFINITIONS),
+        )
+    return activated, None
 
 
 def activate_company_slot(
@@ -523,24 +697,21 @@ def confirm_profile(client: HttpClient, company_id: str) -> int:
     return confirmed[0]
 
 
-def run_special_rates_company(
+def run_special_rates_scenario(
     client: HttpClient,
-    tenant_id: str,
+    company_id: str | None,
     billing: TenantBilling,
-    postgres_hint: str,
     report: Report,
 ) -> None:
-    cid = create_company(client, tenant_id, "Acceptance special rates", report, "org.special")
-    if not cid:
+    if not company_id:
         return
     if not billing.prepared:
-        report.record("org.special.activate", "HTTP 200", "billing не подготовлен", False)
+        report.record("org.special", "billing prepared", "billing не подготовлен", False)
         return
-    if activate_company_slot(client, cid, report, "org.special"):
-        ensure_revenue_source(client, cid, "2026-10-31", report, "org.special")
+    if ensure_revenue_source(client, company_id, "2026-10-31", report, "org.special"):
         post_gross_sale(
             client,
-            cid,
+            company_id,
             report,
             "org.special.sale",
             day="2026-10-10",
@@ -548,19 +719,19 @@ def run_special_rates_company(
             doc="SP-1",
         )
         ok_p, act_p = evaluate_http_status(
-            patch_profile_draft(client, cid, vat_status="special_rates_5_7"), 200
+            patch_profile_draft(client, company_id, vat_status="special_rates_5_7"), 200
         )
         report.record("org.special.profile.draft", "HTTP 200", act_p, ok_p)
-        ok_c, act_c = evaluate_http_status(confirm_profile(client, cid), 200)
+        ok_c, act_c = evaluate_http_status(confirm_profile(client, company_id), 200)
         report.record("org.special.profile.confirm", "HTTP 200", act_c, ok_c)
-        dash = dashboard(client, cid)
+        dash = dashboard(client, company_id)
         ok_d, act_d = evaluate_quality_flags(
             dash.get("quality_flags") if dash else None,
             want_unknown=True,
             want_from_profile=False,
         )
         report.record("org.special.dashboard.flags", "unknown,!from_profile", act_d, ok_d)
-        ar = receivable(client, cid)
+        ar = receivable(client, company_id)
         ok_a, act_a = evaluate_quality_flags(
             ar.get("quality_flags") if ar else None,
             want_unknown=True,
@@ -618,28 +789,24 @@ def run_acceptance_body(
         return 1
 
     company_ids: list[str] = []
-    for label, name, prefix in (
-        ("a", "Acceptance A", "org.a"),
-        ("approach", "Threshold approaching", "org.threshold.approaching"),
-        ("exceed", "Threshold exceeded", "org.threshold.exceeded"),
-    ):
+    client.set_tenant(tenant_a)
+    for prefix, name in COMPANY_DEFINITIONS:
         cid = create_company(client, tenant_a, name, report, prefix)
         if cid:
             company_ids.append(cid)
 
-    n_slots = int(_env("STAGING_BILLING_COMPANIES", str(DEFAULT_BILLING_COMPANIES)))
-    if len(company_ids) > n_slots:
-        n_slots = len(company_ids)
-    billing.prepared = prepare_tenant_billing(
-        client, report, companies=n_slots, postgres_hint=postgres_hint
+    n_slots = max(
+        int(_env("STAGING_BILLING_COMPANIES", str(DEFAULT_BILLING_COMPANIES))),
+        len(company_ids),
     )
-    if billing.prepared:
-        for prefix, cid in zip(
-            ("org.a", "org.threshold.approaching", "org.threshold.exceeded"),
-            company_ids,
-            strict=False,
-        ):
-            activate_company_slot(client, cid, report, prefix)
+    billing.prepared, billing.period_id = prepare_tenant_billing(
+        client,
+        report,
+        tenant_id=tenant_a,
+        company_ids=company_ids,
+        companies=n_slots,
+        postgres_hint=postgres_hint,
+    )
 
     if not company_ids:
         return 1
@@ -697,7 +864,8 @@ def run_acceptance_body(
     )
     report.record("receivable.after_confirm.flags", "!unknown,from_profile", act_ar2, ok_ar2)
 
-    run_special_rates_company(client, tenant_a, billing, postgres_hint, report)
+    special_id = company_ids[3] if len(company_ids) > 3 else None
+    run_special_rates_scenario(client, special_id, billing, report)
 
     if len(company_ids) > 1:
         company_approach = company_ids[1]

@@ -79,8 +79,8 @@
 
 | Шаг | Действие | Ожидание | ~время |
 | --- | --- | --- | --- |
-| 3.1 | Создать workspace / firm (product API или UI) | `COMPANY_A`, `TENANT_A` | 10 мин |
-| 3.2 | Оплатить слоты и активировать фирмы (см. ниже) | `POST .../billing/companies/{id}/activate` → **200** | 10–20 мин |
+| 3.1 | Создать workspace, затем **все 4 фирмы** (A, approaching, exceeded, спецставки) | Четыре `company_id` до биллинга | 10 мин |
+| 3.2 | Выдать оплаченный период (см. ниже): **готовый SQL → Enter → проверка dashboard** | `GET .../dashboard` не **402/403**; при необходимости `activate` | **~10 мин** |
 | 3.3 | Подключить источник **revenue** (`dataset=revenue`), выставить `coverage_through` ≥ `2026-10-31` | Источник **200**, coverage обновлён | 5 мин |
 
 Заголовок **`X-Tenant-Id: {TENANT_A}`** на всех запросах к компании.
@@ -89,26 +89,23 @@
 
 Код: `billing_service.checkout` / `activate_company`, `security.access.assert_finance_access` + `assert_company_paid`, `Settings.billing_bypass_allowed()` (`config.py`).
 
-**Сколько слотов:** одна оплата на tenant — в quote укажите `companies: N` (для полного прогона скрипта и runbook: **4** — основная, спецставки, два сценария порога НДС). Каждую фирму после оплаты — `POST .../billing/companies/{company_id}/activate`.
+**Сколько слотов:** для полного прогона — **4** фирмы (основная, два порога НДС, спецставки). Создайте их сразу после workspace; скрипт `staging_acceptance.py` делает это до шага биллинга.
+
+**Порядок по умолчанию (скрипт):** `STAGING_BILLING_MODE=sql` (если не задан `STAGING_PROVIDER_PAYMENT_ID`) → скрипт печатает SQL из `scripts/staging_grant_entitlements.sql` с подставленными `tenant_id` / `company_id` → выполните на стенде (роль `finpilot`) → **Enter** в терминале → проверка dashboard и `activate` при необходимости.
 
 #### (а) Обход billing guard
 
 `billing_bypass_allowed()` = `BILLING_GUARD_BYPASS` **и** `app_env != production`. На стенде с **`APP_ENV=production` обход недоступен** — finance API требуют активный `company_entitlements` / оплаченный период. В production задавать `BILLING_GUARD_BYPASS` **запрещено** (`model_post_init`).
 
-#### (б) SQL (минимально, с откатом)
+#### (б) SQL (минимально, с откатом) — **режим по умолчанию**
 
-Только приёмочное окно, роль `finpilot` (не `finpilot_app`). Воспроизводит результат `_grant` после успешной оплаты — **без** подмены webhook. Псевдошаги (подставьте `TENANT_ID`, `COMPANY_ID`, суммы из тарифа):
+Файл: `scripts/staging_grant_entitlements.sql` (GRANT + ROLLBACK). Выполнять ролью `finpilot` (не `finpilot_app`). Воспроизводит оплаченный период и entitlements — **без** webhook. Скрипт подставляет UUID и печатает готовые блоки; автотест: `backend/tests/integration/test_staging_grant_entitlements_sql.py`.
 
-1. Убедиться, что есть `subscriptions` для tenant и текущее `now()` внутри будущего `billing_periods`.
-2. Вставить `billing_periods` (`status=active`, `company_limit=N`, границы периода, `paid_amount` из quote).
-3. Обновить `subscriptions.paid_through`, `company_limit`, `status=active`.
-4. Для каждой фирмы — `company_entitlements` (`active`, `active_until = period.end_at`) и `companies.status=active`.
+Минимальный набор: `billing_periods`, `subscriptions`, `company_entitlements`, `companies.status=active`. Откат — второй блок в том же файле (удаление period/entitlements, `awaiting_payment`, `draft`).
 
-**Откат** (в той же транзакции приёмки или сразу после теста): удалить вставленные `company_entitlements` и `billing_periods` по `id`, вернуть `companies.status=draft`, **не** трогать боевые платежи. Зафиксируйте `id` строк в протоколе (UUID без клиентских данных).
+Детали полей — `backend/app/services/billing_service.py` (`_grant`, `_covering`).
 
-Детали тарифа и полей — `backend/app/services/billing_service.py` (`_grant`, `_covering`). Предпочтительнее вариант (в), если настроена тестовая ЮKassa.
-
-#### (в) Checkout + webhook (реализовано в `scripts/staging_acceptance.py`)
+#### (в) Checkout + webhook *(необязательно)* — `STAGING_BILLING_MODE=checkout`
 
 Условия стенда: `SEND_LIVE_PAYMENTS=true`, тестовые `YOOKASSA_*`, `BILLING_MODE=test` (платёж с `"test": true` проходит `_mode_problem`). При `SEND_LIVE_PAYMENTS=false` checkout вернёт **503** (`DisabledPaymentProvider`) — тогда (б) или включить тестовую интеграцию на окно приёмки.
 
@@ -123,7 +120,7 @@
 5. `GET /api/v1/billing/payments/{payment_id}` → `"activated": true`.
 6. Для каждой фирмы: `POST /api/v1/billing/companies/{id}/activate`.
 
-Переменные скрипта: `STAGING_BILLING_COMPANIES` (по умолчанию 4), `STAGING_PROVIDER_PAYMENT_ID`, `STAGING_SKIP_BILLING=1` — только повторный `activate`, если период уже оплачен.
+Переменные скрипта: `STAGING_BILLING_MODE`, `STAGING_BILLING_COMPANIES` (4), `STAGING_PROVIDER_PAYMENT_ID`, `STAGING_SQL_AUTO_CONTINUE=1` (без паузы Enter), `STAGING_SKIP_BILLING=1` — только `activate`, если период уже выдан.
 
 ---
 
@@ -178,7 +175,7 @@
 
 ## 7. Спецставки НДС (`special_rates_5_7`) · отдельная фирма
 
-**Не** менять профиль фирмы A после шага 6. Создайте **`COMPANY_SPECIAL`**: gross-only продажа, профиль УСН, `vat_status: special_rates_5_7`, draft + confirm.
+**Не** менять профиль фирмы A после шага 6. Четвёртая фирма создаётся на шаге 3.1 (`COMPANY_SPECIAL`): gross-only продажа, профиль УСН, `vat_status: special_rates_5_7`, draft + confirm.
 
 | Проверка | Ожидание |
 | --- | --- |
