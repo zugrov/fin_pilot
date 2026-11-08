@@ -49,9 +49,9 @@ const FLAG_TEXT: Record<string, string> = {
   missing_counterparty: "У части строк не указан контрагент.",
   coverage_unverified: "Полнота периода не подтверждена сверкой.",
   vat_basis_unknown:
-    "База НДС по выручке неизвестна: показана сумма продаж по данным источника, это не выручка без НДС.",
+    "Для части продаж база НДС неизвестна: долг показан с НДС.",
   vat_basis_from_profile:
-    "Разрез выручки согласован с подтверждённым профилем: НДС для организации не применяется (или освобождение по ст. 145).",
+    "Подтверждённый профиль: НДС не применяется, долг показан без деления на НДС.",
 };
 
 export function bucketLabel(code: string): string {
@@ -203,6 +203,17 @@ export function balanceAmountLabel(flags: readonly string[]): string {
 export function amountsBasisNote(flags: readonly string[]): string {
   const label = balanceAmountLabel(flags);
   return `${label}. Суммы по проведённым продажам; оплата уменьшает долг только после привязки к продаже.`;
+}
+
+/** Подпись KPI «Всего долгов»: база НДС + пояснение суммы. */
+export function totalDebtKpiCaption(flags: readonly string[]): string {
+  const tail = "Столько покупатели должны вам на эту дату.";
+  const hasVat =
+    flags.includes("vat_basis_unknown") || flags.includes("vat_basis_from_profile");
+  if (!hasVat) {
+    return tail;
+  }
+  return `${balanceAmountLabel(flags)}. ${tail}`;
 }
 
 /** Сегодняшняя дата в часовом поясе фирмы, а не в поясе браузера. */

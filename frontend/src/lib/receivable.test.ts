@@ -26,6 +26,7 @@ import {
   receivableErrorText,
   ROWS_LIMIT,
   todayInTimeZone,
+  totalDebtKpiCaption,
   truncatedNotice,
   unallocatedNote,
   unallocatedTitle,
@@ -220,19 +221,20 @@ describe("усечение строк", () => {
 });
 
 describe("тексты экрана", () => {
-  it("переводит флаги НДС как на Обзоре", () => {
-    const notes = flagNotes(["vat_basis_unknown"]);
-    expect(notes[0]).toContain("База НДС");
-    expect(flagNotes(["vat_basis_from_profile"])[0]).toContain("профилем");
+  it("переводит флаги НДС для дебиторки", () => {
+    expect(flagNotes(["vat_basis_unknown"])[0]).toContain("долг показан с НДС");
+    expect(flagNotes(["vat_basis_from_profile"])[0]).toContain("без деления на НДС");
   });
 
-  it("подписывает остаток по флагам", () => {
+  it("подписывает остаток и KPI по флагам", () => {
     expect(balanceAmountLabel(["vat_basis_unknown"])).toBe("Остаток (с НДС)");
     expect(balanceAmountLabel(["vat_basis_from_profile"])).toBe("Остаток (НДС не применяется)");
     expect(balanceAmountLabel(["vat_basis_unknown", "vat_basis_from_profile"])).toBe(
       "Остаток (с НДС)",
     );
     expect(amountsBasisNote(["vat_basis_from_profile"])).toContain("НДС не применяется");
+    expect(totalDebtKpiCaption(["vat_basis_from_profile"])).toContain("НДС не применяется");
+    expect(totalDebtKpiCaption([])).toBe("Столько покупатели должны вам на эту дату.");
   });
 
   it("объясняет, что это долг, а не деньги", () => {

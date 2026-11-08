@@ -5,12 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Protocol
 
 from app.domain.money import money
 from app.domain.org_profile.constants import VAT_STATUSES
 from app.domain.org_profile.resolution import ResolvedOrganizationProfile
 from app.domain.revenue import NET_LABEL, RevenueView, SaleFact, assess_revenue
-from app.models.revenue import RevenueEntry
+
+
+class ReceivableVatRow(Protocol):
+    vat_basis: str
+    amount_ex_vat: Decimal | None
+    recognition_date: date | None
 
 VAT_BASIS_FROM_PROFILE = "vat_basis_from_profile"
 NOT_APPLICABLE = "not_applicable"
@@ -181,7 +187,7 @@ def apply_profile_vat_overlay(
 
 
 def receivable_vat_quality_flags(
-    entries: tuple[RevenueEntry, ...],
+    entries: tuple[ReceivableVatRow, ...],
     *,
     profiles_by_month: dict[date, ResolvedOrganizationProfile | None],
 ) -> list[str]:

@@ -24,8 +24,8 @@ import {
   completenessNote,
   counterpartyLabel,
   amountsBasisNote,
-  balanceAmountLabel,
   debtBasisNote,
+  totalDebtKpiCaption,
   documentLabel,
   emptyStateText,
   flagNotes,
@@ -276,9 +276,9 @@ export function ReceivablePage() {
         <>
           <div className="mb-4 grid gap-4 sm:grid-cols-2">
             <KpiCard
-              title={balanceAmountLabel(current.quality_flags)}
+              title="Всего долгов"
               value={current.total_balance}
-              caption="Столько покупатели должны вам на эту дату."
+              caption={totalDebtKpiCaption(current.quality_flags)}
               tone="warn"
               testId="receivable-total"
             />
