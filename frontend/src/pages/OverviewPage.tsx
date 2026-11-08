@@ -28,6 +28,13 @@ import { balanceCaptionForPeriodEnd, isLoadedOnly, qualityNotes } from "../lib/o
 import { revenueDisplay } from "../lib/revenue";
 import { flowLabel } from "../lib/overview";
 import { gapDisplay } from "../lib/forecast";
+import {
+  VAT_THRESHOLD_DISCLAIMER,
+  shouldShowVatThresholdBanner,
+  vatThresholdApproachingText,
+  vatThresholdExceededText,
+  vatThresholdPartialNote,
+} from "../lib/vatThreshold";
 
 /** Сумма поступлений и списаний двух месяцев не складывается: показываем как есть. */
 export function OverviewPage() {  const companies = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
@@ -79,6 +86,7 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
   });
 
   const values = dashboard.data?.values;
+  const vatThreshold = dashboard.data?.vat_threshold;
   const flags = dashboard.data?.quality_flags ?? [];
   const notes = qualityNotes(flags);
   const loadedOnly = isLoadedOnly(flags);
@@ -182,6 +190,34 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
     >
       {companyId ? (
         <OrgProfileOverviewBanner companyId={companyId} timeZone={timezone} />
+      ) : null}
+      {shouldShowVatThresholdBanner(vatThreshold) ? (
+        <section
+          role="status"
+          data-testid="vat-threshold-banner"
+          className={`mb-4 rounded-card border p-4 text-sm ${
+            vatThreshold.status === "exceeded"
+              ? "border-danger bg-danger-soft text-danger"
+              : "border-warn-line bg-warn-soft text-warn"
+          }`}
+        >
+          <p>
+            {vatThreshold.status === "exceeded"
+              ? vatThresholdExceededText(vatThreshold)
+              : vatThresholdApproachingText(vatThreshold)}
+          </p>
+          {vatThresholdPartialNote(vatThreshold.partial) ? (
+            <p className="mt-2">{vatThresholdPartialNote(vatThreshold.partial)}</p>
+          ) : null}
+          <p className="mt-2 text-note text-ink-subtle">{VAT_THRESHOLD_DISCLAIMER}</p>
+          {vatThreshold.status === "exceeded" ? (
+            <p className="mt-2">
+              <Link className="text-link underline" to="/settings/org-profile">
+                Открыть мастер профиля
+              </Link>
+            </p>
+          ) : null}
+        </section>
       ) : null}
       {companies.isLoading || dashboard.isLoading ? <p className="mb-4">Загрузка</p> : null}
       {companies.isError || dashboard.isError ? (

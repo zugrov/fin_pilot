@@ -21,6 +21,7 @@ from app.models.imports import SourceConnection
 from app.models.revenue import RevenueEntry
 from app.services.cash_service import company_summary, summary_payload
 from app.services.org_profile_service import resolve_profiles_for_months
+from app.services.usn_vat_threshold_service import vat_threshold_for_dashboard
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -128,19 +129,24 @@ def dashboard_payload(session: Session, company, at: datetime, period: tuple[dat
         if item not in flags:
             flags.append(item)
     cash_in, cash_out, net_flow, operation_count = _period_movement(flow, cash["cash_total"])
-    revision = input_revision(
-        {
-            "cash_total": cash["cash_total"] or "",
-            "cash_in": cash_in or "",
-            "cash_out": cash_out or "",
-            "revenue": revenue["amount"] or "",
-            "revenue_count": str(revenue["count"]),
-            "coverage": revenue["coverage_through"] or "",
-            "revenue_profile": revenue.get("revenue_profile_revision") or "",
-            "flow": net_flow or "",
-        }
-    )
-    return {
+    vat_threshold = vat_threshold_for_dashboard(session, company, as_of=period[1])
+    revision_parts = {
+        "cash_total": cash["cash_total"] or "",
+        "cash_in": cash_in or "",
+        "cash_out": cash_out or "",
+        "revenue": revenue["amount"] or "",
+        "revenue_count": str(revenue["count"]),
+        "coverage": revenue["coverage_through"] or "",
+        "revenue_profile": revenue.get("revenue_profile_revision") or "",
+        "flow": net_flow or "",
+    }
+    if vat_threshold is not None:
+        revision_parts["vat_threshold_status"] = vat_threshold["status"]
+        revision_parts["vat_threshold_ytd"] = vat_threshold["ytd_revenue"]
+        revision_parts["vat_threshold_limit"] = vat_threshold["threshold"]
+        revision_parts["vat_threshold_partial"] = str(vat_threshold["partial"])
+    revision = input_revision(revision_parts)
+    payload = {
         "company_id": str(company.id),
         "as_of": balance_at.isoformat(),
         "date_from": period[0].isoformat(),
@@ -164,6 +170,9 @@ def dashboard_payload(session: Session, company, at: datetime, period: tuple[dat
             "operation_count": operation_count,
         },
     }
+    if vat_threshold is not None:
+        payload["vat_threshold"] = vat_threshold
+    return payload
 
 
 def cashflow_payload(session: Session, company, at: datetime, period: tuple[date, date]) -> dict:

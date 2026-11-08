@@ -231,12 +231,25 @@ export type PaymentView = {
   payment_id?: string;
 };
 
+export type VatThreshold = {
+  status: "ok" | "approaching" | "exceeded";
+  ytd_revenue: string;
+  threshold: string;
+  percent: string;
+  as_of: string;
+  exceeded_month: string | null;
+  obligation_from: string | null;
+  partial: boolean;
+  disclaimer: string;
+};
+
 export type Dashboard = {
   as_of: string;
   date_from: string;
   date_to: string;
   revenue_label: string;
   quality_flags: string[];
+  vat_threshold?: VatThreshold;
   values: {
     cash_total: string | null;
     opening_balance: string | null;
