@@ -5,10 +5,12 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from app.domain.money import money, money_str
 from app.domain.org_profile.revenue_vat_overlay import (
+    ReceivableVatRow,
     month_start,
     receivable_vat_quality_flags,
 )
@@ -100,8 +102,9 @@ def receivable_aging_payload(
         company_id=company.id,
         months=months,
     )
+    vat_rows = cast(tuple[ReceivableVatRow, ...], tuple(contributing_entries))
     for vat_flag in receivable_vat_quality_flags(
-        tuple(contributing_entries),
+        vat_rows,
         profiles_by_month=profiles_by_month,
     ):
         if vat_flag not in flags:
