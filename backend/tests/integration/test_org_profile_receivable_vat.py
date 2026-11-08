@@ -6,9 +6,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
 from sqlalchemy import text
-from tests.integration.conftest import login, open_workspace, pay, register_and_verify
 from tests.integration.test_org_profile_write_api import (
     _latest_version_id,
     _patch_draft,
@@ -82,7 +80,9 @@ def test_receivable_without_profile_vat_unknown(client, admin, app, fake, tmp_pa
     assert "vat_basis_from_profile" not in body["quality_flags"]
 
 
-def test_receivable_confirmed_not_applicable_from_profile(client, admin, app, fake, tmp_path) -> None:
+def test_receivable_confirmed_not_applicable_from_profile(
+    client, admin, app, fake, tmp_path
+) -> None:
     _, company_id = _ready(client, admin, app, fake, tmp_path, "ar-vat-na@example.com")
     _revenue_source_ready(client, company_id)
     _sale_gross(client, company_id, "ar-2", "2026-10-10", "120000.00")
