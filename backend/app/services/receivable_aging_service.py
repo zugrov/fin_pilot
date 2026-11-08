@@ -11,7 +11,12 @@ from app.domain.money import money, money_str
 from app.models.cash import CashTransaction
 from app.models.imports import SourceConnection
 from app.models.revenue import Counterparty, RevenueCashMatch, RevenueEntry
+from app.domain.org_profile.revenue_vat_overlay import (
+    month_start,
+    receivable_vat_quality_flags,
+)
 from app.services.cash_service import revenue_allocated_on_cash
+from app.services.org_profile_service import resolve_profiles_for_months
 from app.services.report_service import _coverage, _internal, _section
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -58,15 +63,18 @@ def receivable_aging_payload(
     sale_by_id = {row.id: row for row in sales}
     linked_returns_by_sale: dict[uuid.UUID, list[RevenueEntry]] = {}
     rows: list[dict] = []
+    contributing_entries: list[RevenueEntry] = []
 
     for ret in returns:
         sale_id = ret.linked_sale_entry_id
         if sale_id is None:
             rows.append(_orphan_return_row(session, ret, as_of, flags))
+            contributing_entries.append(ret)
             continue
         sale = sale_by_id.get(sale_id) or session.get(RevenueEntry, sale_id)
         if sale is None or sale.status != "posted" or sale.entry_type != "sale":
             rows.append(_orphan_return_row(session, ret, as_of, flags))
+            contributing_entries.append(ret)
             continue
         linked_returns_by_sale.setdefault(sale_id, []).append(ret)
 
@@ -79,6 +87,25 @@ def receivable_aging_payload(
         if balance == 0:
             continue
         rows.append(_sale_row(session, sale, balance, as_of, flags))
+        contributing_entries.append(sale)
+
+    months = {
+        month_start(entry.recognition_date)
+        for entry in contributing_entries
+        if entry.recognition_date is not None
+    }
+    profiles_by_month = resolve_profiles_for_months(
+        session,
+        tenant_id=company.tenant_id,
+        company_id=company.id,
+        months=months,
+    )
+    for vat_flag in receivable_vat_quality_flags(
+        tuple(contributing_entries),
+        profiles_by_month=profiles_by_month,
+    ):
+        if vat_flag not in flags:
+            flags.append(vat_flag)
 
     rows.sort(key=lambda item: (item["recognition_date"], item["document"]["external_id"] or ""))
     rows_truncated = len(rows) > max_rows

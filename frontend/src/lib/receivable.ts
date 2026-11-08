@@ -48,6 +48,10 @@ const FLAG_TEXT: Record<string, string> = {
   partial_period: "Данные покрывают не весь период.",
   missing_counterparty: "У части строк не указан контрагент.",
   coverage_unverified: "Полнота периода не подтверждена сверкой.",
+  vat_basis_unknown:
+    "База НДС по выручке неизвестна: показана сумма продаж по данным источника, это не выручка без НДС.",
+  vat_basis_from_profile:
+    "Разрез выручки согласован с подтверждённым профилем: НДС для организации не применяется (или освобождение по ст. 145).",
 };
 
 export function bucketLabel(code: string): string {
@@ -183,6 +187,22 @@ export function orphanNote(): string {
 
 export function debtBasisNote(): string {
   return "Это задолженность покупателей перед вами, а не деньги на счёте.";
+}
+
+/** Подпись шкалы остатка по флагам НДС (суммы в API не меняются). */
+export function balanceAmountLabel(flags: readonly string[]): string {
+  if (flags.includes("vat_basis_from_profile") && !flags.includes("vat_basis_unknown")) {
+    return "Остаток (НДС не применяется)";
+  }
+  if (flags.includes("vat_basis_unknown") || flags.includes("vat_basis_from_profile")) {
+    return "Остаток (с НДС)";
+  }
+  return "Остаток (с НДС)";
+}
+
+export function amountsBasisNote(flags: readonly string[]): string {
+  const label = balanceAmountLabel(flags);
+  return `${label}. Суммы по проведённым продажам; оплата уменьшает долг только после привязки к продаже.`;
 }
 
 /** Сегодняшняя дата в часовом поясе фирмы, а не в поясе браузера. */
