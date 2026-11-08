@@ -3,16 +3,21 @@
 
 Секреты: через окружение или getpass; в acceptance-report.md не попадают.
 Зависимости: стандартная библиотека Python 3.12+.
+
+HTTP-клиент для стенда с SESSION_COOKIE_SECURE=true: StagingCookiePolicy отправляет Secure-cookie
+по plain HTTP — только для приёмочного контура, не для боевого браузера.
 """
 
 from __future__ import annotations
 
 import csv
 import getpass
+import http.cookiejar
 import json
 import os
 import secrets
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -29,6 +34,9 @@ PERIOD_OCT = "date_from=2026-10-01&date_to=2026-10-31"
 PERIOD_YTD_OCT = "date_from=2026-01-01&date_to=2026-10-31"
 AS_OF_OCT = "2026-10-31"
 
+# Фирмы в tenant A: основная, спецставки, порог approaching, порог exceeded
+DEFAULT_BILLING_COMPANIES = 4
+
 PROFILE_DRAFT_NA = {
     "org_form": "ooo",
     "tax_system": "usn",
@@ -43,11 +51,24 @@ PROFILE_DRAFT_NA = {
 }
 
 
+class StagingCookiePolicy(http.cookiejar.DefaultCookiePolicy):
+    """Разрешает отправку Secure-cookie на http:// (только стенд / приёмка)."""
+
+    def return_ok(self, cookie, request):  # noqa: ANN001
+        if cookie.secure and request.type == "http":
+            return True
+        return super().return_ok(cookie, request)
+
+
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name, default)
     if value is not None and not value.strip():
         return default
     return value
+
+
+def _env_flag(name: str) -> bool:
+    return (_env(name, "") or "").lower() in {"1", "true", "yes"}
 
 
 def mask_email(email: str) -> str:
@@ -56,6 +77,11 @@ def mask_email(email: str) -> str:
         return "***"
     shown = local[:2] if len(local) > 2 else "*"
     return f"{shown}***@{domain}"
+
+
+def safe_exception_text(exc: BaseException) -> str:
+    text = f"{type(exc).__name__}: {exc}"
+    return text.replace("\n", " ")[:400]
 
 
 @dataclass
@@ -71,17 +97,11 @@ class Report:
     rows: list[StepResult] = field(default_factory=list)
 
     def record(self, step: str, expected: str, actual: str, ok: bool) -> None:
-        self.rows.append(StepResult(step, expected, actual, ok,))
+        self.rows.append(StepResult(step, expected, actual, ok))
 
     @property
     def success(self) -> bool:
         return all(row.ok for row in self.rows)
-
-
-def flags_summary(flags: list[str] | None) -> str:
-    if not flags:
-        return "[]"
-    return ",".join(sorted(flags))
 
 
 def evaluate_quality_flags(
@@ -141,7 +161,7 @@ def evaluate_isolation_status(code: int) -> tuple[bool, str]:
 class HttpClient:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url.rstrip("/")
-        self._jar = CookieJar()
+        self._jar = CookieJar(policy=StagingCookiePolicy())
         self._csrf: str | None = None
         self._tenant: str | None = None
         self._opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self._jar))
@@ -204,11 +224,33 @@ def print_sql_verify_hint(email: str, postgres_exec_hint: str) -> None:
     print("Извлеките query-параметр token из ссылки, затем введите его ниже (не сохраняется в отчёт).\n")
 
 
+def print_sql_provider_payment_hint(payment_attempt_id: str, postgres_exec_hint: str) -> None:
+    safe_id = payment_attempt_id.replace("'", "")
+    print("\n--- ID платежа провайдера для webhook (SQL на стенде) ---")
+    print(
+        postgres_exec_hint
+        + " \\\n  -c \"SELECT provider_payment_id FROM payment_attempts "
+        f"WHERE id = '{safe_id}'::uuid;\""
+    )
+    print(
+        "Webhook: POST /api/v1/integrations/yookassa/webhook "
+        'body {"event":"payment.succeeded","object":{"id":"<provider_payment_id>"}}\n'
+    )
+
+
 def prompt_verify_token(env_name: str) -> str:
     token = _env(env_name)
     if token:
         return token.strip()
     return getpass.getpass(f"{env_name} (token, скрытый ввод): ").strip()
+
+
+def prompt_provider_payment_id() -> str | None:
+    token = _env("STAGING_PROVIDER_PAYMENT_ID") or _env("STAGING_WEBHOOK_PAYMENT_OBJECT_ID")
+    if token:
+        return token.strip()
+    entered = getpass.getpass("STAGING_PROVIDER_PAYMENT_ID (скрытый ввод, Enter=пропуск): ")
+    return entered.strip() or None
 
 
 def load_gross_sales_csv(path: Path) -> list[dict[str, str]]:
@@ -219,46 +261,149 @@ def load_gross_sales_csv(path: Path) -> list[dict[str, str]]:
     return rows
 
 
-def billing_activate(client: HttpClient, company_id: str, report: Report) -> bool:
+def check_auth_me(client: HttpClient, report: Report, label: str) -> bool:
+    code, body, _ = client.request("GET", "/api/v1/auth/me")
+    if code == 401:
+        report.record(
+            f"auth.me.{label}",
+            "HTTP 200",
+            "401 — сессионная cookie не отправляется (проверьте StagingCookiePolicy / SESSION_COOKIE_SECURE)",
+            False,
+        )
+        return False
+    ok, actual = evaluate_http_status(code, 200)
+    verified = bool((body or {}).get("email_verified_at"))
+    report.record(
+        f"auth.me.{label}",
+        "HTTP 200 + email_verified_at",
+        actual if not ok else ("verified" if verified else "no verified_at"),
+        ok and verified,
+    )
+    return ok and verified
+
+
+@dataclass
+class TenantBilling:
+    prepared: bool = False
+
+
+def prepare_tenant_billing(
+    client: HttpClient,
+    report: Report,
+    *,
+    companies: int,
+    postgres_hint: str,
+) -> bool:
+    if _env_flag("STAGING_SKIP_BILLING"):
+        report.record(
+            "billing.prepare",
+            "skip (STAGING_SKIP_BILLING=1)",
+            f"slots={companies}, только activate",
+            True,
+        )
+        return True
+
     quoted = client.request(
         "POST",
         "/api/v1/billing/quote",
-        json_body={"companies": 1, "interval": "month", "payable_amount": "1.00"},
+        json_body={"companies": companies, "interval": "month", "payable_amount": "1.00"},
     )
-    ok, actual = evaluate_http_status(quoted[0], 200)
-    report.record("billing.quote", "HTTP 200", actual, ok)
-    if not ok:
+    ok_q, act_q = evaluate_http_status(quoted[0], 200)
+    report.record("billing.quote", f"HTTP 200 (companies={companies})", act_q, ok_q)
+    if not ok_q or not quoted[1]:
         return False
-    qid = (quoted[1] or {}).get("id")
+
     checked = client.request(
         "POST",
         "/api/v1/billing/checkout",
-        json_body={"quote_id": qid, "offer_accepted": True, "discount_percent": "0"},
+        json_body={"quote_id": quoted[1]["id"], "offer_accepted": True, "discount_percent": "0"},
         idempotency=secrets.token_hex(16),
     )
-    ok, actual = evaluate_http_status(checked[0], 200)
-    report.record("billing.checkout", "HTTP 200", actual, ok)
-    webhook_id = _env("STAGING_WEBHOOK_PAYMENT_OBJECT_ID")
-    if webhook_id and ok:
-        wh = client.request(
-            "POST",
-            "/api/v1/integrations/yookassa/webhook",
-            json_body={"event": "payment.succeeded", "object": {"id": webhook_id}},
+    ok_c, act_c = evaluate_http_status(checked[0], 200)
+    detail = act_c
+    if checked[0] == 503:
+        detail = f"{act_c} (SEND_LIVE_PAYMENTS=false → DisabledPaymentProvider; см. runbook §3.2)"
+    report.record("billing.checkout", "HTTP 200", detail, ok_c)
+    if not ok_c or not checked[1]:
+        return False
+
+    payment_attempt_id = str(checked[1].get("payment_id", ""))
+    provider_id = prompt_provider_payment_id()
+    if not provider_id:
+        print_sql_provider_payment_hint(payment_attempt_id, postgres_hint)
+        report.record(
+            "billing.webhook",
+            "provider_payment_id + webhook 200",
+            "пропуск (нет STAGING_PROVIDER_PAYMENT_ID)",
+            False,
         )
-        ok_wh, actual_wh = evaluate_http_status(wh[0], 200)
-        report.record("billing.webhook", "HTTP 200", actual_wh, ok_wh)
-    activated = client.request("POST", f"/api/v1/billing/companies/{company_id}/activate")
-    ok_act, actual_act = evaluate_http_status(activated[0], 200)
-    report.record(
-        "billing.activate",
-        "HTTP 200",
-        actual_act if ok_act else f"{actual_act} (нужен worker/webhook?)",
-        ok_act,
+        return False
+
+    webhook = client.request(
+        "POST",
+        "/api/v1/integrations/yookassa/webhook",
+        json_body={"event": "payment.succeeded", "object": {"id": provider_id}},
     )
-    return ok_act
+    ok_w, act_w = evaluate_http_status(webhook[0], 200)
+    report.record("billing.webhook", "HTTP 200", act_w, ok_w)
+    if not ok_w:
+        return False
+
+    activated = False
+    for attempt in range(30):
+        view = client.request("GET", f"/api/v1/billing/payments/{payment_attempt_id}")
+        if view[0] == 200 and (view[1] or {}).get("activated"):
+            activated = True
+            break
+        time.sleep(2)
+    report.record(
+        "billing.activation",
+        "payment.activated=true",
+        "true" if activated else "false (нужен celery billing.process_inbox?)",
+        activated,
+    )
+    return activated
 
 
-def ensure_revenue_source(client: HttpClient, company_id: str, coverage: str) -> None:
+def activate_company_slot(
+    client: HttpClient,
+    company_id: str,
+    report: Report,
+    step_prefix: str,
+) -> bool:
+    activated = client.request("POST", f"/api/v1/billing/companies/{company_id}/activate")
+    ok, actual = evaluate_http_status(activated[0], 200)
+    report.record(f"{step_prefix}.activate", "HTTP 200", actual, ok)
+    return ok
+
+
+def create_company(
+    client: HttpClient,
+    tenant_id: str,
+    name: str,
+    report: Report,
+    step_prefix: str,
+) -> str | None:
+    client.set_tenant(tenant_id)
+    created = client.request(
+        "POST",
+        f"/api/v1/workspaces/{tenant_id}/companies",
+        json_body={"name": name, "kind": "company", "timezone": "Europe/Moscow"},
+    )
+    ok, actual = evaluate_http_status(created[0], 200)
+    report.record(f"{step_prefix}.create", "HTTP 200", actual, ok)
+    if not ok or not created[1]:
+        return None
+    return str(created[1]["id"])
+
+
+def ensure_revenue_source(
+    client: HttpClient,
+    company_id: str,
+    coverage: str,
+    report: Report,
+    step_prefix: str,
+) -> bool:
     source = client.request(
         "POST",
         f"/api/v1/companies/{company_id}/sources",
@@ -271,25 +416,32 @@ def ensure_revenue_source(client: HttpClient, company_id: str, coverage: str) ->
             "vat_basis": "unknown",
         },
     )
-    if source[0] != 200:
-        raise RuntimeError(f"revenue source: HTTP {source[0]}")
-    sid = (source[1] or {}).get("id")
-    client.request(
+    ok_s, act_s = evaluate_http_status(source[0], 200)
+    report.record(f"{step_prefix}.source", "HTTP 200", act_s, ok_s)
+    if not ok_s or not source[1]:
+        return False
+    sid = source[1].get("id")
+    covered = client.request(
         "POST",
         f"/api/v1/companies/{company_id}/sources/{sid}/coverage",
         json_body={"coverage_through": coverage},
     )
+    ok_c, act_c = evaluate_http_status(covered[0], 200)
+    report.record(f"{step_prefix}.coverage", f"coverage_through={coverage}", act_c, ok_c)
+    return ok_c
 
 
 def post_gross_sale(
     client: HttpClient,
     company_id: str,
+    report: Report,
+    step_prefix: str,
     *,
     day: str,
     amount: str,
     doc: str,
     key: str | None = None,
-) -> None:
+) -> bool:
     created = client.request(
         "POST",
         f"/api/v1/companies/{company_id}/revenue",
@@ -302,20 +454,26 @@ def post_gross_sale(
         },
         idempotency=key or uuid4().hex,
     )
-    if created[0] != 200:
-        raise RuntimeError(f"revenue POST: HTTP {created[0]} {created[2]}")
+    ok, actual = evaluate_http_status(created[0], 200)
+    report.record(f"{step_prefix}.revenue", "HTTP 200", actual, ok)
+    return ok
 
 
-def post_sales_from_fixture(client: HttpClient, company_id: str) -> None:
+def post_sales_from_fixture(client: HttpClient, company_id: str, report: Report, prefix: str) -> bool:
+    ok_all = True
     for row in load_gross_sales_csv(FIXTURE_CSV):
-        post_gross_sale(
+        ok = post_gross_sale(
             client,
             company_id,
+            report,
+            f"{prefix}.{row['external_id']}",
             day=row["recognition_date"],
             amount=row["amount_inc_vat"],
             doc=row["document_number"],
             key=row["external_id"],
         )
+        ok_all = ok_all and ok
+    return ok_all
 
 
 def dashboard(client: HttpClient, company_id: str, query: str = PERIOD_OCT) -> dict[str, Any] | None:
@@ -365,53 +523,68 @@ def confirm_profile(client: HttpClient, company_id: str) -> int:
     return confirmed[0]
 
 
-def setup_company(
+def run_special_rates_company(
     client: HttpClient,
     tenant_id: str,
-    name: str,
+    billing: TenantBilling,
+    postgres_hint: str,
     report: Report,
-    step_prefix: str,
-) -> str | None:
-    client.set_tenant(tenant_id)
-    created = client.request(
-        "POST",
-        f"/api/v1/workspaces/{tenant_id}/companies",
-        json_body={"name": name, "kind": "company", "timezone": "Europe/Moscow"},
-    )
-    ok, actual = evaluate_http_status(created[0], 200)
-    report.record(f"{step_prefix}.company.create", "HTTP 200", actual, ok)
-    if not ok or not created[1]:
-        return None
-    company_id = created[1]["id"]
-    if not billing_activate(client, company_id, report):
-        return None
-    return company_id
+) -> None:
+    cid = create_company(client, tenant_id, "Acceptance special rates", report, "org.special")
+    if not cid:
+        return
+    if not billing.prepared:
+        report.record("org.special.activate", "HTTP 200", "billing не подготовлен", False)
+        return
+    if activate_company_slot(client, cid, report, "org.special"):
+        ensure_revenue_source(client, cid, "2026-10-31", report, "org.special")
+        post_gross_sale(
+            client,
+            cid,
+            report,
+            "org.special.sale",
+            day="2026-10-10",
+            amount="105000.00",
+            doc="SP-1",
+        )
+        ok_p, act_p = evaluate_http_status(
+            patch_profile_draft(client, cid, vat_status="special_rates_5_7"), 200
+        )
+        report.record("org.special.profile.draft", "HTTP 200", act_p, ok_p)
+        ok_c, act_c = evaluate_http_status(confirm_profile(client, cid), 200)
+        report.record("org.special.profile.confirm", "HTTP 200", act_c, ok_c)
+        dash = dashboard(client, cid)
+        ok_d, act_d = evaluate_quality_flags(
+            dash.get("quality_flags") if dash else None,
+            want_unknown=True,
+            want_from_profile=False,
+        )
+        report.record("org.special.dashboard.flags", "unknown,!from_profile", act_d, ok_d)
+        ar = receivable(client, cid)
+        ok_a, act_a = evaluate_quality_flags(
+            ar.get("quality_flags") if ar else None,
+            want_unknown=True,
+            want_from_profile=False,
+        )
+        report.record("org.special.receivable.flags", "unknown,!from_profile", act_a, ok_a)
 
 
-def run_acceptance() -> int:
-    base = _env("STAGING_BASE_URL")
-    if not base:
-        base = input("STAGING_BASE_URL: ").strip()
-    password = _env("STAGING_PASSWORD") or getpass.getpass("Пароль тестовых пользователей: ")
-
-    postgres_hint = _env(
-        "STAGING_POSTGRES_EXEC_HINT",
-        "docker compose --env-file .env -f infra/docker-compose.prod.yml exec -T postgres "
-        "psql -U finpilot -d finpilot",
-    )
-
-    owner_email = _env("STAGING_EMAIL_OWNER") or f"staging-owner-{secrets.token_hex(4)}@example.com"
-    tenant_b_email = _env("STAGING_EMAIL_TENANT_B") or f"staging-tenantb-{secrets.token_hex(4)}@example.com"
-
-    report = Report()
+def run_acceptance_body(
+    report: Report,
+    *,
+    base: str,
+    password: str,
+    postgres_hint: str,
+    owner_email: str,
+    tenant_b_email: str,
+) -> int:
     client = HttpClient(base)
+    billing = TenantBilling()
 
     live, _, _ = client.request("GET", "/health/live")
     ready, _, _ = client.request("GET", "/health/ready")
-    ok_l, act_l = evaluate_http_status(live, 200)
-    ok_r, act_r = evaluate_http_status(ready, 200)
-    report.record("health.live", "HTTP 200", act_l, ok_l)
-    report.record("health.ready", "HTTP 200", act_r, ok_r)
+    report.record("health.live", "HTTP 200", str(live), live == 200)
+    report.record("health.ready", "HTTP 200", str(ready), ready == 200)
 
     reg = client.request(
         "POST",
@@ -420,11 +593,10 @@ def run_acceptance() -> int:
     )
     ok, act = evaluate_http_status(reg[0], 200)
     report.record("auth.register.owner", "HTTP 200", act, ok)
-    print_sql_verify_hint(owner_email, postgres_hint or "")
+    print_sql_verify_hint(owner_email, postgres_hint)
     token_a = prompt_verify_token("STAGING_VERIFY_TOKEN_OWNER")
     verified = client.request("POST", "/api/v1/auth/verify-email", json_body={"token": token_a})
-    ok_v, act_v = evaluate_http_status(verified[0], 200)
-    report.record("auth.verify.owner", "HTTP 200", act_v, ok_v)
+    report.record("auth.verify.owner", "HTTP 200", str(verified[0]), verified[0] == 200)
 
     logged = client.request(
         "POST",
@@ -435,37 +607,54 @@ def run_acceptance() -> int:
     report.record("auth.login.owner", "HTTP 200", act, ok)
     if logged[1]:
         client.set_csrf(logged[1].get("csrf_token"))
-
-    me = client.request("GET", "/api/v1/auth/me")
-    verified_at = (me[1] or {}).get("email_verified_at") if me[0] == 200 else None
-    report.record(
-        "auth.me.owner",
-        "email_verified_at задан",
-        "set" if verified_at else "missing",
-        bool(verified_at),
-    )
+    if not check_auth_me(client, report, "owner"):
+        return 1
 
     ws = client.request("POST", "/api/v1/workspaces", json_body={"name": "Staging acceptance A"})
     ok, act = evaluate_http_status(ws[0], 200)
     report.record("workspace.a", "HTTP 200", act, ok)
     tenant_a = (ws[1] or {}).get("id") if ws[1] else None
     if not tenant_a:
-        write_report(report, owner_email, tenant_b_email)
         return 1
 
-    company_a = setup_company(client, tenant_a, "Acceptance A", report, "org.a")
-    if not company_a:
-        write_report(report, owner_email, tenant_b_email)
-        return 1
+    company_ids: list[str] = []
+    for label, name, prefix in (
+        ("a", "Acceptance A", "org.a"),
+        ("approach", "Threshold approaching", "org.threshold.approaching"),
+        ("exceed", "Threshold exceeded", "org.threshold.exceeded"),
+    ):
+        cid = create_company(client, tenant_a, name, report, prefix)
+        if cid:
+            company_ids.append(cid)
 
-    ensure_revenue_source(client, company_a, "2026-10-31")
-    report.record("revenue.source.a", "HTTP 200", "configured", True)
-    post_sales_from_fixture(client, company_a)
-    report.record("revenue.sales.october_gross", "POST 200", f"{FIXTURE_CSV.name} rows", True)
+    n_slots = int(_env("STAGING_BILLING_COMPANIES", str(DEFAULT_BILLING_COMPANIES)))
+    if len(company_ids) > n_slots:
+        n_slots = len(company_ids)
+    billing.prepared = prepare_tenant_billing(
+        client, report, companies=n_slots, postgres_hint=postgres_hint
+    )
+    if billing.prepared:
+        for prefix, cid in zip(
+            ("org.a", "org.threshold.approaching", "org.threshold.exceeded"),
+            company_ids,
+            strict=False,
+        ):
+            activate_company_slot(client, cid, report, prefix)
+
+    if not company_ids:
+        return 1
+    company_a = company_ids[0]
+
+    if not ensure_revenue_source(client, company_a, "2026-10-31", report, "org.a"):
+        return 1
+    post_sales_from_fixture(client, company_a, report, "org.a")
 
     dash_before = dashboard(client, company_a)
-    flags = dash_before.get("quality_flags") if dash_before else None
-    ok_f, act_f = evaluate_quality_flags(flags, want_unknown=True, want_from_profile=False)
+    ok_f, act_f = evaluate_quality_flags(
+        dash_before.get("quality_flags") if dash_before else None,
+        want_unknown=True,
+        want_from_profile=False,
+    )
     report.record("dashboard.before.flags", "unknown,!from_profile", act_f, ok_f)
     ok_m, act_m = evaluate_metric_basis(dash_before or {}, "source")
     report.record("dashboard.before.metric_basis", "source", act_m, ok_m)
@@ -478,8 +667,7 @@ def run_acceptance() -> int:
     )
     report.record("receivable.before.flags", "unknown,!from_profile", act_ar, ok_ar)
 
-    patch_code = patch_profile_draft(client, company_a)
-    ok_p, act_p = evaluate_http_status(patch_code, 200)
+    ok_p, act_p = evaluate_http_status(patch_profile_draft(client, company_a), 200)
     report.record("profile.draft.patch", "HTTP 200", act_p, ok_p)
     dash_draft = dashboard(client, company_a)
     ok_d, act_d = evaluate_quality_flags(
@@ -509,27 +697,18 @@ def run_acceptance() -> int:
     )
     report.record("receivable.after_confirm.flags", "!unknown,from_profile", act_ar2, ok_ar2)
 
-    patch_profile_draft(client, company_a, vat_status="special_rates_5_7")
-    ok_sc, act_sc = evaluate_http_status(confirm_profile(client, company_a), 200)
-    report.record("profile.confirm.special_rates", "HTTP 200", act_sc, ok_sc)
-    dash_spec = dashboard(client, company_a)
-    ok_sp, act_sp = evaluate_quality_flags(
-        dash_spec.get("quality_flags") if dash_spec else None,
-        want_unknown=True,
-        want_from_profile=False,
-    )
-    report.record("dashboard.special_rates.flags", "unknown,!from_profile", act_sp, ok_sp)
+    run_special_rates_company(client, tenant_a, billing, postgres_hint, report)
 
-    company_approach = setup_company(
-        client, tenant_a, "Threshold approaching", report, "org.threshold.approaching"
-    )
-    if company_approach:
-        ensure_revenue_source(client, company_approach, "2026-12-31")
+    if len(company_ids) > 1:
+        company_approach = company_ids[1]
+        ensure_revenue_source(client, company_approach, "2026-12-31", report, "org.threshold.approaching")
         patch_profile_draft(client, company_approach)
         confirm_profile(client, company_approach)
         post_gross_sale(
             client,
             company_approach,
+            report,
+            "org.threshold.approaching.ytd",
             day="2026-10-05",
             amount="16500000.00",
             doc="TH-APP",
@@ -538,16 +717,16 @@ def run_acceptance() -> int:
         ok_th, act_th = evaluate_vat_threshold(dash_th or {}, present=True, status="approaching")
         report.record("vat_threshold.approaching", "status=approaching", act_th, ok_th)
 
-    company_exceed = setup_company(
-        client, tenant_a, "Threshold exceeded", report, "org.threshold.exceeded"
-    )
-    if company_exceed:
-        ensure_revenue_source(client, company_exceed, "2026-12-31")
+    if len(company_ids) > 2:
+        company_exceed = company_ids[2]
+        ensure_revenue_source(client, company_exceed, "2026-12-31", report, "org.threshold.exceeded")
         patch_profile_draft(client, company_exceed)
         confirm_profile(client, company_exceed)
         post_gross_sale(
             client,
             company_exceed,
+            report,
+            "org.threshold.exceeded.ytd",
             day="2026-10-05",
             amount="21000000.00",
             doc="TH-EX",
@@ -563,7 +742,7 @@ def run_acceptance() -> int:
     )
     ok_b, act_b = evaluate_http_status(reg_b[0], 200)
     report.record("auth.register.tenant_b", "HTTP 200", act_b, ok_b)
-    print_sql_verify_hint(tenant_b_email, postgres_hint or "")
+    print_sql_verify_hint(tenant_b_email, postgres_hint)
     token_b = prompt_verify_token("STAGING_VERIFY_TOKEN_TENANT_B")
     client.request("POST", "/api/v1/auth/verify-email", json_body={"token": token_b})
     login_b = client.request(
@@ -574,17 +753,51 @@ def run_acceptance() -> int:
     client_b = HttpClient(base)
     if login_b[1]:
         client_b.set_csrf(login_b[1].get("csrf_token"))
+    check_auth_me(client_b, report, "tenant_b")
     ws_b = client_b.request("POST", "/api/v1/workspaces", json_body={"name": "Staging acceptance B"})
     tenant_b = (ws_b[1] or {}).get("id") if ws_b[1] else None
-    if tenant_b and company_a:
+    if tenant_b:
         client_b.set_tenant(tenant_b)
         foreign = client_b.request("GET", f"/api/v1/companies/{company_a}/dashboard", query=PERIOD_OCT)
         ok_iso, act_iso = evaluate_isolation_status(foreign[0])
         report.record("isolation.dashboard.foreign", "HTTP 404", act_iso, ok_iso)
 
-    write_report(report, owner_email, tenant_b_email)
-    print_report_table(report)
     return 0 if report.success else 1
+
+
+def run_acceptance() -> int:
+    base = _env("STAGING_BASE_URL")
+    if not base:
+        base = input("STAGING_BASE_URL: ").strip()
+    password = _env("STAGING_PASSWORD") or getpass.getpass("Пароль тестовых пользователей: ")
+
+    postgres_hint = _env(
+        "STAGING_POSTGRES_EXEC_HINT",
+        "docker compose --env-file .env -f infra/docker-compose.prod.yml exec -T postgres "
+        "psql -U finpilot -d finpilot",
+    )
+
+    owner_email = _env("STAGING_EMAIL_OWNER") or f"staging-owner-{secrets.token_hex(4)}@example.com"
+    tenant_b_email = _env("STAGING_EMAIL_TENANT_B") or f"staging-tenantb-{secrets.token_hex(4)}@example.com"
+
+    report = Report()
+    exit_code = 1
+    try:
+        exit_code = run_acceptance_body(
+            report,
+            base=base,
+            password=password,
+            postgres_hint=postgres_hint or "",
+            owner_email=owner_email,
+            tenant_b_email=tenant_b_email,
+        )
+    except Exception as exc:
+        report.record("fatal", "без исключения", safe_exception_text(exc), False)
+        exit_code = 1
+    finally:
+        write_report(report, owner_email, tenant_b_email)
+        print_report_table(report)
+    return exit_code
 
 
 def write_report(report: Report, owner_email: str, tenant_b_email: str) -> None:

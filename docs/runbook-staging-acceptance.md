@@ -54,6 +54,8 @@
 | login | **200**, cookie сессии |
 | `GET /api/v1/auth/me` | `email_verified_at` задан |
 
+**Регистрация и SMTP:** `register_user` (`auth_service.py`) **не вызывает SMTP синхронно** — пишет строку в `transactional_email_outbox` через `enqueue_email` (`outbox.py`). При `EMAIL_PROVIDER_MODE=smtp` без настроенного `SMTP_*` регистрация отвечает **200**, письмо остаётся в outbox (`status=pending`); фоновая отправка может падать, на API verify это не влияет.
+
 **~15 мин** (с доступом к `psql` / `docker compose exec postgres`).
 
 ### 2.2 Вариант Mailpit (SMTP → локальный приёмник)
@@ -78,10 +80,50 @@
 | Шаг | Действие | Ожидание | ~время |
 | --- | --- | --- | --- |
 | 3.1 | Создать workspace / firm (product API или UI) | `COMPANY_A`, `TENANT_A` | 10 мин |
-| 3.2 | Test checkout при `BILLING_MODE=test` | entitlement / `paid_through` активны | 10 мин |
+| 3.2 | Оплатить слоты и активировать фирмы (см. ниже) | `POST .../billing/companies/{id}/activate` → **200** | 10–20 мин |
 | 3.3 | Подключить источник **revenue** (`dataset=revenue`), выставить `coverage_through` ≥ `2026-10-31` | Источник **200**, coverage обновлён | 5 мин |
 
 Заголовок **`X-Tenant-Id: {TENANT_A}`** на всех запросах к компании.
+
+### 3.2 Активация N фирм (`APP_ENV=production`, `BILLING_MODE=test`)
+
+Код: `billing_service.checkout` / `activate_company`, `security.access.assert_finance_access` + `assert_company_paid`, `Settings.billing_bypass_allowed()` (`config.py`).
+
+**Сколько слотов:** одна оплата на tenant — в quote укажите `companies: N` (для полного прогона скрипта и runbook: **4** — основная, спецставки, два сценария порога НДС). Каждую фирму после оплаты — `POST .../billing/companies/{company_id}/activate`.
+
+#### (а) Обход billing guard
+
+`billing_bypass_allowed()` = `BILLING_GUARD_BYPASS` **и** `app_env != production`. На стенде с **`APP_ENV=production` обход недоступен** — finance API требуют активный `company_entitlements` / оплаченный период. В production задавать `BILLING_GUARD_BYPASS` **запрещено** (`model_post_init`).
+
+#### (б) SQL (минимально, с откатом)
+
+Только приёмочное окно, роль `finpilot` (не `finpilot_app`). Воспроизводит результат `_grant` после успешной оплаты — **без** подмены webhook. Псевдошаги (подставьте `TENANT_ID`, `COMPANY_ID`, суммы из тарифа):
+
+1. Убедиться, что есть `subscriptions` для tenant и текущее `now()` внутри будущего `billing_periods`.
+2. Вставить `billing_periods` (`status=active`, `company_limit=N`, границы периода, `paid_amount` из quote).
+3. Обновить `subscriptions.paid_through`, `company_limit`, `status=active`.
+4. Для каждой фирмы — `company_entitlements` (`active`, `active_until = period.end_at`) и `companies.status=active`.
+
+**Откат** (в той же транзакции приёмки или сразу после теста): удалить вставленные `company_entitlements` и `billing_periods` по `id`, вернуть `companies.status=draft`, **не** трогать боевые платежи. Зафиксируйте `id` строк в протоколе (UUID без клиентских данных).
+
+Детали тарифа и полей — `backend/app/services/billing_service.py` (`_grant`, `_covering`). Предпочтительнее вариант (в), если настроена тестовая ЮKassa.
+
+#### (в) Checkout + webhook (реализовано в `scripts/staging_acceptance.py`)
+
+Условия стенда: `SEND_LIVE_PAYMENTS=true`, тестовые `YOOKASSA_*`, `BILLING_MODE=test` (платёж с `"test": true` проходит `_mode_problem`). При `SEND_LIVE_PAYMENTS=false` checkout вернёт **503** (`DisabledPaymentProvider`) — тогда (б) или включить тестовую интеграцию на окно приёмки.
+
+Последовательность:
+
+1. `POST /api/v1/billing/quote` с `{"companies": N, "interval": "month", ...}`.
+2. `POST /api/v1/billing/checkout` → в теле **`payment_id`** (UUID попытки в БД).
+3. Прочитать **`provider_payment_id`**:  
+   `SELECT provider_payment_id FROM payment_attempts WHERE id = '<payment_id>';`  
+   (на тестовом стенде ЮKassa — тот же id, что в ответе `create_payment`, если платёж создан).
+4. `POST /api/v1/integrations/yookassa/webhook` с `{"event":"payment.succeeded","object":{"id":"<provider_payment_id>"}}` — запись в inbox; обработка в `billing_service.process_inbox` / worker `billing.process_inbox` (до ~60 с).
+5. `GET /api/v1/billing/payments/{payment_id}` → `"activated": true`.
+6. Для каждой фирмы: `POST /api/v1/billing/companies/{id}/activate`.
+
+Переменные скрипта: `STAGING_BILLING_COMPANIES` (по умолчанию 4), `STAGING_PROVIDER_PAYMENT_ID`, `STAGING_SKIP_BILLING=1` — только повторный `activate`, если период уже оплачен.
 
 ---
 
@@ -134,18 +176,18 @@
 
 ---
 
-## 7. Спецставки НДС (`special_rates_5_7`)
+## 7. Спецставки НДС (`special_rates_5_7`) · отдельная фирма
 
-Новая версия профиля (draft + confirm) с `vat_status: special_rates_5_7`, подтверждённая.
+**Не** менять профиль фирмы A после шага 6. Создайте **`COMPANY_SPECIAL`**: gross-only продажа, профиль УСН, `vat_status: special_rates_5_7`, draft + confirm.
 
 | Проверка | Ожидание |
 | --- | --- |
-| Dashboard / AR | **`vat_basis_unknown` остаётся**; **нет** `vat_basis_from_profile` |
-| UI | Без ложного снятия предупреждения |
+| Dashboard / AR | **`vat_basis_unknown` есть**; **`vat_basis_from_profile` нет** |
+| UI | Без ложного снятия предупреждения на Обзоре |
 
 **~15 мин**
 
-Вернуть профиль на `not_applicable` для шага 8 (новая подтверждённая версия) **или** использовать отдельную тестовую фирму.
+Фирма A остаётся с подтверждённым `not_applicable` для сравнения в протоколе.
 
 ---
 
@@ -177,7 +219,24 @@
 
 ---
 
-## 10. Что сохранить перед выключением стенда
+## 10. Ручной проход в браузере (~10–15 мин)
+
+Дополняет API-скрипт; URL через туннель (`BASE_URL`). Тестовый пользователь после verify и оплаты слота.
+
+| # | Действие | Ожидание |
+| --- | --- | --- |
+| 1 | Вход, выбор фирмы A, период октябрь 2026 | Обзор загружается без 5xx |
+| 2 | До подтверждения профиля | Баннер **`data-testid="org-profile-overview-banner"`**; в «Состоянии данных» — признак unknown НДС |
+| 3 | Мастер профиля → УСН → `not_applicable` → **подтвердить** | Баннер профиля **исчезает** |
+| 4 | Обзор и **Дебиторка** | Флаги согласованы с §5–6; после confirm нет ложного «с НДС» на итоге AR |
+| 5 | Фирма с YTD для порога (или A после догрузки) | Баннер **`data-testid="vat-threshold-banner"`**, дисклеймер про начисление vs кассу |
+| 6 | Ссылка «Открыть мастер профиля» (из баннера порога или профиля) | Переход на мастер, без обрыва сессии |
+
+Скриншоты — в `var/acceptance-…/` (вне git).
+
+---
+
+## 11. Что сохранить перед выключением стенда
 
 Артефакты **вне git** (каталог вроде `var/acceptance-YYYYMMDD/`):
 
@@ -193,7 +252,7 @@
 
 ---
 
-## 11. Критерий «принято»
+## 12. Критерий «принято»
 
 - Все таблицы ожиданий §§5–9 — **pass** на зафиксированном SHA.
 - Нет записей клиентских контрагентов / назначений платежей в протоколе.

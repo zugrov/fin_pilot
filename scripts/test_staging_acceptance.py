@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import http.cookiejar
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -63,11 +65,106 @@ class StagingAcceptanceLogicTests(unittest.TestCase):
     def test_report_no_secrets(self) -> None:
         report = self.mod.Report()
         report.record("step", "exp", "act", True)
-        with patch.object(self.mod, "REPORT_PATH", Path("/tmp/acceptance-report-test.md")):
-            self.mod.write_report(report, "secret@example.com", "b@example.com")
-            text = Path("/tmp/acceptance-report-test.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "acceptance-report.md"
+            with patch.object(self.mod, "REPORT_PATH", path):
+                self.mod.write_report(report, "secret@example.com", "b@example.com")
+                text = path.read_text(encoding="utf-8")
         self.assertNotIn("secret@", text)
         self.assertIn("***@", text)
+
+    def test_report_written_on_exception(self) -> None:
+        mod = self.mod
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "acceptance-report.md"
+            with patch.object(mod, "REPORT_PATH", path):
+                with patch.object(mod, "run_acceptance_body", side_effect=RuntimeError("boom test")):
+                    with patch.dict(
+                        "os.environ",
+                        {
+                            "STAGING_BASE_URL": "http://example.test",
+                            "STAGING_PASSWORD": "pw-local-test-only",
+                            "STAGING_VERIFY_TOKEN_OWNER": "t",
+                            "STAGING_VERIFY_TOKEN_TENANT_B": "t",
+                        },
+                        clear=False,
+                    ):
+                        code = mod.run_acceptance()
+            self.assertEqual(code, 1)
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("fatal", text)
+            self.assertIn("RuntimeError", text)
+            self.assertNotIn("pw-local-test-only", text)
+
+    def test_cookie_policy_allows_secure_on_http(self) -> None:
+        policy = self.mod.StagingCookiePolicy()
+        cookie = http.cookiejar.Cookie(
+            version=0,
+            name="s",
+            value="v",
+            port=None,
+            port_specified=False,
+            domain="example.test",
+            domain_specified=True,
+            domain_initial_dot=False,
+            path="/",
+            path_specified=True,
+            secure=True,
+            expires=None,
+            discard=True,
+            comment=None,
+            comment_url=None,
+            rest={},
+            rfc2109=False,
+        )
+        req = MagicMock()
+        req.type = "http"
+        self.assertTrue(policy.return_ok(cookie, req))
+
+
+class StagingAcceptanceSpecialRatesTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module()
+
+    def test_special_rates_flags_from_mock_dashboard(self) -> None:
+        body = {"quality_flags": ["vat_basis_unknown"], "metric_basis": "source"}
+        ok, detail = self.mod.evaluate_quality_flags(
+            body["quality_flags"], want_unknown=True, want_from_profile=False
+        )
+        self.assertTrue(ok, detail)
+
+    def test_special_rates_flow_mock_http(self) -> None:
+        mod = self.mod
+        report = mod.Report()
+        client = MagicMock()
+        billing = mod.TenantBilling(prepared=True)
+        client.request.side_effect = [
+            (200, {"id": "company-special"}, ""),
+            (200, {"csrf_token": "c"}, ""),
+        ]
+        with (
+            patch.object(mod, "create_company", return_value="company-special"),
+            patch.object(mod, "activate_company_slot", return_value=True),
+            patch.object(mod, "ensure_revenue_source", return_value=True),
+            patch.object(mod, "post_gross_sale", return_value=True),
+            patch.object(mod, "patch_profile_draft", return_value=200),
+            patch.object(mod, "confirm_profile", return_value=200),
+            patch.object(
+                mod,
+                "dashboard",
+                return_value={"quality_flags": ["vat_basis_unknown"], "metric_basis": "source"},
+            ),
+            patch.object(
+                mod,
+                "receivable",
+                return_value={"quality_flags": ["vat_basis_unknown"]},
+            ),
+        ):
+            mod.run_special_rates_company(client, "tenant", billing, "", report)
+        names = [row.step for row in report.rows]
+        self.assertIn("org.special.dashboard.flags", names)
+        self.assertTrue(any(row.step == "org.special.dashboard.flags" and row.ok for row in report.rows))
 
 
 class StagingAcceptanceDryHttpTests(unittest.TestCase):
