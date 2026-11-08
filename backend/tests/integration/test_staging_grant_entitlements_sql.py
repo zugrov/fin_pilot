@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import text
-
 from tests.integration.conftest import freeze, login, open_workspace, register_and_verify
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
