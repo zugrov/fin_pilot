@@ -48,6 +48,10 @@ const FLAG_TEXT: Record<string, string> = {
   partial_period: "Данные покрывают не весь период.",
   missing_counterparty: "У части строк не указан контрагент.",
   coverage_unverified: "Полнота периода не подтверждена сверкой.",
+  vat_basis_unknown:
+    "Для части продаж база НДС неизвестна: долг показан с НДС.",
+  vat_basis_from_profile:
+    "Подтверждённый профиль: НДС не применяется, долг показан без деления на НДС.",
 };
 
 export function bucketLabel(code: string): string {
@@ -183,6 +187,33 @@ export function orphanNote(): string {
 
 export function debtBasisNote(): string {
   return "Это задолженность покупателей перед вами, а не деньги на счёте.";
+}
+
+/** Подпись шкалы остатка по флагам НДС (суммы в API не меняются). */
+export function balanceAmountLabel(flags: readonly string[]): string {
+  if (flags.includes("vat_basis_from_profile") && !flags.includes("vat_basis_unknown")) {
+    return "Остаток (НДС не применяется)";
+  }
+  if (flags.includes("vat_basis_unknown") || flags.includes("vat_basis_from_profile")) {
+    return "Остаток (с НДС)";
+  }
+  return "Остаток (с НДС)";
+}
+
+export function amountsBasisNote(flags: readonly string[]): string {
+  const label = balanceAmountLabel(flags);
+  return `${label}. Суммы по проведённым продажам; оплата уменьшает долг только после привязки к продаже.`;
+}
+
+/** Подпись KPI «Всего долгов»: база НДС + пояснение суммы. */
+export function totalDebtKpiCaption(flags: readonly string[]): string {
+  const tail = "Столько покупатели должны вам на эту дату.";
+  const hasVat =
+    flags.includes("vat_basis_unknown") || flags.includes("vat_basis_from_profile");
+  if (!hasVat) {
+    return tail;
+  }
+  return `${balanceAmountLabel(flags)}. ${tail}`;
 }
 
 /** Сегодняшняя дата в часовом поясе фирмы, а не в поясе браузера. */

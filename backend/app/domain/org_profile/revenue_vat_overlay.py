@@ -5,11 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Protocol
 
 from app.domain.money import money
 from app.domain.org_profile.constants import VAT_STATUSES
 from app.domain.org_profile.resolution import ResolvedOrganizationProfile
 from app.domain.revenue import NET_LABEL, RevenueView, SaleFact, assess_revenue
+
+
+class ReceivableVatRow(Protocol):
+    vat_basis: str
+    amount_ex_vat: Decimal | None
+    recognition_date: date | None
 
 VAT_BASIS_FROM_PROFILE = "vat_basis_from_profile"
 NOT_APPLICABLE = "not_applicable"
@@ -35,7 +42,8 @@ def months_in_range(date_from: date, date_to: date) -> list[date]:
     return result
 
 
-def _overlay_applies(resolved: ResolvedOrganizationProfile | None) -> bool:
+def profile_vat_overlay_applies(resolved: ResolvedOrganizationProfile | None) -> bool:
+    """Подтверждённый профиль, при котором gross-only трактуется как net (§8)."""
     if resolved is None or not resolved.is_confirmed:
         return False
     status = resolved.snapshot.vat_status
@@ -48,8 +56,15 @@ def _overlay_applies(resolved: ResolvedOrganizationProfile | None) -> bool:
     return False
 
 
+_overlay_applies = profile_vat_overlay_applies
+
+
+def row_vat_basis_unknown(*, vat_basis: str, amount_ex_vat: Decimal | None) -> bool:
+    return vat_basis != "net" or amount_ex_vat is None
+
+
 def _row_unknown(fact: SaleFact) -> bool:
-    return fact.vat_basis != "net" or fact.amount_ex_vat is None
+    return row_vat_basis_unknown(vat_basis=fact.vat_basis, amount_ex_vat=fact.amount_ex_vat)
 
 
 def _signed_row(fact: SaleFact, *, treat_gross_as_net: bool) -> Decimal:
@@ -169,6 +184,41 @@ def apply_profile_vat_overlay(
         entry_ids=base.entry_ids,
     )
     return _with_partial_period(view, covered=covered), trace
+
+
+def receivable_vat_quality_flags(
+    entries: tuple[ReceivableVatRow, ...],
+    *,
+    profiles_by_month: dict[date, ResolvedOrganizationProfile | None],
+) -> list[str]:
+    """Флаги НДС для дебиторки: суммы не меняем, только quality_flags (FA-R06.1 §4.6)."""
+    gross = [
+        item
+        for item in entries
+        if row_vat_basis_unknown(vat_basis=item.vat_basis, amount_ex_vat=item.amount_ex_vat)
+    ]
+    if not gross:
+        return []
+
+    any_overlay = False
+    any_unknown_without_overlay = False
+    for entry in gross:
+        if entry.recognition_date is None:
+            any_unknown_without_overlay = True
+            continue
+        row_month = month_start(entry.recognition_date)
+        resolved = profiles_by_month.get(row_month)
+        if profile_vat_overlay_applies(resolved):
+            any_overlay = True
+        else:
+            any_unknown_without_overlay = True
+
+    flags: list[str] = []
+    if any_unknown_without_overlay:
+        flags.append("vat_basis_unknown")
+    if any_overlay:
+        flags.append(VAT_BASIS_FROM_PROFILE)
+    return flags
 
 
 def assess_revenue_with_profile(
