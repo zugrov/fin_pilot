@@ -23,6 +23,8 @@ import {
   completenessLabel,
   completenessNote,
   counterpartyLabel,
+  amountsBasisNote,
+  balanceAmountLabel,
   debtBasisNote,
   documentLabel,
   emptyStateText,
@@ -274,7 +276,7 @@ export function ReceivablePage() {
         <>
           <div className="mb-4 grid gap-4 sm:grid-cols-2">
             <KpiCard
-              title="Всего долгов"
+              title={balanceAmountLabel(current.quality_flags)}
               value={current.total_balance}
               caption="Столько покупатели должны вам на эту дату."
               tone="warn"
@@ -372,10 +374,7 @@ export function ReceivablePage() {
             </p>
           ) : null}
 
-          <p className="text-xs text-ink-subtle">
-            Суммы показаны с НДС, по проведённым продажам. Оплата уменьшает долг только после
-            привязки к продаже.
-          </p>
+          <p className="text-xs text-ink-subtle">{amountsBasisNote(current.quality_flags)}</p>
         </>
       ) : null}
 
