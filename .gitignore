@@ -15,7 +15,8 @@ node_modules/
 frontend/dist/
 .DS_Store
 .idea/
-.vscode/
+.vscode/*
+!.vscode/tasks.json
 *.log
 celerybeat-schedule
 celerybeat-schedule.*

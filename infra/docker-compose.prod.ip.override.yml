@@ -1,0 +1,5 @@
+# HTTP-only Caddy (первый запуск по IP, без TLS). Подключать вместе с infra/docker-compose.prod.yml.
+services:
+  proxy:
+    volumes:
+      - ./Caddyfile.ip:/etc/caddy/Caddyfile:ro
