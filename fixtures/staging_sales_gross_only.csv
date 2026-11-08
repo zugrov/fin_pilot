@@ -1,0 +1,4 @@
+external_id,recognition_date,document_number,counterparty_inn,amount_ex_vat,vat_amount,amount_inc_vat,entry_type,direction_code
+stg-acc-001,2026-10-05,AC-001,7700900001,,,10000.00,sale,
+stg-acc-002,2026-10-12,AC-002,7700900002,,,5000.00,sale,
+stg-acc-003,2026-10-20,AC-003,7700900003,,,7500.00,sale,

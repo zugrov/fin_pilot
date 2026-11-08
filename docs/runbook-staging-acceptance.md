@@ -6,6 +6,8 @@
 
 **Ориентировочная длительность:** 2,5–4 ч (первый прогон с ручной загрузкой продаж); повторный — ~1–1,5 ч.
 
+**Автоматизация API:** `python3 scripts/staging_acceptance.py` (см. `STAGING_*` в начале скрипта). CSV продаж: `fixtures/staging_sales_gross_only.csv`. Отчёт: `acceptance-report.md` (без секретов).
+
 ---
 
 ## 0. Плейсхолдеры
