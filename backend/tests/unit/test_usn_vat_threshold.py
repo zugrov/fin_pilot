@@ -95,5 +95,10 @@ def test_return_reduces_ytd() -> None:
 
 
 def test_partial_flag_preserved() -> None:
-    view = assess_usn_vat_threshold((), as_of=date(2026, 6, 1), threshold=Decimal("1"), partial=True)
+    view = assess_usn_vat_threshold(
+        (),
+        as_of=date(2026, 6, 1),
+        threshold=Decimal("1"),
+        partial=True,
+    )
     assert view.partial is True
