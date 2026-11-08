@@ -12,6 +12,7 @@ import {
   loadUnclassifiedSummary,
 } from "../api";
 import { OrgProfileOverviewBanner } from "../components/orgProfile/OrgProfileOverviewBanner";
+import { Banner } from "../components/system/Banner";
 import { Shell } from "../components/Shell";
 import { Amount } from "../components/system/Amount";
 import { DonutChart } from "../components/system/DonutChart";
@@ -192,32 +193,36 @@ export function OverviewPage() {  const companies = useQuery({ queryKey: ["compa
         <OrgProfileOverviewBanner companyId={companyId} timeZone={timezone} />
       ) : null}
       {shouldShowVatThresholdBanner(vatThreshold) ? (
-        <section
-          role="status"
-          data-testid="vat-threshold-banner"
-          className={`mb-4 rounded-card border p-4 text-sm ${
-            vatThreshold.status === "exceeded"
-              ? "border-danger bg-danger-soft text-danger"
-              : "border-warn-line bg-warn-soft text-warn"
-          }`}
-        >
-          <p>
-            {vatThreshold.status === "exceeded"
-              ? vatThresholdExceededText(vatThreshold)
-              : vatThresholdApproachingText(vatThreshold)}
-          </p>
-          {vatThresholdPartialNote(vatThreshold.partial) ? (
-            <p className="mt-2">{vatThresholdPartialNote(vatThreshold.partial)}</p>
-          ) : null}
-          <p className="mt-2 text-note text-ink-subtle">{VAT_THRESHOLD_DISCLAIMER}</p>
-          {vatThreshold.status === "exceeded" ? (
-            <p className="mt-2">
-              <Link className="text-link underline" to="/settings/org-profile">
-                Открыть мастер профиля
-              </Link>
+        <div className="mb-4" data-testid="vat-threshold-banner">
+          <Banner
+            tone={vatThreshold.status === "exceeded" ? "danger" : "warn"}
+            label={
+              vatThreshold.status === "exceeded"
+                ? "Порог НДС превышен"
+                : "Приближение к порогу НДС"
+            }
+            action={
+              vatThreshold.status === "exceeded" ? (
+                <Link
+                  className="inline-block min-h-tap rounded bg-accent px-4 py-2 text-on-accent"
+                  to="/settings/org-profile"
+                >
+                  Открыть мастер профиля
+                </Link>
+              ) : undefined
+            }
+          >
+            <p>
+              {vatThreshold.status === "exceeded"
+                ? vatThresholdExceededText(vatThreshold)
+                : vatThresholdApproachingText(vatThreshold)}
             </p>
-          ) : null}
-        </section>
+            {vatThresholdPartialNote(vatThreshold.partial) ? (
+              <p className="mt-2">{vatThresholdPartialNote(vatThreshold.partial)}</p>
+            ) : null}
+            <p className="mt-2 text-note text-ink-subtle">{VAT_THRESHOLD_DISCLAIMER}</p>
+          </Banner>
+        </div>
       ) : null}
       {companies.isLoading || dashboard.isLoading ? <p className="mb-4">Загрузка</p> : null}
       {companies.isError || dashboard.isError ? (

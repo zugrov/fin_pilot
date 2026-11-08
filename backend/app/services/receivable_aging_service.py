@@ -19,7 +19,8 @@ from app.models.imports import SourceConnection
 from app.models.revenue import Counterparty, RevenueCashMatch, RevenueEntry
 from app.services.cash_service import revenue_allocated_on_cash
 from app.services.org_profile_service import resolve_profiles_for_months
-from app.services.report_service import _coverage, _internal, _section
+from app.services.report_service import _internal, _section
+from app.services.revenue_coverage import sources_coverage_through
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -311,7 +312,7 @@ def _receivable_completeness(
         return "unavailable"
     partial = False
     for source in sources:
-        covered, _ = _coverage([source], as_of)
+        covered, _ = sources_coverage_through([source], as_of)
         if not covered:
             partial = True
             break

@@ -135,16 +135,64 @@ def test_exceeded_status_in_dashboard(client, admin, app, fake, tmp_path) -> Non
     assert block["obligation_from"] == "2026-11-01"
 
 
-def test_tenant_isolation(client, admin, app, fake, tmp_path) -> None:
+def test_exactly_at_threshold_not_exceeded(client, admin, app, fake, tmp_path) -> None:
+    _, company_id = _ready(client, admin, app, fake, tmp_path, "vath-eq@example.com")
+    _revenue_source(client, company_id)
+    _confirm_na(client, company_id)
+    _sale(client, company_id, "vt-eq", "2026-10-05", "20000000.00")
+    body = _dashboard(client, company_id)
+    block = body["vat_threshold"]
+    assert block["status"] == "approaching"
+    assert block["ytd_revenue"] == "20000000.00"
+    assert block["exceeded_month"] is None
+
+
+def test_past_year_dashboard_without_norms_has_no_block(
+    client, admin, app, fake, tmp_path
+) -> None:
+    """as_of = date_to периода; норм на 2025-12-31 в справочнике нет — блок не добавляем."""
+    _, company_id = _ready(client, admin, app, fake, tmp_path, "vath-2025@example.com")
+    _revenue_source(client, company_id, coverage="2025-12-31")
+    _confirm_na(client, company_id)
+    _sale(client, company_id, "vt-25", "2025-12-10", "1000000.00")
+    response = client.get(
+        f"/api/v1/companies/{company_id}/dashboard",
+        params={"date_from": "2025-12-01", "date_to": "2025-12-31"},
+    )
+    assert response.status_code == 200, response.text
+    assert "vat_threshold" not in response.json()
+
+
+def test_dashboard_period_end_year_drives_ytd_and_norms(
+    client, admin, app, fake, tmp_path
+) -> None:
+    """Период в 2027: YTD с 2027-01-01, порог из норм на date_to."""
+    _, company_id = _ready(client, admin, app, fake, tmp_path, "vath-2027@example.com")
+    _revenue_source(client, company_id, coverage="2027-12-31")
+    _confirm_na(client, company_id)
+    _sale(client, company_id, "vt-27", "2027-06-15", "500000.00")
+    response = client.get(
+        f"/api/v1/companies/{company_id}/dashboard",
+        params={"date_from": "2027-06-01", "date_to": "2027-06-30"},
+    )
+    assert response.status_code == 200, response.text
+    block = response.json()["vat_threshold"]
+    assert block["as_of"] == "2027-06-30"
+    assert block["threshold"] == "20000000.00"
+    assert Decimal(block["ytd_revenue"]) == Decimal("500000.00")
+
+
+def test_tenant_isolation_vat_threshold_and_revision(client, admin, app, fake, tmp_path) -> None:
     from fastapi.testclient import TestClient
     from tests.integration.conftest import login, open_workspace, pay, register_and_verify
 
     _, company_a = _ready(client, admin, app, fake, tmp_path, "vath-iso-a@example.com")
     _revenue_source(client, company_a)
     _confirm_na(client, company_a)
-    _sale(client, company_a, "vt-a", "2026-10-10", "1000000.00")
-    own = _dashboard(client, company_a)
-    assert "vat_threshold" in own
+    _sale(client, company_a, "vt-a", "2026-10-05", "16500000.00")
+    dash_a = _dashboard(client, company_a)
+    assert dash_a["vat_threshold"]["status"] == "approaching"
+    rev_a = dash_a["input_revision"]
 
     client_b = TestClient(client.app)
     register_and_verify(client_b, admin, "vath-iso-b@example.com")
@@ -155,7 +203,31 @@ def test_tenant_isolation(client, admin, app, fake, tmp_path) -> None:
         f"/api/v1/workspaces/{tenant_b}/companies",
         json={"name": "B", "kind": "company", "timezone": "Europe/Moscow"},
     )
+    assert created.status_code == 200, created.text
     company_b = created.json()["id"]
     client_b.post(f"/api/v1/billing/companies/{company_b}/activate")
+
+    _revenue_source(client_b, company_b)
+    assert (
+        _patch_draft(client_b, company_b, vat_status="not_applicable", tax_system="usn").status_code
+        == 200
+    )
+    version_id = _latest_version_id(client_b, company_b)
+    confirmed = client_b.post(
+        f"/api/v1/companies/{company_b}/organization-profile/versions/{version_id}/confirm",
+        headers={"Idempotency-Key": uuid4().hex},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    _sale(client_b, company_b, "vt-b1", "2026-10-10", "50000.00")
+    dash_b = client_b.get(f"/api/v1/companies/{company_b}/dashboard?{PERIOD}")
+    block_b = dash_b.json()["vat_threshold"]
+    assert block_b["status"] == "ok"
+    rev_b = dash_b.json()["input_revision"]
+    assert rev_b != rev_a
+
+    dash_b_repeat = client_b.get(f"/api/v1/companies/{company_b}/dashboard?{PERIOD}")
+    assert dash_b_repeat.json()["input_revision"] == rev_b
+    assert Decimal(dash_b_repeat.json()["vat_threshold"]["ytd_revenue"]) == Decimal("50000.00")
+
     foreign = client_b.get(f"/api/v1/companies/{company_a}/dashboard?{PERIOD}")
     assert foreign.status_code in (403, 404)

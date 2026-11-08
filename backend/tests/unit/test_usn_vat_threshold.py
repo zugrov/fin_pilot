@@ -94,6 +94,20 @@ def test_return_reduces_ytd() -> None:
     assert view.status == "approaching"
 
 
+def test_exactly_at_threshold_is_approaching_not_exceeded() -> None:
+    rows = (_sale("2026-10-01", "20000000.00"),)
+    view = assess_usn_vat_threshold(
+        rows,
+        as_of=date(2026, 10, 31),
+        threshold=Decimal("20000000.00"),
+        partial=False,
+    )
+    assert view.status == "approaching"
+    assert view.ytd_revenue == Decimal("20000000.00")
+    assert view.exceeded_month is None
+    assert view.obligation_from is None
+
+
 def test_partial_flag_preserved() -> None:
     view = assess_usn_vat_threshold(
         (),

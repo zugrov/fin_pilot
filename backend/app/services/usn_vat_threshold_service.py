@@ -13,6 +13,7 @@ from app.domain.usn_vat_threshold import (
 from app.models.imports import SourceConnection
 from app.models.revenue import RevenueEntry
 from app.services.org_profile_service import get_profile_for_period
+from app.services.revenue_coverage import sources_coverage_through
 from app.services.tax_norms_service import get_version_for_date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -58,8 +59,6 @@ def vat_threshold_for_dashboard(
             )
         ).all()
     )
-    from app.services.report_service import _coverage
-
     sources = list(
         session.scalars(
             select(SourceConnection).where(
@@ -70,7 +69,7 @@ def vat_threshold_for_dashboard(
             )
         ).all()
     )
-    covered, _ = _coverage(sources, as_of)
+    covered, _ = sources_coverage_through(sources, as_of)
     partial = not covered
     rows = tuple(
         (item.recognition_date, item.entry_type, item.amount_inc_vat) for item in entries

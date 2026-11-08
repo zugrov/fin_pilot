@@ -21,6 +21,7 @@ from app.models.imports import SourceConnection
 from app.models.revenue import RevenueEntry
 from app.services.cash_service import company_summary, summary_payload
 from app.services.org_profile_service import resolve_profiles_for_months
+from app.services.revenue_coverage import sources_coverage_through
 from app.services.usn_vat_threshold_service import vat_threshold_for_dashboard
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -65,7 +66,7 @@ def revenue_snapshot(session: Session, company_id: uuid.UUID, tenant_id: uuid.UU
             )
         ).all()
     )
-    covered, coverage = _coverage(sources, date_to)
+    covered, coverage = sources_coverage_through(sources, date_to)
     facts = tuple(
         SaleFact(
             str(item.id),
@@ -266,17 +267,6 @@ def group_revenue(amounts: list[str | None]) -> tuple[str | None, str]:
     return money_str(total), GROUP_REVENUE_LABEL
 
 
-def _coverage(sources: list[SourceConnection], date_to: date) -> tuple[bool, date | None]:
-    if not sources:
-        return False, None
-    dates = [item.coverage_through for item in sources]
-    if any(item is None for item in dates):
-        return False, None
-    known = [item for item in dates if item is not None]
-    coverage = min(known)
-    return coverage >= date_to, coverage
-
-
 def _net_sum(entries: list[RevenueEntry]) -> str:
     total = Decimal("0")
     for item in entries:
@@ -445,7 +435,7 @@ def _cashflow_completeness(
         return "preliminary"
     partial = False
     for source in sources:
-        covered, _ = _coverage([source], date_to)
+        covered, _ = sources_coverage_through([source], date_to)
         if not covered:
             partial = True
             break

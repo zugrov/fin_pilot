@@ -26,6 +26,7 @@ describe("vatThreshold тексты", () => {
     expect(text).toContain("16 500 000,00");
     expect(text).toContain("20 000 000,00");
     expect(text).toContain("следующего месяца");
+    expect(text).toContain("на 31.10.2026");
   });
 
   it("строит текст при превышении", () => {
@@ -39,6 +40,7 @@ describe("vatThreshold тексты", () => {
     expect(text).toContain("Порог превышен");
     expect(text).toContain("01.11.2026");
     expect(text).toContain("создайте версию");
+    expect(text).toContain("на 31.10.2026");
   });
 
   it("показывает баннер только для approaching и exceeded", () => {

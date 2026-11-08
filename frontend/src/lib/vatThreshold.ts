@@ -39,9 +39,11 @@ function monthLabel(ym: string | null): string {
 
 export function vatThresholdApproachingText(block: VatThresholdBlock): string {
   const pct = formatPercentText(block.percent);
+  const asOf = formatDate(block.as_of);
   return (
-    `Накопленная выручка с начала года: ${formatMoney(block.ytd_revenue)} из ${formatMoney(block.threshold)} ` +
-    `(${pct} %). При превышении порога НДС возникает с первого числа следующего месяца.`
+    `Накопленная выручка с начала года на ${asOf}: ${formatMoney(block.ytd_revenue)} из ` +
+    `${formatMoney(block.threshold)} (${pct} %). При превышении порога НДС возникает с первого числа ` +
+    `следующего месяца.`
   );
 }
 
@@ -49,9 +51,11 @@ export function vatThresholdExceededText(block: VatThresholdBlock): string {
   const month = monthLabel(block.exceeded_month);
   const from = block.obligation_from ? formatDate(block.obligation_from) : "";
   const pct = formatPercentText(block.percent);
+  const asOf = formatDate(block.as_of);
   return (
-    `Накопленная выручка с начала года: ${formatMoney(block.ytd_revenue)} из ${formatMoney(block.threshold)} ` +
-    `(${pct} %). Порог превышен в ${month}; обязанность по НДС с ${from}. Обновите профиль: создайте версию с этой даты.`
+    `Накопленная выручка с начала года на ${asOf}: ${formatMoney(block.ytd_revenue)} из ` +
+    `${formatMoney(block.threshold)} (${pct} %). Порог превышен в ${month}; обязанность по НДС с ${from}. ` +
+    `Обновите профиль: создайте версию с этой даты.`
   );
 }
 
