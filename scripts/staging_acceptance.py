@@ -9,9 +9,9 @@ HTTP-клиент для стенда с SESSION_COOKIE_SECURE=true: StagingCook
 
 Переменные окружения (основные):
   STAGING_BASE_URL, STAGING_PASSWORD, STAGING_VERIFY_TOKEN_OWNER, STAGING_VERIFY_TOKEN_TENANT_B
-  STAGING_BILLING_MODE=sql|checkout — по умолчанию sql, если нет STAGING_PROVIDER_PAYMENT_ID
-  STAGING_BILLING_COMPANIES (4), STAGING_SQL_AUTO_CONTINUE=1 (пропуск Enter после печати SQL)
-  STAGING_PROVIDER_PAYMENT_ID / STAGING_WEBHOOK_PAYMENT_OBJECT_ID — режим checkout
+  STAGING_BILLING_MODE=checkout|sql — по умолчанию checkout (тестовая ЮKassa)
+  STAGING_BILLING_COMPANIES (4), STAGING_SQL_AUTO_CONTINUE=1, STAGING_CHECKOUT_AUTO_CONTINUE=1
+  STAGING_PROVIDER_PAYMENT_ID / STAGING_WEBHOOK_PAYMENT_OBJECT_ID — id объекта ЮKassa для webhook
   STAGING_SKIP_BILLING=1 — только activate (период уже выдан)
 """
 
@@ -40,6 +40,9 @@ GRANT_SQL_PATH = REPO_ROOT / "scripts" / "staging_grant_entitlements.sql"
 
 DEFAULT_PERIOD_START = "2026-10-01T00:00:00+00:00"
 DEFAULT_PERIOD_END = "2026-11-30T23:59:59+00:00"
+
+BILLING_ACTIVATION_WAIT_SEC = 120
+BILLING_ACTIVATION_POLL_INTERVAL_SEC = 2
 
 PERIOD_OCT = "date_from=2026-10-01&date_to=2026-10-31"
 PERIOD_YTD_OCT = "date_from=2026-01-01&date_to=2026-10-31"
@@ -308,15 +311,51 @@ class TenantBilling:
 
 def resolve_billing_mode() -> str:
     mode = (_env("STAGING_BILLING_MODE", "") or "").strip().lower()
-    if mode == "checkout":
-        return "checkout"
     if mode == "sql":
         return "sql"
+    if mode == "checkout":
+        return "checkout"
     if _env_flag("STAGING_SKIP_BILLING"):
         return "skip"
-    if _env("STAGING_PROVIDER_PAYMENT_ID") or _env("STAGING_WEBHOOK_PAYMENT_OBJECT_ID"):
-        return "checkout"
-    return "sql"
+    return "checkout"
+
+
+def recommend_sql_fallback(report: Report, reason: str) -> None:
+    report.record(
+        "billing.fallback",
+        "STAGING_BILLING_MODE=sql",
+        reason,
+        True,
+    )
+
+
+def wait_for_checkout_payment() -> None:
+    if _env_flag("STAGING_CHECKOUT_AUTO_CONTINUE"):
+        return
+    input("Оплатите тестовой картой по ссылке confirmation_url, затем нажмите Enter… ")
+
+
+def resolve_provider_payment_id(
+    client: HttpClient,
+    payment_attempt_id: str,
+    postgres_hint: str,
+    report: Report,
+) -> str | None:
+    token = _env("STAGING_PROVIDER_PAYMENT_ID") or _env("STAGING_WEBHOOK_PAYMENT_OBJECT_ID")
+    if token:
+        return token.strip()
+    view = client.request("GET", f"/api/v1/billing/payments/{payment_attempt_id}")
+    if view[0] == 200 and view[1]:
+        from_api = (view[1] or {}).get("provider_payment_id")
+        if from_api:
+            report.record("billing.provider_id", "из API", "получен", True)
+            return str(from_api)
+    print_sql_provider_payment_hint(payment_attempt_id, postgres_hint)
+    entered = prompt_provider_payment_id()
+    if entered:
+        return entered
+    report.record("billing.provider_id", "provider_payment_id", "не задан", False)
+    return None
 
 
 def _apply_sql_placeholders(text: str, mapping: dict[str, str]) -> str:
@@ -428,6 +467,128 @@ def activate_all_companies(
     return ok_all
 
 
+def wait_for_payment_activated(
+    client: HttpClient,
+    payment_attempt_id: str,
+    report: Report,
+) -> bool:
+    attempts = BILLING_ACTIVATION_WAIT_SEC // BILLING_ACTIVATION_POLL_INTERVAL_SEC
+    for _ in range(attempts):
+        view = client.request("GET", f"/api/v1/billing/payments/{payment_attempt_id}")
+        if view[0] == 200 and (view[1] or {}).get("activated"):
+            report.record(
+                "billing.activation",
+                "payment.activated=true",
+                f"true (до {BILLING_ACTIVATION_WAIT_SEC} с)",
+                True,
+            )
+            return True
+        time.sleep(BILLING_ACTIVATION_POLL_INTERVAL_SEC)
+    report.record(
+        "billing.activation",
+        "payment.activated=true",
+        f"false (таймаут {BILLING_ACTIVATION_WAIT_SEC} с; worker billing.process_inbox?)",
+        False,
+    )
+    return False
+
+
+def prepare_tenant_billing_checkout(
+    client: HttpClient,
+    report: Report,
+    *,
+    company_ids: list[str],
+    companies: int,
+    postgres_hint: str,
+) -> tuple[bool, str | None]:
+    quoted = client.request(
+        "POST",
+        "/api/v1/billing/quote",
+        json_body={"companies": companies, "interval": "month", "payable_amount": "1.00"},
+    )
+    ok_q, act_q = evaluate_http_status(quoted[0], 200)
+    report.record("billing.quote", f"HTTP 200 (companies={companies})", act_q, ok_q)
+    if not ok_q or not quoted[1]:
+        recommend_sql_fallback(report, "quote не прошёл")
+        return False, None
+
+    checked = client.request(
+        "POST",
+        "/api/v1/billing/checkout",
+        json_body={"quote_id": quoted[1]["id"], "offer_accepted": True, "discount_percent": "0"},
+        idempotency=secrets.token_hex(16),
+    )
+    ok_c, act_c = evaluate_http_status(checked[0], 200)
+    detail = act_c
+    if checked[0] == 503:
+        detail = (
+            f"{act_c} (SEND_LIVE_PAYMENTS=false или провайдер отключён; "
+            "см. runbook §3.2 — только тестовый магазин ЮKassa)"
+        )
+        report.record("billing.checkout", "HTTP 200", detail, False)
+        recommend_sql_fallback(report, "checkout HTTP 503")
+        return False, None
+    report.record("billing.checkout", "HTTP 200", detail, ok_c)
+    if not ok_c or not checked[1]:
+        recommend_sql_fallback(report, f"checkout HTTP {checked[0]}")
+        return False, None
+
+    checkout_body = checked[1] or {}
+    payment_attempt_id = str(checkout_body.get("payment_id", ""))
+    confirmation_url = checkout_body.get("confirmation_url")
+    if confirmation_url:
+        print("\n--- Оплата (тестовая ЮKassa) ---\n")
+        print(confirmation_url)
+        print("")
+        report.record("billing.checkout.confirmation_url", "напечатан", "да", True)
+    else:
+        report.record(
+            "billing.checkout.confirmation_url",
+            "напечатан",
+            "нет в ответе checkout",
+            False,
+        )
+
+    wait_for_checkout_payment()
+
+    provider_id = resolve_provider_payment_id(
+        client,
+        payment_attempt_id,
+        postgres_hint,
+        report,
+    )
+    if not provider_id:
+        recommend_sql_fallback(report, "нет provider_payment_id для webhook")
+        return False, None
+
+    webhook = client.request(
+        "POST",
+        "/api/v1/integrations/yookassa/webhook",
+        json_body={"event": "payment.succeeded", "object": {"id": provider_id}},
+    )
+    ok_w, act_w = evaluate_http_status(webhook[0], 200)
+    report.record("billing.webhook", "HTTP 200", act_w, ok_w)
+    if not ok_w:
+        recommend_sql_fallback(report, "webhook payment.succeeded не принят")
+        return False, None
+
+    activated = wait_for_payment_activated(client, payment_attempt_id, report)
+    if not activated:
+        recommend_sql_fallback(
+            report,
+            f"нет activated=true за {BILLING_ACTIVATION_WAIT_SEC} с — повторите или STAGING_BILLING_MODE=sql",
+        )
+        return False, None
+
+    activate_all_companies(
+        client,
+        report,
+        company_ids,
+        tuple(item[0] for item in COMPANY_DEFINITIONS),
+    )
+    return True, None
+
+
 def prepare_tenant_billing(
     client: HttpClient,
     report: Report,
@@ -470,73 +631,13 @@ def prepare_tenant_billing(
             )
         return prepared, period_id
 
-    quoted = client.request(
-        "POST",
-        "/api/v1/billing/quote",
-        json_body={"companies": companies, "interval": "month", "payable_amount": "1.00"},
+    return prepare_tenant_billing_checkout(
+        client,
+        report,
+        company_ids=company_ids,
+        companies=companies,
+        postgres_hint=postgres_hint,
     )
-    ok_q, act_q = evaluate_http_status(quoted[0], 200)
-    report.record("billing.quote", f"HTTP 200 (companies={companies})", act_q, ok_q)
-    if not ok_q or not quoted[1]:
-        return False, None
-
-    checked = client.request(
-        "POST",
-        "/api/v1/billing/checkout",
-        json_body={"quote_id": quoted[1]["id"], "offer_accepted": True, "discount_percent": "0"},
-        idempotency=secrets.token_hex(16),
-    )
-    ok_c, act_c = evaluate_http_status(checked[0], 200)
-    detail = act_c
-    if checked[0] == 503:
-        detail = f"{act_c} (SEND_LIVE_PAYMENTS=false → DisabledPaymentProvider; см. runbook §3.2)"
-    report.record("billing.checkout", "HTTP 200", detail, ok_c)
-    if not ok_c or not checked[1]:
-        return False, None
-
-    payment_attempt_id = str(checked[1].get("payment_id", ""))
-    provider_id = prompt_provider_payment_id()
-    if not provider_id:
-        print_sql_provider_payment_hint(payment_attempt_id, postgres_hint)
-        report.record(
-            "billing.webhook",
-            "provider_payment_id + webhook 200",
-            "пропуск (нет STAGING_PROVIDER_PAYMENT_ID)",
-            False,
-        )
-        return False, None
-
-    webhook = client.request(
-        "POST",
-        "/api/v1/integrations/yookassa/webhook",
-        json_body={"event": "payment.succeeded", "object": {"id": provider_id}},
-    )
-    ok_w, act_w = evaluate_http_status(webhook[0], 200)
-    report.record("billing.webhook", "HTTP 200", act_w, ok_w)
-    if not ok_w:
-        return False, None
-
-    activated = False
-    for attempt in range(30):
-        view = client.request("GET", f"/api/v1/billing/payments/{payment_attempt_id}")
-        if view[0] == 200 and (view[1] or {}).get("activated"):
-            activated = True
-            break
-        time.sleep(2)
-    report.record(
-        "billing.activation",
-        "payment.activated=true",
-        "true" if activated else "false (нужен celery billing.process_inbox?)",
-        activated,
-    )
-    if activated:
-        activate_all_companies(
-            client,
-            report,
-            company_ids,
-            tuple(item[0] for item in COMPANY_DEFINITIONS),
-        )
-    return activated, None
 
 
 def activate_company_slot(

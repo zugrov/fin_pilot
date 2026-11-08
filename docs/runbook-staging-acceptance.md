@@ -80,7 +80,7 @@
 | Шаг | Действие | Ожидание | ~время |
 | --- | --- | --- | --- |
 | 3.1 | Создать workspace, затем **все 4 фирмы** (A, approaching, exceeded, спецставки) | Четыре `company_id` до биллинга | 10 мин |
-| 3.2 | Выдать оплаченный период (см. ниже): **готовый SQL → Enter → проверка dashboard** | `GET .../dashboard` не **402/403**; при необходимости `activate` | **~10 мин** |
+| 3.2 | Оплатить N слотов (см. ниже): **checkout** или запасной **SQL** | `activated=true` или dashboard без **402**; `activate` по фирмам | **~10–15 мин** (checkout) / **~10 мин** (SQL) |
 | 3.3 | Подключить источник **revenue** (`dataset=revenue`), выставить `coverage_through` ≥ `2026-10-31` | Источник **200**, coverage обновлён | 5 мин |
 
 Заголовок **`X-Tenant-Id: {TENANT_A}`** на всех запросах к компании.
@@ -91,36 +91,59 @@
 
 **Сколько слотов:** для полного прогона — **4** фирмы (основная, два порога НДС, спецставки). Создайте их сразу после workspace; скрипт `staging_acceptance.py` делает это до шага биллинга.
 
-**Порядок по умолчанию (скрипт):** `STAGING_BILLING_MODE=sql` (если не задан `STAGING_PROVIDER_PAYMENT_ID`) → скрипт печатает SQL из `scripts/staging_grant_entitlements.sql` с подставленными `tenant_id` / `company_id` → выполните на стенде (роль `finpilot`) → **Enter** в терминале → проверка dashboard и `activate` при необходимости.
+**Порядок по умолчанию (скрипт):** `STAGING_BILLING_MODE=checkout` — quote → checkout → **`confirmation_url`** → оплата тестовой картой → **Enter** → webhook + ожидание `activated=true` (до 120 с) → `activate` по фирмам. Запасной путь: `STAGING_BILLING_MODE=sql` (см. (б)); при ошибке checkout скрипт пишет в отчёт рекомендацию перейти на SQL.
+
+#### Переменные стенда (ЮKassa и платежи)
+
+Имена из `backend/app/config.py` / `.env.example` (значения **не** копировать в протокол и git):
+
+| Переменная | Назначение |
+| --- | --- |
+| `YOOKASSA_SHOP_ID` | Идентификатор магазина |
+| `YOOKASSA_SECRET_KEY` | Секретный ключ API |
+| `YOOKASSA_RETURN_URL` | `return_url` редиректа после оплаты (если пусто — `PUBLIC_BASE_URL` + `/billing/return`) |
+| `YOOKASSA_API_BASE` | База API (по умолчанию `https://api.yookassa.ru/v3`) |
+| `SEND_LIVE_PAYMENTS` | `true` — реальный вызов `YooKassaPaymentProvider` (`payments.py`); `false` → checkout **503** |
+| `BILLING_MODE` | `test` — принимаются только платежи с `"test": true` (`_mode_problem`) |
+| `PUBLIC_BASE_URL` | Запасной хост для return URL |
+
+**Предупреждение:** `SEND_LIVE_PAYMENTS=true` допустим на окне приёмки **только** с ключами **тестового** магазина ЮKassa и `BILLING_MODE=test`. Не подключать боевой магазин к стенду приёмки.
+
+**Безопасная проверка на сервере (без печати секретов):** в каталоге деплоя выполнить проверку имён и непустых значений, например:
+
+```bash
+grep -E '^(SEND_LIVE_PAYMENTS|BILLING_MODE|YOOKASSA_SHOP_ID|YOOKASSA_SECRET_KEY|YOOKASSA_RETURN_URL)=' .env \
+  | sed 's/=.*$/=…/'
+```
+
+Ожидание для checkout: `SEND_LIVE_PAYMENTS=true`, `BILLING_MODE=test`, `YOOKASSA_SHOP_ID` и `YOOKASSA_SECRET_KEY` заданы (длина > 0), `YOOKASSA_RETURN_URL` указывает на URL фронта стенда. В личном кабинете ЮKassa — режим **тестового** магазина.
 
 #### (а) Обход billing guard
 
 `billing_bypass_allowed()` = `BILLING_GUARD_BYPASS` **и** `app_env != production`. На стенде с **`APP_ENV=production` обход недоступен** — finance API требуют активный `company_entitlements` / оплаченный период. В production задавать `BILLING_GUARD_BYPASS` **запрещено** (`model_post_init`).
 
-#### (б) SQL (минимально, с откатом) — **режим по умолчанию**
+#### (б) Checkout + webhook — **основной режим** (`STAGING_BILLING_MODE=checkout`, по умолчанию)
 
-Файл: `scripts/staging_grant_entitlements.sql` (GRANT + ROLLBACK). Выполнять ролью `finpilot` (не `finpilot_app`). Воспроизводит оплаченный период и entitlements — **без** webhook. Скрипт подставляет UUID и печатает готовые блоки; автотест: `backend/tests/integration/test_staging_grant_entitlements_sql.py`.
+**~10–15 мин** (оплата картой + worker).
 
-Минимальный набор: `billing_periods`, `subscriptions`, `company_entitlements`, `companies.status=active`. Откат — второй блок в том же файле (удаление period/entitlements, `awaiting_payment`, `draft`).
+1. Четыре фирмы уже созданы (§3.1).
+2. `POST /api/v1/billing/quote` → `POST /api/v1/billing/checkout` → скрипт печатает **`confirmation_url`** из ответа.
+3. Оплата **тестовой картой** в браузере → **Enter** в терминале скрипта.
+4. **`provider_payment_id`**: `STAGING_PROVIDER_PAYMENT_ID` в env, иначе поле в `GET /api/v1/billing/payments/{payment_id}` если появится в API, иначе готовый SQL  
+   `SELECT provider_payment_id FROM payment_attempts WHERE id = '<payment_id>'::uuid;` и скрытый ввод в скрипт.
+5. `POST /api/v1/integrations/yookassa/webhook` `payment.succeeded` (делает скрипт) → worker `billing.process_inbox`.
+6. Скрипт ждёт `GET .../payments/{payment_id}` → `"activated": true` (до **120 с**).
+7. `POST .../billing/companies/{id}/activate` для каждой фирмы.
 
-Детали полей — `backend/app/services/billing_service.py` (`_grant`, `_covering`).
+При **503**, таймауте активации или отсутствии `provider_payment_id` скрипт завершает шаг биллинга с FAIL, пишет **`billing.fallback` → `STAGING_BILLING_MODE=sql`**, продолжает сценарий и сохраняет `acceptance-report.md`.
 
-#### (в) Checkout + webhook *(необязательно)* — `STAGING_BILLING_MODE=checkout`
+#### (в) SQL (запасной) — `STAGING_BILLING_MODE=sql`
 
-Условия стенда: `SEND_LIVE_PAYMENTS=true`, тестовые `YOOKASSA_*`, `BILLING_MODE=test` (платёж с `"test": true` проходит `_mode_problem`). При `SEND_LIVE_PAYMENTS=false` checkout вернёт **503** (`DisabledPaymentProvider`) — тогда (б) или включить тестовую интеграцию на окно приёмки.
+**~10 мин** без ЮKassa.
 
-Последовательность:
+Файл: `scripts/staging_grant_entitlements.sql` (GRANT + ROLLBACK), роль `finpilot`. Скрипт печатает SQL с `tenant_id` / `company_id` → выполнить на стенде → **Enter** → probe dashboard → `activate`. Автотест: `backend/tests/integration/test_staging_grant_entitlements_sql.py`.
 
-1. `POST /api/v1/billing/quote` с `{"companies": N, "interval": "month", ...}`.
-2. `POST /api/v1/billing/checkout` → в теле **`payment_id`** (UUID попытки в БД).
-3. Прочитать **`provider_payment_id`**:  
-   `SELECT provider_payment_id FROM payment_attempts WHERE id = '<payment_id>';`  
-   (на тестовом стенде ЮKassa — тот же id, что в ответе `create_payment`, если платёж создан).
-4. `POST /api/v1/integrations/yookassa/webhook` с `{"event":"payment.succeeded","object":{"id":"<provider_payment_id>"}}` — запись в inbox; обработка в `billing_service.process_inbox` / worker `billing.process_inbox` (до ~60 с).
-5. `GET /api/v1/billing/payments/{payment_id}` → `"activated": true`.
-6. Для каждой фирмы: `POST /api/v1/billing/companies/{id}/activate`.
-
-Переменные скрипта: `STAGING_BILLING_MODE`, `STAGING_BILLING_COMPANIES` (4), `STAGING_PROVIDER_PAYMENT_ID`, `STAGING_SQL_AUTO_CONTINUE=1` (без паузы Enter), `STAGING_SKIP_BILLING=1` — только `activate`, если период уже выдан.
+Переменные скрипта: `STAGING_BILLING_COMPANIES` (4), `STAGING_CHECKOUT_AUTO_CONTINUE=1`, `STAGING_SQL_AUTO_CONTINUE=1`, `STAGING_PROVIDER_PAYMENT_ID`, `STAGING_SKIP_BILLING=1` (период уже есть).
 
 ---
 

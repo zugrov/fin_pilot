@@ -188,8 +188,12 @@ class StagingBillingSqlTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.mod = _load_module()
 
-    def test_resolve_billing_mode_default_sql(self) -> None:
+    def test_resolve_billing_mode_default_checkout(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(self.mod.resolve_billing_mode(), "checkout")
+
+    def test_resolve_billing_mode_explicit_sql(self) -> None:
+        with patch.dict("os.environ", {"STAGING_BILLING_MODE": "sql"}, clear=True):
             self.assertEqual(self.mod.resolve_billing_mode(), "sql")
 
     def test_resolve_billing_mode_checkout_env(self) -> None:
@@ -255,6 +259,82 @@ class StagingBillingSqlTests(unittest.TestCase):
         self.assertIn("GET", methods)
         self.assertIn("POST", methods)
         self.assertTrue(any(row.step == "billing.sql" and row.ok for row in report.rows))
+
+    def test_checkout_503_recommends_sql(self) -> None:
+        mod = self.mod
+        report = mod.Report()
+        client = MagicMock()
+        client.request.side_effect = [
+            (200, {"id": "quote-1"}, ""),
+            (503, None, "disabled"),
+        ]
+        with patch.object(mod, "resolve_billing_mode", return_value="checkout"):
+            prepared, _ = mod.prepare_tenant_billing(
+                client,
+                report,
+                tenant_id="t",
+                company_ids=["c1"],
+                companies=1,
+                postgres_hint="psql",
+            )
+        self.assertFalse(prepared)
+        self.assertTrue(any(row.step == "billing.fallback" for row in report.rows))
+
+    def test_checkout_flow_mock_http(self) -> None:
+        mod = self.mod
+        report = mod.Report()
+        client = MagicMock()
+        payment_id = "pay-attempt-1"
+        poll_calls = {"n": 0}
+
+        def fake_request(method: str, path: str, **kwargs: object) -> tuple[int, dict | None, str]:
+            if method == "POST" and path.endswith("/quote"):
+                return 200, {"id": "quote-1"}, ""
+            if method == "POST" and path.endswith("/checkout"):
+                return 200, {
+                    "payment_id": payment_id,
+                    "confirmation_url": "https://yookassa.test/pay/abc",
+                }, ""
+            if method == "GET" and f"/payments/{payment_id}" in path:
+                poll_calls["n"] += 1
+                if poll_calls["n"] >= 2:
+                    return 200, {"activated": True}, ""
+                return 200, {"activated": False}, ""
+            if method == "POST" and "webhook" in path:
+                return 200, {}, ""
+            if method == "POST" and "/activate" in path:
+                return 200, {}, ""
+            return 500, None, ""
+
+        client.request.side_effect = fake_request
+
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "STAGING_PROVIDER_PAYMENT_ID": "yk-provider-1",
+                    "STAGING_CHECKOUT_AUTO_CONTINUE": "1",
+                },
+                clear=False,
+            ),
+            patch.object(mod, "resolve_billing_mode", return_value="checkout"),
+            patch("time.sleep", return_value=None),
+            patch("builtins.print"),
+        ):
+            prepared, period_id = mod.prepare_tenant_billing(
+                client,
+                report,
+                tenant_id="tenant-1",
+                company_ids=["c1"],
+                companies=1,
+                postgres_hint="psql",
+            )
+        self.assertTrue(prepared)
+        self.assertIsNone(period_id)
+        steps = [row.step for row in report.rows]
+        self.assertIn("billing.checkout.confirmation_url", steps)
+        self.assertIn("billing.webhook", steps)
+        self.assertTrue(any(row.step == "billing.activation" and row.ok for row in report.rows))
 
 
 if __name__ == "__main__":
