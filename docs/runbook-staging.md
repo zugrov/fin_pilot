@@ -119,6 +119,10 @@ PostgreSQL, Redis, API, worker, beat и frontend наружу не публик�
 
 В `infra/Caddyfile` и `infra/Caddyfile.ip` для API достаточно `reverse_proxy api:8000` **без** `header_up -X-Forwarded-For`. Caddy 2.8 при проксировании сам выставляет upstream-заголовок `X-Forwarded-For` с адресом TCP-клиента, подключившегося к Caddy (публичный IP или шлюз docker-сети при туннеле на loopback). Поддельный `X-Forwarded-For` от браузера в rate limit не попадает: в ключ Redis уходит адрес, который Caddy зафиксировал, а не первый hop из заголовка клиента. Ручное `header_up -X-Forwarded-For` **удаляет** заголовок к API и не восстанавливает его — API видит только IP контейнера proxy и общий rate limit; это правило **не** использовать.
 
+### Redis на стенде
+
+Для сброса счётчика rate limit — точечно: `redis-cli DEL register:<ip>` или `--scan --pattern 'login:*'` с выборочным `DEL`. **`FLUSHDB` и `FLUSHALL` запрещены**: сбрасывают все сессии, очереди Celery и прочие ключи.
+
 ## Флаги на контрольной точке
 
 Наблюдение процесса api 2026-10-16, без значений секретов. Это не разрешение что-либо включать или выключать.

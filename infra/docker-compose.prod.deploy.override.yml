@@ -1,0 +1,17 @@
+# Стенд приёмки (VPS + docker-compose.prod + ip override): без sync dev-deps, заглушка xlrd в образе api.
+services:
+  api:
+    environment:
+      UV_NO_SYNC: "1"
+    volumes:
+      - ./stand-patches/xlrd_stub:/app/.venv/lib/python3.12/site-packages/xlrd:ro
+  worker:
+    environment:
+      UV_NO_SYNC: "1"
+    volumes:
+      - ./stand-patches/xlrd_stub:/app/.venv/lib/python3.12/site-packages/xlrd:ro
+  beat:
+    environment:
+      UV_NO_SYNC: "1"
+    volumes:
+      - ./stand-patches/xlrd_stub:/app/.venv/lib/python3.12/site-packages/xlrd:ro

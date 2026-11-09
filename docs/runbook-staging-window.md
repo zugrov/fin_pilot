@@ -17,7 +17,19 @@
 
 **Ориентировочное время:** 60–75 минут (включая ожидание CI на merge-коммите заранее, оплату ЮKassa, ручной UI).
 
+**Compose на VPS (из git):** всегда три override после `infra/docker-compose.prod.yml`:
+
+```text
+-f infra/docker-compose.prod.yml
+-f infra/docker-compose.prod.ip.override.yml
+-f infra/docker-compose.prod.deploy.override.yml
+```
+
+Третий файл — `UV_NO_SYNC`, mount заглушки `infra/stand-patches/xlrd_stub` (см. репозиторий). Секретов в override нет.
+
 **Caddy:** только `reverse_proxy api:8000` — без `header_up -X-Forwarded-For`. Caddy сам пишет upstream `X-Forwarded-For` с адресом клиента; ручное снятие заголовка ломает rate limit (ключи вида `login:172.18.0.x` у proxy). Подробнее — [runbook-staging.md](runbook-staging.md) (раздел про Caddy).
+
+**Redis:** сброс rate limit — только точечный `DEL` по ключу или выборочно после `--scan`. **`FLUSHDB` / `FLUSHALL` не использовать.**
 
 ---
 
