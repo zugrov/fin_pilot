@@ -113,7 +113,7 @@ PostgreSQL, Redis, API, worker, beat и frontend наружу не публик�
 
 Без этого пароля или фильтра регистрация с публичного имени недоступна быть не может: приложение само список приглашённых не проверяет.
 
-`TRUST_PROXY=true`, когда API видит адрес клиента только через этот nginx и внутренний Caddy.
+`TRUST_PROXY=true`, когда API видит адрес клиента только через этот nginx и внутренний Caddy. Тогда для rate limit и проверки IP webhook берётся первый hop `X-Forwarded-For`, если прямой peer входит в `TRUSTED_PROXY_CIDRS` (по умолчанию `172.18.0.0/16` — подсеть `networks.default` в `infra/docker-compose.prod.yml`; переопределение через env). Caddy в репозитории сбрасывает входящий `X-Forwarded-For` перед проксированием в API.
 
 ## Флаги на контрольной точке
 
@@ -144,7 +144,7 @@ PostgreSQL, Redis, API, worker, beat и frontend наружу не публик�
 - `REDIS_URL`, `RATE_LIMIT_BACKEND`
 - `SESSION_SECRET`, `SECRET_ENCRYPTION_KEY`, `SESSION_COOKIE_SECURE`
 - `POSTGRES_PASSWORD`
-- `TRUST_PROXY`
+- `TRUST_PROXY`, `TRUSTED_PROXY_CIDRS`
 - `ANNUAL_BILLING_ENABLED`, `ANNUAL_DISCOUNT_PERCENT` — скидка 15% уже в коде, клиент её не задаёт
 - `OUTBOUND_EMAIL_ALLOWLIST`, `TELEGRAM_CHAT_ALLOWLIST`
 - `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY`, `YOOKASSA_RETURN_URL`, `YOOKASSA_IP_ALLOWLIST`

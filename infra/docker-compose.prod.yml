@@ -80,3 +80,9 @@ services:
 volumes:
   pgdata:
   caddy-data:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16

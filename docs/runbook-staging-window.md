@@ -84,6 +84,8 @@ ssh -t "${SSH_ALIAS}" "cd '${APP_ROOT}' && cp -a .env .env.bak.${WINDOW_ID} && c
 | `YOOKASSA_RETURN_URL` | URL возврата после оплаты (фронт стенда, через туннель или публичный `PUBLIC_BASE_URL`) |
 | `SEND_LIVE_PAYMENTS` | `true` |
 | `BILLING_MODE` | `test` |
+| `TRUST_PROXY` | `true` — API за внутренним Caddy; иначе rate limit и IP webhook берутся с адреса контейнера proxy |
+| `TRUSTED_PROXY_CIDRS` | `172.18.0.0/16` — подсеть `networks.default` в `infra/docker-compose.prod.yml`; при другой сети задать в `.env` |
 
 Опционально: `PUBLIC_BASE_URL` — должен совпадать с тем, что видит пользователь после редиректа с ЮKassa.
 

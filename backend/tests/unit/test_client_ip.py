@@ -35,7 +35,7 @@ def test_forwarded_used_from_trusted_docker_peer() -> None:
     ("peer", "expected"),
     [
         ("172.18.0.2", True),
-        ("10.5.0.3", True),
+        ("10.5.0.3", False),
         ("203.0.113.1", False),
         ("testclient", False),
     ],

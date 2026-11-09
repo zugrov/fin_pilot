@@ -34,8 +34,8 @@ class Settings(BaseSettings):
     yookassa_api_base: str = "https://api.yookassa.ru/v3"
     yookassa_ip_allowlist: str = ""
     trust_proxy: bool = False
-    # Частные сети и типичный диапазон Docker bridge (172.16.0.0/12).
-    trusted_proxy_cidrs: str = "172.16.0.0/12,10.0.0.0/8,192.168.0.0/16,127.0.0.0/8"
+    # Подсеть default network из infra/docker-compose.prod.yml (переопределяется через env).
+    trusted_proxy_cidrs: str = "172.18.0.0/16"
     send_live_payments: bool = False
     receipt_mode: str = ""
     billing_grace_days: int = 3
