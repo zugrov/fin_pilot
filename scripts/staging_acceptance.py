@@ -47,6 +47,11 @@ PROVIDER_PAYMENT_ID_FILE = Path("/tmp/fp_provider_payment_id")
 VERIFY_FILE_POLL_SEC = 2
 VERIFY_FILE_TIMEOUT_SEC = 600
 
+VERIFY_TOKEN_REJECTED_MSG = (
+    "токен не принят: возьмите значение после token= до &, без пробелов, "
+    "из письма именно этого адреса"
+)
+
 DEFAULT_PERIOD_START = "2026-10-01T00:00:00+00:00"
 DEFAULT_PERIOD_END = "2026-11-30T23:59:59+00:00"
 
@@ -270,6 +275,26 @@ def _parse_verify_token(raw: str) -> str:
     return text
 
 
+def remove_stale_tmp_file(path: Path) -> None:
+    if not path.is_file():
+        return
+    print(f"Удалён устаревший файл от прошлого прогона: {path}")
+    try:
+        path.unlink()
+    except OSError as exc:
+        print(f"Предупреждение: не удалось удалить {path}: {safe_exception_text(exc)}", file=sys.stderr)
+
+
+def verify_email_exit_code(status: int) -> int | None:
+    """Код выхода при неуспешном verify-email; None если HTTP 200."""
+    if status in {400, 422}:
+        print(VERIFY_TOKEN_REJECTED_MSG, file=sys.stderr)
+        return status or 1
+    if status != 200:
+        return status or 1
+    return None
+
+
 def print_sql_verify_hint(email: str, token_file: Path) -> None:
     print("\n--- Подтверждение почты (SQL через SSH, с локальной машины) ---")
     print(build_verify_link_ssh_sql(email))
@@ -280,6 +305,7 @@ def print_sql_verify_hint(email: str, token_file: Path) -> None:
 
 
 def wait_for_verify_token_file(path: Path) -> str | None:
+    remove_stale_tmp_file(path)
     print(f"Ожидание токена в {path} (до {VERIFY_FILE_TIMEOUT_SEC // 60} мин, опрос {VERIFY_FILE_POLL_SEC} с)…")
     deadline = time.monotonic() + VERIFY_FILE_TIMEOUT_SEC
     while time.monotonic() < deadline:
@@ -328,6 +354,7 @@ def print_provider_payment_id_hint(payment_attempt_id: str) -> None:
 
 
 def wait_for_provider_payment_id_file(path: Path = PROVIDER_PAYMENT_ID_FILE) -> str | None:
+    remove_stale_tmp_file(path)
     print(
         f"Ожидание provider_payment_id в {path} "
         f"(до {VERIFY_FILE_TIMEOUT_SEC // 60} мин, опрос {VERIFY_FILE_POLL_SEC} с)…"
@@ -953,8 +980,9 @@ def register_verify_login_tenant_b(
 
     verified_b = client.request("POST", "/api/v1/auth/verify-email", json_body={"token": token_b})
     report.record("auth.verify.tenant_b", "HTTP 200", str(verified_b[0]), verified_b[0] == 200)
-    if verified_b[0] != 200:
-        return None, verified_b[0] or 1
+    exit_b = verify_email_exit_code(verified_b[0])
+    if exit_b is not None:
+        return None, exit_b
 
     login_b = client.request(
         "POST",
@@ -996,6 +1024,8 @@ def run_acceptance_body(
     )
     ok, act = evaluate_http_status(reg[0], 200)
     report.record("auth.register.owner", "HTTP 200", act, ok)
+    if not ok:
+        return reg[0] or 1
     print_sql_verify_hint(owner_email, VERIFY_FILE_OWNER)
     token_a = resolve_verify_token("STAGING_VERIFY_TOKEN_OWNER", VERIFY_FILE_OWNER)
     if not token_a:
@@ -1008,6 +1038,9 @@ def run_acceptance_body(
         return 1
     verified = client.request("POST", "/api/v1/auth/verify-email", json_body={"token": token_a})
     report.record("auth.verify.owner", "HTTP 200", str(verified[0]), verified[0] == 200)
+    exit_verify = verify_email_exit_code(verified[0])
+    if exit_verify is not None:
+        return exit_verify
 
     logged = client.request(
         "POST",

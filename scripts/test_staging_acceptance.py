@@ -357,11 +357,18 @@ class StagingVerifyTokenTests(unittest.TestCase):
     def test_wait_for_verify_token_file_reads_and_deletes(self) -> None:
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             path = Path(tmp.name)
+        path.write_text("stale-token\n", encoding="utf-8")
         try:
-            path.write_text("file-token\n", encoding="utf-8")
-            with patch.object(self.mod, "time") as mock_time:
-                mock_time.monotonic.side_effect = [0.0, 0.0]
-                mock_time.sleep = MagicMock()
+
+            def write_fresh_after_sleep(_seconds: float) -> None:
+                path.write_text("file-token\n", encoding="utf-8")
+
+            with (
+                patch.object(self.mod, "time") as mock_time,
+                patch("builtins.print"),
+            ):
+                mock_time.monotonic.side_effect = [0.0, 1.0, 2.0]
+                mock_time.sleep = MagicMock(side_effect=write_fresh_after_sleep)
                 token = self.mod.wait_for_verify_token_file(path)
             self.assertEqual(token, "file-token")
             self.assertFalse(path.exists())
@@ -398,13 +405,20 @@ class StagingProviderPaymentIdTests(unittest.TestCase):
     def test_wait_for_provider_payment_file(self) -> None:
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             path = Path(tmp.name)
+        path.write_text("stale-id\n", encoding="utf-8")
         try:
-            path.write_text("prov-id\n", encoding="utf-8")
-            with patch.object(self.mod, "PROVIDER_PAYMENT_ID_FILE", path):
-                with patch.object(self.mod, "time") as mock_time:
-                    mock_time.monotonic.side_effect = [0.0, 0.0]
-                    mock_time.sleep = MagicMock()
-                    value = self.mod.wait_for_provider_payment_id_file(path)
+
+            def write_fresh_after_sleep(_seconds: float) -> None:
+                path.write_text("prov-id\n", encoding="utf-8")
+
+            with (
+                patch.object(self.mod, "PROVIDER_PAYMENT_ID_FILE", path),
+                patch.object(self.mod, "time") as mock_time,
+                patch("builtins.print"),
+            ):
+                mock_time.monotonic.side_effect = [0.0, 1.0, 2.0]
+                mock_time.sleep = MagicMock(side_effect=write_fresh_after_sleep)
+                value = self.mod.wait_for_provider_payment_id_file(path)
             self.assertEqual(value, "prov-id")
             self.assertFalse(path.exists())
         finally:
@@ -434,6 +448,135 @@ class StagingProviderPaymentIdTests(unittest.TestCase):
             )
         self.assertFalse(prepared)
         self.assertTrue(any(row.step == "billing.fallback" for row in report.rows))
+
+
+class StagingOwnerAuthTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module()
+
+    def test_owner_register_failure_skips_hint_and_token(self) -> None:
+        mod = self.mod
+        events: list[str] = []
+        mock_client = MagicMock()
+        mock_client.request.side_effect = [
+            (200, {"status": "ok"}, ""),
+            (200, {"status": "ok"}, ""),
+            (429, {"code": "rate_limited"}, ""),
+        ]
+
+        def hint(*_a: object, **_k: object) -> None:
+            events.append("hint")
+
+        def token(*_a: object, **_k: object) -> str:
+            events.append("token")
+            return "t"
+
+        with (
+            patch.object(mod, "HttpClient", return_value=mock_client),
+            patch.object(mod, "print_sql_verify_hint", side_effect=hint),
+            patch.object(mod, "resolve_verify_token", side_effect=token),
+        ):
+            code = mod.run_acceptance_body(
+                mod.Report(),
+                base="http://example.test",
+                password="pw",
+                postgres_hint="",
+                owner_email="owner@example.com",
+                tenant_b_email="tenantb@example.com",
+            )
+        self.assertEqual(code, 429)
+        self.assertEqual(events, [])
+
+    def test_owner_verify_400_stops_with_message(self) -> None:
+        mod = self.mod
+        mock_client = MagicMock()
+        mock_client.request.side_effect = [
+            (200, {"status": "ok"}, ""),
+            (200, {"status": "ok"}, ""),
+            (200, {"status": "ok"}, ""),
+            (400, {"code": "validation_error"}, ""),
+        ]
+        with (
+            patch.object(mod, "HttpClient", return_value=mock_client),
+            patch.object(mod, "print_sql_verify_hint"),
+            patch.object(mod, "resolve_verify_token", return_value="bad-token"),
+            patch("sys.stderr", new_callable=MagicMock) as err,
+        ):
+            code = mod.run_acceptance_body(
+                mod.Report(),
+                base="http://example.test",
+                password="pw",
+                postgres_hint="",
+                owner_email="owner@example.com",
+                tenant_b_email="tenantb@example.com",
+            )
+        self.assertEqual(code, 400)
+        written = "".join(str(call.args[0]) for call in err.write.call_args_list)
+        self.assertIn(mod.VERIFY_TOKEN_REJECTED_MSG, written)
+
+
+class StagingTmpFileHygieneTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module()
+
+    def test_remove_stale_tmp_file_deletes_and_prints(self) -> None:
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            path = Path(handle.name)
+        try:
+            path.write_text("stale\n", encoding="utf-8")
+            with patch("builtins.print") as mock_print:
+                self.mod.remove_stale_tmp_file(path)
+            self.assertFalse(path.exists())
+            mock_print.assert_called_once_with(f"Удалён устаревший файл от прошлого прогона: {path}")
+        finally:
+            if path.exists():
+                path.unlink()
+
+    def test_wait_for_verify_token_file_removes_stale_before_poll(self) -> None:
+        mod = self.mod
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            path = Path(handle.name)
+        path.write_text("stale-token\n", encoding="utf-8")
+        try:
+            with (
+                patch.object(mod, "time") as mock_time,
+                patch("builtins.print"),
+            ):
+                mock_time.monotonic.side_effect = [0.0, 601.0]
+                mock_time.sleep = MagicMock()
+                token = mod.wait_for_verify_token_file(path)
+            self.assertIsNone(token)
+            self.assertFalse(path.is_file())
+        finally:
+            if path.exists():
+                path.unlink()
+
+    def test_tenant_b_verify_422_stops_with_message(self) -> None:
+        mod = self.mod
+        mock_client = MagicMock()
+        mock_client.request.side_effect = [
+            (200, {"status": "ok"}, ""),
+            (422, None, ""),
+        ]
+
+        with (
+            patch.object(mod, "HttpClient", return_value=mock_client),
+            patch.object(mod, "print_sql_verify_hint"),
+            patch.object(mod, "resolve_verify_token", return_value="wrong"),
+            patch("sys.stderr", new_callable=MagicMock) as err,
+        ):
+            _client, exit_code = mod.register_verify_login_tenant_b(
+                "http://example.test",
+                mod.Report(),
+                tenant_b_email="b@example.com",
+                password="pw",
+            )
+        self.assertIsNone(_client)
+        self.assertEqual(exit_code, 422)
+        written = "".join(str(call.args[0]) for call in err.write.call_args_list)
+        self.assertIn(mod.VERIFY_TOKEN_REJECTED_MSG, written)
 
 
 class StagingTenantBAuthOrderTests(unittest.TestCase):

@@ -75,6 +75,17 @@
 
 ---
 
+## Типичные ошибки (скрипт и API)
+
+| Симптом | Причина | Действие |
+| --- | --- | --- |
+| **HTTP 429** на `POST /api/v1/auth/register` | Rate limit **5/час на IP клиента** (ключ Redis `register:<ip>`) | Подождать окно или **точечно** `redis-cli DEL register:<ip>` (IP из логов/Caddy, не `172.18.0.x` proxy). **`FLUSHDB` / `FLUSHALL` на стенде запрещены** — см. [runbook-staging.md](runbook-staging.md) |
+| **400/422** на `verify-email` | Неверный, обрезанный или чужой токен | Скопировать значение **после `token=` до `&`**, без пробелов, из письма **именно этого** email (outbox/Mailpit). Скрипт останавливается с подсказкой |
+| Скрипт «сразу» подхватил старый токен / provider id | Файлы `/tmp/fp_verify_owner`, `/tmp/fp_verify_tenant_b`, `/tmp/fp_provider_payment_id` от прошлого прогона | Скрипт удаляет устаревший файл перед ожиданием; при ручной отладке — удалите сами |
+| Общий rate limit у всех операторов | `TRUST_PROXY` / `TRUSTED_PROXY_CIDRS` или Caddy (см. runbook staging) | Проверить env и Caddyfile; не использовать `header_up -X-Forwarded-For` без корректной подстановки |
+
+---
+
 ## 3. Тестовая организация и биллинг
 
 | Шаг | Действие | Ожидание | ~время |
