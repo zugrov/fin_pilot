@@ -1,6 +1,5 @@
 from fastapi.testclient import TestClient
 from starlette.types import ASGIApp, Receive, Scope, Send
-
 from tests.integration.conftest import PASSWORD
 
 
@@ -36,10 +35,10 @@ def test_register_rate_limit_is_per_client_behind_trusted_proxy(app) -> None:
             status = _register(client, f"rl-a-{index}@example.com", client_a)
             assert status == 200, index
 
-        limited = _register(client, f"rl-a-extra@example.com", client_a)
+        limited = _register(client, "rl-a-extra@example.com", client_a)
         assert limited == 429
 
-        still_ok = _register(client, f"rl-b-0@example.com", client_b)
+        still_ok = _register(client, "rl-b-0@example.com", client_b)
         assert still_ok == 200
 
 

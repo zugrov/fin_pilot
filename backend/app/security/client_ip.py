@@ -4,6 +4,8 @@ from fastapi import Request
 
 from app.config import Settings
 
+IpNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
+
 
 def _parse_peer(peer: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     if not peer:
@@ -14,8 +16,8 @@ def _parse_peer(peer: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | No
         return None
 
 
-def trusted_proxy_networks(settings: Settings) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
-    nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+def trusted_proxy_networks(settings: Settings) -> list[IpNetwork]:
+    nets: list[IpNetwork] = []
     for item in settings.trusted_proxy_cidrs.split(","):
         raw = item.strip()
         if raw:
