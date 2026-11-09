@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Автоматизированная приёмка стенда по docs/runbook-staging-acceptance.md (только HTTP API).
 
-Секреты: через окружение или getpass; в acceptance-report.md не попадают.
+Секреты: через окружение или файлы в /tmp/fp_*; в acceptance-report.md не попадают.
 Зависимости: стандартная библиотека Python 3.12+.
 
 HTTP-клиент для стенда с SESSION_COOKIE_SECURE=true: StagingCookiePolicy отправляет Secure-cookie
@@ -9,9 +9,11 @@ HTTP-клиент для стенда с SESSION_COOKIE_SECURE=true: StagingCook
 
 Переменные окружения (основные):
   STAGING_BASE_URL, STAGING_PASSWORD, STAGING_VERIFY_TOKEN_OWNER, STAGING_VERIFY_TOKEN_TENANT_B
+  STAGING_SSH_ALIAS, STAGING_APP_ROOT — SQL-подсказка verify через ssh
+  Без STAGING_VERIFY_TOKEN_*: ожидание /tmp/fp_verify_owner и /tmp/fp_verify_tenant_b
   STAGING_BILLING_MODE=checkout|sql — по умолчанию checkout (тестовая ЮKassa)
   STAGING_BILLING_COMPANIES (4), STAGING_SQL_AUTO_CONTINUE=1, STAGING_CHECKOUT_AUTO_CONTINUE=1
-  STAGING_PROVIDER_PAYMENT_ID / STAGING_WEBHOOK_PAYMENT_OBJECT_ID — id объекта ЮKassa для webhook
+  STAGING_PROVIDER_PAYMENT_ID / STAGING_WEBHOOK_PAYMENT_OBJECT_ID — id ЮKassa; иначе /tmp/fp_provider_payment_id
   STAGING_SKIP_BILLING=1 — только activate (период уже выдан)
 """
 
@@ -26,6 +28,7 @@ import secrets
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from http.cookiejar import CookieJar
@@ -37,6 +40,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_CSV = REPO_ROOT / "fixtures" / "staging_sales_gross_only.csv"
 REPORT_PATH = REPO_ROOT / "acceptance-report.md"
 GRANT_SQL_PATH = REPO_ROOT / "scripts" / "staging_grant_entitlements.sql"
+
+VERIFY_FILE_OWNER = Path("/tmp/fp_verify_owner")
+VERIFY_FILE_TENANT_B = Path("/tmp/fp_verify_tenant_b")
+PROVIDER_PAYMENT_ID_FILE = Path("/tmp/fp_provider_payment_id")
+VERIFY_FILE_POLL_SEC = 2
+VERIFY_FILE_TIMEOUT_SEC = 600
 
 DEFAULT_PERIOD_START = "2026-10-01T00:00:00+00:00"
 DEFAULT_PERIOD_END = "2026-11-30T23:59:59+00:00"
@@ -233,45 +242,130 @@ class HttpClient:
         self._tenant = tenant_id
 
 
-def print_sql_verify_hint(email: str, postgres_exec_hint: str) -> None:
+def build_verify_link_ssh_sql(email: str) -> str:
     safe_email = email.replace("'", "''")
-    print("\n--- Подтверждение почты (SQL, выполнить на стенде) ---")
-    print(
-        postgres_exec_hint
-        + f" \\\n  -c \"SELECT payload_redacted->>'link' FROM transactional_email_outbox "
+    ssh_alias = _env("STAGING_SSH_ALIAS") or "SSH_ALIAS"
+    app_root = _env("STAGING_APP_ROOT") or "/opt/finpilot"
+    sql = (
+        "SELECT payload_redacted->>'link' FROM transactional_email_outbox "
         f"WHERE type = 'verify_email' AND lower(to_email) = lower('{safe_email}') "
-        f"ORDER BY created_at DESC LIMIT 1;\""
+        "ORDER BY created_at DESC LIMIT 1"
     )
-    print("Извлеките query-параметр token из ссылки, затем введите его ниже (не сохраняется в отчёт).\n")
+    inner = (
+        f"cd {app_root} && docker compose --env-file .env "
+        "-f infra/docker-compose.prod.yml -f infra/docker-compose.prod.ip.override.yml "
+        f"exec -T postgres psql -U finpilot -d finpilot -t -A -c \"{sql}\""
+    )
+    return f"ssh {ssh_alias} '{inner}'"
 
 
-def print_sql_provider_payment_hint(payment_attempt_id: str, postgres_exec_hint: str) -> None:
+def _parse_verify_token(raw: str) -> str:
+    text = raw.strip()
+    if not text:
+        return ""
+    if text.startswith("http://") or text.startswith("https://"):
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(text).query)
+        token = query.get("token", [""])[0]
+        return token.strip()
+    return text
+
+
+def print_sql_verify_hint(email: str, token_file: Path) -> None:
+    print("\n--- Подтверждение почты (SQL через SSH, с локальной машины) ---")
+    print(build_verify_link_ssh_sql(email))
+    print(
+        f"Извлеките token из ссылки и запишите в {token_file} "
+        f"(одна строка) или задайте переменную окружения. Токен не попадает в отчёт.\n"
+    )
+
+
+def wait_for_verify_token_file(path: Path) -> str | None:
+    print(f"Ожидание токена в {path} (до {VERIFY_FILE_TIMEOUT_SEC // 60} мин, опрос {VERIFY_FILE_POLL_SEC} с)…")
+    deadline = time.monotonic() + VERIFY_FILE_TIMEOUT_SEC
+    while time.monotonic() < deadline:
+        if path.is_file():
+            token = _parse_verify_token(path.read_text(encoding="utf-8"))
+            if token:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                return token
+        time.sleep(VERIFY_FILE_POLL_SEC)
+    return None
+
+
+def resolve_verify_token(env_name: str, token_file: Path) -> str | None:
+    from_env = (_env(env_name) or "").strip()
+    if from_env:
+        parsed = _parse_verify_token(from_env)
+        return parsed or None
+    return wait_for_verify_token_file(token_file)
+
+
+def build_provider_payment_id_ssh_sql(payment_attempt_id: str) -> str:
+    ssh_alias = _env("STAGING_SSH_ALIAS") or "SSH_ALIAS"
+    app_root = _env("STAGING_APP_ROOT") or "/opt/finpilot"
     safe_id = payment_attempt_id.replace("'", "")
-    print("\n--- ID платежа провайдера для webhook (SQL на стенде) ---")
-    print(
-        postgres_exec_hint
-        + " \\\n  -c \"SELECT provider_payment_id FROM payment_attempts "
-        f"WHERE id = '{safe_id}'::uuid;\""
+    sql = (
+        "SELECT provider_payment_id FROM payment_attempts "
+        f"WHERE id = '\\''{safe_id}'\\''::uuid"
     )
-    print(
-        "Webhook: POST /api/v1/integrations/yookassa/webhook "
-        'body {"event":"payment.succeeded","object":{"id":"<provider_payment_id>"}}\n'
+    return (
+        f"ssh {ssh_alias} 'cd {app_root} && docker compose --env-file .env "
+        "-f infra/docker-compose.prod.yml -f infra/docker-compose.prod.ip.override.yml "
+        f"exec -T postgres psql -U finpilot -d finpilot -t -A -c \"{sql};\"'"
     )
 
 
-def prompt_verify_token(env_name: str) -> str:
-    token = _env(env_name)
-    if token:
-        return token.strip()
-    return getpass.getpass(f"{env_name} (token, скрытый ввод): ").strip()
+def print_provider_payment_id_hint(payment_attempt_id: str) -> None:
+    print("\n--- provider_payment_id для webhook (SQL через SSH, с локальной машины) ---")
+    print(build_provider_payment_id_ssh_sql(payment_attempt_id))
+    print(
+        f"Запишите значение в {PROVIDER_PAYMENT_ID_FILE} (одна строка) "
+        "или задайте STAGING_PROVIDER_PAYMENT_ID. Не попадает в отчёт.\n"
+    )
 
 
-def prompt_provider_payment_id() -> str | None:
-    token = _env("STAGING_PROVIDER_PAYMENT_ID") or _env("STAGING_WEBHOOK_PAYMENT_OBJECT_ID")
-    if token:
-        return token.strip()
-    entered = getpass.getpass("STAGING_PROVIDER_PAYMENT_ID (скрытый ввод, Enter=пропуск): ")
-    return entered.strip() or None
+def wait_for_provider_payment_id_file(path: Path = PROVIDER_PAYMENT_ID_FILE) -> str | None:
+    print(
+        f"Ожидание provider_payment_id в {path} "
+        f"(до {VERIFY_FILE_TIMEOUT_SEC // 60} мин, опрос {VERIFY_FILE_POLL_SEC} с)…"
+    )
+    deadline = time.monotonic() + VERIFY_FILE_TIMEOUT_SEC
+    while time.monotonic() < deadline:
+        if path.is_file():
+            value = path.read_text(encoding="utf-8").strip()
+            if value:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                return value
+        time.sleep(VERIFY_FILE_POLL_SEC)
+    return None
+
+
+def resolve_provider_payment_id(
+    client: HttpClient,
+    payment_attempt_id: str,
+    report: Report,
+) -> str | None:
+    from_env = (_env("STAGING_PROVIDER_PAYMENT_ID") or _env("STAGING_WEBHOOK_PAYMENT_OBJECT_ID") or "").strip()
+    if from_env:
+        return from_env
+    view = client.request("GET", f"/api/v1/billing/payments/{payment_attempt_id}")
+    if view[0] == 200 and view[1]:
+        from_api = (view[1] or {}).get("provider_payment_id")
+        if from_api:
+            report.record("billing.provider_id", "из API", "получен", True)
+            return str(from_api).strip()
+    print_provider_payment_id_hint(payment_attempt_id)
+    value = wait_for_provider_payment_id_file()
+    if value:
+        return value
+    report.record("billing.provider_id", "provider_payment_id", "не задан", False)
+    return None
 
 
 def load_gross_sales_csv(path: Path) -> list[dict[str, str]]:
@@ -280,6 +374,15 @@ def load_gross_sales_csv(path: Path) -> list[dict[str, str]]:
         for item in csv.DictReader(handle):
             rows.append(item)
     return rows
+
+
+def user_email_verified(body: dict[str, Any] | None) -> bool:
+    if not body:
+        return False
+    user = body.get("user")
+    if isinstance(user, dict):
+        return bool(user.get("email_verified"))
+    return False
 
 
 def check_auth_me(client: HttpClient, report: Report, label: str) -> bool:
@@ -293,11 +396,11 @@ def check_auth_me(client: HttpClient, report: Report, label: str) -> bool:
         )
         return False
     ok, actual = evaluate_http_status(code, 200)
-    verified = bool((body or {}).get("email_verified_at"))
+    verified = user_email_verified(body if isinstance(body, dict) else None)
     report.record(
         f"auth.me.{label}",
-        "HTTP 200 + email_verified_at",
-        actual if not ok else ("verified" if verified else "no verified_at"),
+        "HTTP 200 + user.email_verified",
+        actual if not ok else ("verified" if verified else "email_verified=false"),
         ok and verified,
     )
     return ok and verified
@@ -333,29 +436,6 @@ def wait_for_checkout_payment() -> None:
     if _env_flag("STAGING_CHECKOUT_AUTO_CONTINUE"):
         return
     input("Оплатите тестовой картой по ссылке confirmation_url, затем нажмите Enter… ")
-
-
-def resolve_provider_payment_id(
-    client: HttpClient,
-    payment_attempt_id: str,
-    postgres_hint: str,
-    report: Report,
-) -> str | None:
-    token = _env("STAGING_PROVIDER_PAYMENT_ID") or _env("STAGING_WEBHOOK_PAYMENT_OBJECT_ID")
-    if token:
-        return token.strip()
-    view = client.request("GET", f"/api/v1/billing/payments/{payment_attempt_id}")
-    if view[0] == 200 and view[1]:
-        from_api = (view[1] or {}).get("provider_payment_id")
-        if from_api:
-            report.record("billing.provider_id", "из API", "получен", True)
-            return str(from_api)
-    print_sql_provider_payment_hint(payment_attempt_id, postgres_hint)
-    entered = prompt_provider_payment_id()
-    if entered:
-        return entered
-    report.record("billing.provider_id", "provider_payment_id", "не задан", False)
-    return None
 
 
 def _apply_sql_placeholders(text: str, mapping: dict[str, str]) -> str:
@@ -551,13 +631,13 @@ def prepare_tenant_billing_checkout(
 
     wait_for_checkout_payment()
 
-    provider_id = resolve_provider_payment_id(
-        client,
-        payment_attempt_id,
-        postgres_hint,
-        report,
-    )
+    provider_id = resolve_provider_payment_id(client, payment_attempt_id, report)
     if not provider_id:
+        print(
+            "Ошибка: пустой provider_payment_id — задайте STAGING_PROVIDER_PAYMENT_ID "
+            f"или запишите id в {PROVIDER_PAYMENT_ID_FILE}.",
+            file=sys.stderr,
+        )
         recommend_sql_fallback(report, "нет provider_payment_id для webhook")
         return False, None
 
@@ -841,6 +921,57 @@ def run_special_rates_scenario(
         report.record("org.special.receivable.flags", "unknown,!from_profile", act_a, ok_a)
 
 
+def register_verify_login_tenant_b(
+    base: str,
+    report: Report,
+    *,
+    tenant_b_email: str,
+    password: str,
+) -> tuple[HttpClient | None, int | None]:
+    """Register → SQL-подсказка → токен → verify → login → auth/me."""
+    client = HttpClient(base)
+    reg_b = client.request(
+        "POST",
+        "/api/v1/auth/register",
+        json_body={"email": tenant_b_email, "password": password, "name": "Staging Tenant B"},
+    )
+    ok_b, act_b = evaluate_http_status(reg_b[0], 200)
+    report.record("auth.register.tenant_b", "HTTP 200", act_b, ok_b)
+    if not ok_b:
+        return None, reg_b[0] or 1
+
+    print_sql_verify_hint(tenant_b_email, VERIFY_FILE_TENANT_B)
+    token_b = resolve_verify_token("STAGING_VERIFY_TOKEN_TENANT_B", VERIFY_FILE_TENANT_B)
+    if not token_b:
+        print(
+            f"Ошибка: пустой токен для tenant B — задайте STAGING_VERIFY_TOKEN_TENANT_B "
+            f"или запишите токен в {VERIFY_FILE_TENANT_B}.",
+            file=sys.stderr,
+        )
+        report.record("auth.verify.tenant_b", "токен задан", "не получен", False)
+        return None, 1
+
+    verified_b = client.request("POST", "/api/v1/auth/verify-email", json_body={"token": token_b})
+    report.record("auth.verify.tenant_b", "HTTP 200", str(verified_b[0]), verified_b[0] == 200)
+    if verified_b[0] != 200:
+        return None, verified_b[0] or 1
+
+    login_b = client.request(
+        "POST",
+        "/api/v1/auth/login",
+        json_body={"email": tenant_b_email, "password": password},
+    )
+    ok_login, act_login = evaluate_http_status(login_b[0], 200)
+    report.record("auth.login.tenant_b", "HTTP 200", act_login, ok_login)
+    if not ok_login:
+        return None, login_b[0] or 1
+    if login_b[1]:
+        client.set_csrf(login_b[1].get("csrf_token"))
+    if not check_auth_me(client, report, "tenant_b"):
+        return None, 1
+    return client, None
+
+
 def run_acceptance_body(
     report: Report,
     *,
@@ -865,8 +996,16 @@ def run_acceptance_body(
     )
     ok, act = evaluate_http_status(reg[0], 200)
     report.record("auth.register.owner", "HTTP 200", act, ok)
-    print_sql_verify_hint(owner_email, postgres_hint)
-    token_a = prompt_verify_token("STAGING_VERIFY_TOKEN_OWNER")
+    print_sql_verify_hint(owner_email, VERIFY_FILE_OWNER)
+    token_a = resolve_verify_token("STAGING_VERIFY_TOKEN_OWNER", VERIFY_FILE_OWNER)
+    if not token_a:
+        print(
+            f"Ошибка: пустой токен для owner — задайте STAGING_VERIFY_TOKEN_OWNER "
+            f"или запишите токен в {VERIFY_FILE_OWNER}.",
+            file=sys.stderr,
+        )
+        report.record("auth.verify.owner", "токен задан", "не получен", False)
+        return 1
     verified = client.request("POST", "/api/v1/auth/verify-email", json_body={"token": token_a})
     report.record("auth.verify.owner", "HTTP 200", str(verified[0]), verified[0] == 200)
 
@@ -908,6 +1047,13 @@ def run_acceptance_body(
         companies=n_slots,
         postgres_hint=postgres_hint,
     )
+    if not billing.prepared and resolve_billing_mode() == "checkout":
+        print(
+            "Ошибка: checkout не завершён (нет provider_payment_id или другая ошибка биллинга); "
+            "прогон остановлен. См. billing.fallback или STAGING_BILLING_MODE=sql.",
+            file=sys.stderr,
+        )
+        return 1
 
     if not company_ids:
         return 1
@@ -1004,25 +1150,15 @@ def run_acceptance_body(
         ok_ex, act_ex = evaluate_vat_threshold(dash_ex or {}, present=True, status="exceeded")
         report.record("vat_threshold.exceeded", "status=exceeded", act_ex, ok_ex)
 
-    reg_b = client.request(
-        "POST",
-        "/api/v1/auth/register",
-        json_body={"email": tenant_b_email, "password": password, "name": "Staging Tenant B"},
+    client_b, tenant_b_exit = register_verify_login_tenant_b(
+        base,
+        report,
+        tenant_b_email=tenant_b_email,
+        password=password,
     )
-    ok_b, act_b = evaluate_http_status(reg_b[0], 200)
-    report.record("auth.register.tenant_b", "HTTP 200", act_b, ok_b)
-    print_sql_verify_hint(tenant_b_email, postgres_hint)
-    token_b = prompt_verify_token("STAGING_VERIFY_TOKEN_TENANT_B")
-    client.request("POST", "/api/v1/auth/verify-email", json_body={"token": token_b})
-    login_b = client.request(
-        "POST",
-        "/api/v1/auth/login",
-        json_body={"email": tenant_b_email, "password": password},
-    )
-    client_b = HttpClient(base)
-    if login_b[1]:
-        client_b.set_csrf(login_b[1].get("csrf_token"))
-    check_auth_me(client_b, report, "tenant_b")
+    if tenant_b_exit is not None:
+        return tenant_b_exit
+    assert client_b is not None
     ws_b = client_b.request("POST", "/api/v1/workspaces", json_body={"name": "Staging acceptance B"})
     tenant_b = (ws_b[1] or {}).get("id") if ws_b[1] else None
     if tenant_b:

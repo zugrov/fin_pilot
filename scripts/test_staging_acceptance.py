@@ -337,5 +337,207 @@ class StagingBillingSqlTests(unittest.TestCase):
         self.assertTrue(any(row.step == "billing.activation" and row.ok for row in report.rows))
 
 
+class StagingVerifyTokenTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module()
+
+    def test_parse_verify_token_from_url(self) -> None:
+        url = "http://example.test/verify-email?token=abc-123"
+        self.assertEqual(self.mod._parse_verify_token(url), "abc-123")
+
+    def test_resolve_verify_token_from_env(self) -> None:
+        with patch.dict("os.environ", {"STAGING_VERIFY_TOKEN_OWNER": "env-token"}, clear=False):
+            token = self.mod.resolve_verify_token(
+                "STAGING_VERIFY_TOKEN_OWNER",
+                self.mod.VERIFY_FILE_OWNER,
+            )
+        self.assertEqual(token, "env-token")
+
+    def test_wait_for_verify_token_file_reads_and_deletes(self) -> None:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            path = Path(tmp.name)
+        try:
+            path.write_text("file-token\n", encoding="utf-8")
+            with patch.object(self.mod, "time") as mock_time:
+                mock_time.monotonic.side_effect = [0.0, 0.0]
+                mock_time.sleep = MagicMock()
+                token = self.mod.wait_for_verify_token_file(path)
+            self.assertEqual(token, "file-token")
+            self.assertFalse(path.exists())
+        finally:
+            if path.exists():
+                path.unlink()
+
+    def test_verify_ssh_hint_starts_with_ssh(self) -> None:
+        cmd = self.mod.build_verify_link_ssh_sql("user@example.com")
+        self.assertTrue(cmd.startswith("ssh "))
+        self.assertIn("exec -T postgres", cmd)
+        self.assertIn("user@example.com", cmd)
+
+
+class StagingProviderPaymentIdTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module()
+
+    def test_build_provider_sql_ssh_uses_squote_escape(self) -> None:
+        cmd = self.mod.build_provider_payment_id_ssh_sql("11111111-1111-4111-8111-111111111111")
+        self.assertTrue(cmd.startswith("ssh "))
+        self.assertIn("'\\''", cmd)
+        self.assertIn("provider_payment_id", cmd)
+        self.assertIn("11111111-1111-4111-8111-111111111111", cmd)
+
+    def test_resolve_provider_from_env(self) -> None:
+        client = MagicMock()
+        with patch.dict("os.environ", {"STAGING_PROVIDER_PAYMENT_ID": "yk-123"}, clear=False):
+            value = self.mod.resolve_provider_payment_id(client, "pay-1", self.mod.Report())
+        self.assertEqual(value, "yk-123")
+        client.request.assert_not_called()
+
+    def test_wait_for_provider_payment_file(self) -> None:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            path = Path(tmp.name)
+        try:
+            path.write_text("prov-id\n", encoding="utf-8")
+            with patch.object(self.mod, "PROVIDER_PAYMENT_ID_FILE", path):
+                with patch.object(self.mod, "time") as mock_time:
+                    mock_time.monotonic.side_effect = [0.0, 0.0]
+                    mock_time.sleep = MagicMock()
+                    value = self.mod.wait_for_provider_payment_id_file(path)
+            self.assertEqual(value, "prov-id")
+            self.assertFalse(path.exists())
+        finally:
+            if path.exists():
+                path.unlink()
+
+    def test_checkout_stops_when_provider_missing(self) -> None:
+        mod = self.mod
+        report = mod.Report()
+        client = MagicMock()
+        client.request.side_effect = [
+            (200, {"id": "quote-1"}, ""),
+            (200, {"payment_id": "p1", "confirmation_url": "https://pay.test/x"}, ""),
+            (200, {"activated": False}, ""),
+        ]
+        with (
+            patch.object(mod, "wait_for_checkout_payment"),
+            patch.object(mod, "resolve_provider_payment_id", return_value=None),
+            patch("builtins.print"),
+        ):
+            prepared, _ = mod.prepare_tenant_billing_checkout(
+                client,
+                report,
+                company_ids=["c1"],
+                companies=1,
+                postgres_hint="",
+            )
+        self.assertFalse(prepared)
+        self.assertTrue(any(row.step == "billing.fallback" for row in report.rows))
+
+
+class StagingTenantBAuthOrderTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module()
+
+    def test_tenant_b_register_before_hint_and_token(self) -> None:
+        mod = self.mod
+        events: list[str] = []
+        mock_client = MagicMock()
+
+        def fake_request(method: str, path: str, **kwargs: object) -> tuple[int, dict | None, str]:
+            if method == "POST" and path == "/api/v1/auth/register":
+                events.append("register")
+                return 200, {"status": "ok"}, ""
+            if method == "POST" and path == "/api/v1/auth/verify-email":
+                events.append("verify")
+                return 200, {"status": "ok"}, ""
+            if method == "POST" and path == "/api/v1/auth/login":
+                events.append("login")
+                return 200, {"csrf_token": "csrf"}, ""
+            if method == "GET" and path == "/api/v1/auth/me":
+                events.append("me")
+                return 200, {"user": {"email_verified": True}}, ""
+            return 500, None, ""
+
+        mock_client.request.side_effect = fake_request
+
+        def hint(*_args: object, **_kwargs: object) -> None:
+            events.append("hint")
+
+        def token(*_args: object, **_kwargs: object) -> str:
+            events.append("token")
+            return "test-token"
+
+        with (
+            patch.object(mod, "HttpClient", return_value=mock_client),
+            patch.object(mod, "print_sql_verify_hint", side_effect=hint),
+            patch.object(mod, "resolve_verify_token", side_effect=token),
+        ):
+            client, exit_code = mod.register_verify_login_tenant_b(
+                "http://example.test",
+                mod.Report(),
+                tenant_b_email="acc-tenantb@example.com",
+                password="pw",
+            )
+        self.assertIsNone(exit_code)
+        self.assertIs(client, mock_client)
+        self.assertEqual(events, ["register", "hint", "token", "verify", "login", "me"])
+
+    def test_tenant_b_register_failure_skips_hint(self) -> None:
+        mod = self.mod
+        events: list[str] = []
+        mock_client = MagicMock()
+        mock_client.request.return_value = (409, {"code": "conflict"}, "conflict")
+
+        with (
+            patch.object(mod, "HttpClient", return_value=mock_client),
+            patch.object(mod, "print_sql_verify_hint", side_effect=lambda *_a, **_k: events.append("hint")),
+        ):
+            client, exit_code = mod.register_verify_login_tenant_b(
+                "http://example.test",
+                mod.Report(),
+                tenant_b_email="acc-tenantb@example.com",
+                password="pw",
+            )
+        self.assertIsNone(client)
+        self.assertEqual(exit_code, 409)
+        self.assertEqual(events, [])
+
+
+class StagingAuthMeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module()
+
+    def test_user_email_verified_reads_nested_field(self) -> None:
+        body = {"user": {"email_verified": True}, "csrf_token": "x", "memberships": []}
+        self.assertTrue(self.mod.user_email_verified(body))
+
+    def test_user_email_verified_false_when_missing(self) -> None:
+        self.assertFalse(self.mod.user_email_verified({"user": {"email_verified": False}}))
+        self.assertFalse(self.mod.user_email_verified({"email_verified_at": "2020-01-01"}))
+
+    def test_check_auth_me_mock(self) -> None:
+        report = self.mod.Report()
+        client = MagicMock()
+        client.request.return_value = (
+            200,
+            {
+                "csrf_token": "secret",
+                "user": {"id": "u1", "email": "a@b.com", "name": "A", "email_verified": True},
+                "memberships": [],
+            },
+            "",
+        )
+        ok = self.mod.check_auth_me(client, report, "owner")
+        self.assertTrue(ok)
+        row = report.rows[-1]
+        self.assertEqual(row.step, "auth.me.owner")
+        self.assertTrue(row.ok)
+        self.assertIn("verified", row.actual)
+
+
 if __name__ == "__main__":
     unittest.main()

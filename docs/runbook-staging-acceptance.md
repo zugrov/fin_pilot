@@ -52,7 +52,7 @@
 | --- | --- |
 | verify-email | **200** |
 | login | **200**, cookie сессии |
-| `GET /api/v1/auth/me` | `email_verified_at` задан |
+| `GET /api/v1/auth/me` | `user.email_verified` = true |
 
 **Регистрация и SMTP:** `register_user` (`auth_service.py`) **не вызывает SMTP синхронно** — пишет строку в `transactional_email_outbox` через `enqueue_email` (`outbox.py`). При `EMAIL_PROVIDER_MODE=smtp` без настроенного `SMTP_*` регистрация отвечает **200**, письмо остаётся в outbox (`status=pending`); фоновая отправка может падать, на API verify это не влияет.
 
