@@ -2,14 +2,10 @@
 :80 {
 	encode gzip
 	handle /api/* {
-		reverse_proxy api:8000 {
-			header_up -X-Forwarded-For
-		}
+		reverse_proxy api:8000
 	}
 	handle /health/* {
-		reverse_proxy api:8000 {
-			header_up -X-Forwarded-For
-		}
+		reverse_proxy api:8000
 	}
 	handle {
 		reverse_proxy frontend:80

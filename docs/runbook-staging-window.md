@@ -17,6 +17,8 @@
 
 **Ориентировочное время:** 60–75 минут (включая ожидание CI на merge-коммите заранее, оплату ЮKassa, ручной UI).
 
+**Caddy:** только `reverse_proxy api:8000` — без `header_up -X-Forwarded-For`. Caddy сам пишет upstream `X-Forwarded-For` с адресом клиента; ручное снятие заголовка ломает rate limit (ключи вида `login:172.18.0.x` у proxy). Подробнее — [runbook-staging.md](runbook-staging.md) (раздел про Caddy).
+
 ---
 
 ## а) До включения сервера — подготовка
@@ -50,6 +52,7 @@ ssh "${SSH_ALIAS}" 'set -euo pipefail
   docker compose --env-file .env \
     -f infra/docker-compose.prod.yml \
     -f infra/docker-compose.prod.ip.override.yml \
+    -f infra/docker-compose.prod.deploy.override.yml \
     ps'
 ```
 
@@ -105,6 +108,7 @@ ssh "${SSH_ALIAS}" 'set -euo pipefail
   docker compose --env-file .env \
     -f infra/docker-compose.prod.yml \
     -f infra/docker-compose.prod.ip.override.yml \
+    -f infra/docker-compose.prod.deploy.override.yml \
     up -d api worker'
 ```
 
@@ -141,7 +145,7 @@ curl -fsS "http://127.0.0.1:${LOCAL_PORT}/health/live" && echo
 Пример hint (подставьте свой `APP_ROOT` **только у себя**, не в git):
 
 ```bash
-export STAGING_POSTGRES_EXEC_HINT='ssh '"${SSH_ALIAS}"' "cd '"${APP_ROOT}"' && docker compose --env-file .env -f infra/docker-compose.prod.yml -f infra/docker-compose.prod.ip.override.yml exec -T postgres psql -U finpilot -d finpilot"'
+export STAGING_POSTGRES_EXEC_HINT='ssh '"${SSH_ALIAS}"' "cd '"${APP_ROOT}"' && docker compose --env-file .env -f infra/docker-compose.prod.yml -f infra/docker-compose.prod.ip.override.yml -f infra/docker-compose.prod.deploy.override.yml exec -T postgres psql -U finpilot -d finpilot"'
 ```
 
 ### Запуск
@@ -194,6 +198,7 @@ python3 scripts/staging_acceptance.py
 ssh "${SSH_ALIAS}" "cd '${APP_ROOT}' && docker compose --env-file .env \
   -f infra/docker-compose.prod.yml \
   -f infra/docker-compose.prod.ip.override.yml \
+  -f infra/docker-compose.prod.deploy.override.yml \
   exec -T postgres pg_dump -U finpilot -Fc finpilot" \
   > "var/${WINDOW_ID}/finpilot.dump"
 ```

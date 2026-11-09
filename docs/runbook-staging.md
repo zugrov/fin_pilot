@@ -113,7 +113,11 @@ PostgreSQL, Redis, API, worker, beat и frontend наружу не публик�
 
 Без этого пароля или фильтра регистрация с публичного имени недоступна быть не может: приложение само список приглашённых не проверяет.
 
-`TRUST_PROXY=true`, когда API видит адрес клиента только через этот nginx и внутренний Caddy. Тогда для rate limit и проверки IP webhook берётся первый hop `X-Forwarded-For`, если прямой peer входит в `TRUSTED_PROXY_CIDRS` (по умолчанию `172.18.0.0/16` — подсеть `networks.default` в `infra/docker-compose.prod.yml`; переопределение через env). Caddy в репозитории сбрасывает входящий `X-Forwarded-For` перед проксированием в API.
+`TRUST_PROXY=true`, когда API видит адрес клиента только через этот nginx и внутренний Caddy. Тогда для rate limit и проверки IP webhook берётся первый hop `X-Forwarded-For`, если прямой peer входит в `TRUSTED_PROXY_CIDRS` (по умолчанию `172.18.0.0/16` — подсеть `networks.default` в `infra/docker-compose.prod.yml`; переопределение через env).
+
+### Caddy и `X-Forwarded-For`
+
+В `infra/Caddyfile` и `infra/Caddyfile.ip` для API достаточно `reverse_proxy api:8000` **без** `header_up -X-Forwarded-For`. Caddy 2.8 при проксировании сам выставляет upstream-заголовок `X-Forwarded-For` с адресом TCP-клиента, подключившегося к Caddy (публичный IP или шлюз docker-сети при туннеле на loopback). Поддельный `X-Forwarded-For` от браузера в rate limit не попадает: в ключ Redis уходит адрес, который Caddy зафиксировал, а не первый hop из заголовка клиента. Ручное `header_up -X-Forwarded-For` **удаляет** заголовок к API и не восстанавливает его — API видит только IP контейнера proxy и общий rate limit; это правило **не** использовать.
 
 ## Флаги на контрольной точке
 

@@ -1,15 +1,11 @@
 :80 {
 	encode gzip
 	handle /api/* {
-		reverse_proxy api:8000 {
-			# Сбрасываем клиентский XFF; Caddy выставит адрес реального клиента.
-			header_up -X-Forwarded-For
-		}
+		# Caddy reverse_proxy по умолчанию добавляет X-Forwarded-For с адресом клиента.
+		reverse_proxy api:8000
 	}
 	handle /health/* {
-		reverse_proxy api:8000 {
-			header_up -X-Forwarded-For
-		}
+		reverse_proxy api:8000
 	}
 	handle {
 		reverse_proxy frontend:80
