@@ -3,7 +3,6 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-
 from app.errors import AppError
 from app.models.identity import Membership, User
 from app.services.reconciliation_run_service import assert_can_persist_run
