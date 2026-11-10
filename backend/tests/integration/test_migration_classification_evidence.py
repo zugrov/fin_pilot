@@ -8,9 +8,9 @@ from alembic.util.exc import CommandError
 from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 from tests.integration.balances_test_util import assert_finpilot_test_database
-from tests.integration.conftest import BACKEND
+from tests.integration.conftest import BACKEND, HEAD_REVISION
 
-HEAD = "20261110_0022"
+HEAD = HEAD_REVISION
 PREV = "20261022_0016"
 DOWNGRADE_WITH_EVIDENCE_GUARD = "20261021_0015"
 

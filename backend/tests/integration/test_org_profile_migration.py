@@ -7,9 +7,9 @@ from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from tests.integration.balances_test_util import assert_finpilot_test_database
-from tests.integration.conftest import BACKEND
+from tests.integration.conftest import BACKEND, HEAD_REVISION
 
-HEAD = "20261110_0022"
+HEAD = HEAD_REVISION
 PREV = "20261107_0020"
 
 
