@@ -154,6 +154,46 @@
       "docs/runbook-staging.md"
     ]
   },
+  "docs-roadmap-batch-2026-11-10": {
+    "title": "Документация: FA-R03.1 запрос, ADR-004, FA-R03.3 scope",
+    "outside_fa_r_linear_stages": true,
+    "status": "merged",
+    "deployed": false,
+    "accepted": false,
+    "fa_r03_1_status_unchanged": "ждём образцов S10/S11, 8.3.x (current_stage/current_task не менялись)",
+    "items": [
+      {
+        "id": "docs-fa-r031-client-request",
+        "pr": 27,
+        "merge_sha": "f116a2f2693af6c257033659ddbe53c40d30231a",
+        "merged_at": "2026-11-10T07:54:13Z",
+        "path": "docs/roadmap/FA-R03.1-client-request-s10-s11.md",
+        "summary": "Текст запроса клиенту на S10/S11 и доработку пакета 51 (август)"
+      },
+      {
+        "id": "docs-adr-004-accrual-vs-bank",
+        "pr": 28,
+        "merge_sha": "c5f3f6452bef1aef74cfdde5e9ce3ed7f79ea6d2",
+        "merged_at": "2026-11-10T08:05:45Z",
+        "path": "docs/roadmap/ADR-004-accrual-vs-bank-source-precedence.md",
+        "summary": "ADR proposed: банк vs начисление; DECISION_REQUIRED Q1–Q5"
+      },
+      {
+        "id": "docs-fa-r033-implementation-scope",
+        "pr": 29,
+        "merge_sha": "f547c8e53a6b891482a9459b212eb76abb233f77",
+        "merged_at": "2026-11-10T08:17:31Z",
+        "paths": [
+          "docs/roadmap/FA-R03.3-implementation-scope.md",
+          "docs/roadmap/FA-R03.3-provenance-design.md"
+        ],
+        "summary": "Пакет реализации FA-R03.3-min/full, API, риски, DoD"
+      }
+    ],
+    "evidence": {
+      "ci_checks": "backend, frontend, playwright — success на PR #27–#29"
+    }
+  },
   "stages": [
     {
       "id": "FA-R00",

@@ -30,3 +30,19 @@
 - Production deploy
 
 **STATE:** ключ `infra-staging-rate-limit` в [STATE.json](STATE.json).
+
+---
+
+## docs-roadmap-batch-2026-11-10
+
+| Задача | PR | Merge SHA |
+| --- | --- | --- |
+| Запрос клиенту FA-R03.1 S10/S11 | [#27](https://github.com/zugrov/fin_pilot/pull/27) | `f116a2f2693af6c257033659ddbe53c40d30231a` |
+| ADR-004 банк vs начисление (proposed) | [#28](https://github.com/zugrov/fin_pilot/pull/28) | `c5f3f6452bef1aef74cfdde5e9ce3ed7f79ea6d2` |
+| FA-R03.3 implementation scope | [#29](https://github.com/zugrov/fin_pilot/pull/29) | `f547c8e53a6b891482a9459b212eb76abb233f77` |
+
+**Статус:** merged (docs only; не deployed, не accepted). **FA-R03.1** в STATE по-прежнему ждёт образцов; `current_stage` / `current_task` / `accepted_sha` этапов не менялись.
+
+**CI:** backend, frontend, playwright — success на каждом PR.
+
+**STATE:** ключ `docs-roadmap-batch-2026-11-10` в [STATE.json](STATE.json).
