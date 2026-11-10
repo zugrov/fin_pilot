@@ -4,21 +4,20 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
+from tests.integration.conftest import FA_R033_MIGRATION_REVISION, HEAD_REVISION
 from tests.integration.test_balances_dataset_migration import _alembic_config, _current_revision
 
-HEAD = "20261110_0022"
 PREV = "20261107_0021"
 
 
 @pytest.fixture(autouse=True)
 def _at_head(migrated_database):
-    if _current_revision(migrated_database) != HEAD:
+    if _current_revision(migrated_database) != HEAD_REVISION:
         command.upgrade(_alembic_config(), "head")
 
 
-def test_upgrade_head_is_fa_r033(migrated_database) -> None:
-    rev = _current_revision(migrated_database)
-    assert rev in (HEAD, "20261111_0023")
+def test_upgrade_head_is_repo_head(migrated_database) -> None:
+    assert _current_revision(migrated_database) == HEAD_REVISION
 
 
 def test_downgrade_blocked_with_reconciliation_run(migrated_database) -> None:
@@ -73,6 +72,7 @@ def test_downgrade_upgrade_roundtrip_empty(migrated_database) -> None:
     config = _alembic_config()
     command.downgrade(config, PREV)
     assert _current_revision(migrated_database) == PREV
-    command.upgrade(config, HEAD)
-    assert _current_revision(migrated_database) == HEAD
+    command.upgrade(config, FA_R033_MIGRATION_REVISION)
+    assert _current_revision(migrated_database) == FA_R033_MIGRATION_REVISION
     command.upgrade(config, "head")
+    assert _current_revision(migrated_database) == HEAD_REVISION
