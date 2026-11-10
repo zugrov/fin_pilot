@@ -136,6 +136,7 @@ def create_imported(
     session.add(event)
     session.flush()
     _identity(session, company, connection, row, event.id, at)
+    session.flush()
 
 
 def revise_imported(

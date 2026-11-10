@@ -102,7 +102,7 @@ def migrated_database():
     engine.dispose()
 
 
-HEAD_REVISION = "20261107_0021"
+HEAD_REVISION = "20261110_0022"
 
 # Baseline из alembic/sql/0002_billing.sql — после очистки test-only строк в annual_offer_versions.
 _ANNUAL_OFFER_BASELINE = text(

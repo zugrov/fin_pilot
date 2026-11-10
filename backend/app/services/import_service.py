@@ -1,5 +1,6 @@
 import csv
 import hashlib
+import logging
 import time
 import uuid
 from collections import Counter
@@ -112,6 +113,8 @@ from app.services.wallet_service import open_company
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 SCOPE = "import-upload"
 RULE_CREATE_SCOPE = "classification-rule-create"
@@ -596,7 +599,7 @@ def commit_import(
     if batch.status != "preview_ready":
         raise AppError(409, "conflict", "Импорт нельзя провести")
     batch.status = "committing"
-    committed, pending, has_review = _commit_identity_batch(
+    committed, pending, has_review, lineage_events = _commit_identity_batch(
         session, company, connection, company_user, batch, at
     )
     batch.rows_committed = committed
@@ -616,6 +619,27 @@ def commit_import(
         batch.status = "completed"
         batch.quality_flags = flags
     session.flush()
+    if committed > 0:
+        from app.services.provenance_service import (
+            record_lineage_events,
+            register_batch_fingerprint,
+        )
+
+        try:
+            with session.begin_nested():
+                register_batch_fingerprint(
+                    session,
+                    company.id,
+                    company.tenant_id,
+                    batch,
+                    connection,
+                    at,
+                )
+                record_lineage_events(
+                    session, company.tenant_id, company.id, lineage_events, at
+                )
+        except Exception:
+            logger.exception("import_provenance_failed batch_id=%s", batch.id)
     _batch_audit(session, company_user, company.tenant_id, "import_committed", batch.id, at)
     invalidate_reconciled_for_connection(session, connection, at, reason="import_commit")
     if commit_delivery is not None:
@@ -1188,6 +1212,18 @@ def _dataset_entity(dataset: str) -> str:
     return mapping[dataset]
 
 
+def _lineage_entity_id(identity: SourceIdentity, entity_kind: str) -> uuid.UUID | None:
+    if entity_kind == "cash_transaction":
+        return identity.canonical_entity_id
+    if entity_kind == "revenue_entry":
+        return identity.revenue_entry_id
+    if entity_kind == "planned_event":
+        return identity.planned_event_id
+    if entity_kind == "budget_line":
+        return identity.budget_line_id
+    return None
+
+
 def _revision_error_message(code: str) -> str:
     messages = {
         "stale_revision": "Ревизия источника устарела",
@@ -1264,9 +1300,12 @@ def _commit_identity_batch(
     company_user: User,
     batch: ImportBatch,
     at: datetime,
-) -> tuple[int, bool, bool]:
+) -> tuple[int, bool, bool, list]:
+    from app.services.provenance_service import LineageEvent
+
     rows = _rows(session, batch)
     entity_type = _dataset_entity(connection.dataset)
+    lineage_events: list[LineageEvent] = []
     keys = sorted(
         {
             (connection.namespace, row.external_id)
@@ -1365,6 +1404,7 @@ def _commit_identity_batch(
             else:
                 continue
         committed += 1
+        session.flush()
         identity = load_identity_slot(session, company, connection.namespace, row.external_id)
         if identity is not None:
             apply_identity_watermark(
@@ -1373,7 +1413,17 @@ def _commit_identity_batch(
                 payload_hash=row.payload_hash,
                 advance_only=False,
             )
-    return committed, pending, has_review
+            entity_id = _lineage_entity_id(identity, entity_type)
+            if entity_id is not None:
+                lineage_events.append(
+                    LineageEvent(
+                        row=row,
+                        entity_kind=entity_type,
+                        entity_id=entity_id,
+                        source_identity_id=identity.id,
+                    )
+                )
+    return committed, pending, has_review, lineage_events
 
 
 def _parse_balances(content: bytes, connection: SourceConnection, settings: Settings):

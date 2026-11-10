@@ -58,6 +58,7 @@ from app.models.plan import (
     PlannedCashEvent,
     RecurrenceRule,
 )
+from app.models.provenance import ImportRowLineage, ImportSourceFingerprint, ReconciliationRun
 from app.models.revenue import Counterparty, Direction, RevenueCashMatch, RevenueEntry
 from app.models.signals import (
     Alert,
@@ -111,6 +112,8 @@ __all__ = [
     "IdempotencyRecord",
     "ImportBatch",
     "ImportProfile",
+    "ImportRowLineage",
+    "ImportSourceFingerprint",
     "Invitation",
     "MailQuarantineEntry",
     "Invoice",
@@ -126,6 +129,7 @@ __all__ = [
     "PaymentAttempt",
     "RawImportRow",
     "RecurrenceRule",
+    "ReconciliationRun",
     "Refund",
     "RevenueCashMatch",
     "RevenueEntry",
