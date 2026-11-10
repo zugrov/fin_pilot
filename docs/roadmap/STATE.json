@@ -116,6 +116,44 @@
     ],
     "note": "исключение из линейного порядка MASTER_PLAN: R03.1 ждёт образцов, P3/P4 и REL1-E2E не требуют client samples"
   },
+  "infra-staging-rate-limit": {
+    "title": "Стенд по IP: rate limit за Caddy и автоматизация приёмки",
+    "outside_fa_r_linear_stages": true,
+    "status": "merged",
+    "deployed": false,
+    "accepted": false,
+    "merge_sha": "c34328f1873c636c4c23f5eb1e545cdc774e585f",
+    "pr": 25,
+    "merged_at": "2026-11-10T05:48:49Z",
+    "scope": [
+      "rate limit по реальному IP клиента за Caddy (TRUST_PROXY, TRUSTED_PROXY_CIDRS=172.18.0.0/16)",
+      "resolve_client_ip и тесты rate limit",
+      "scripts/staging_acceptance.py, runbook окна и acceptance",
+      "infra/docker-compose.prod.deploy.override.yml и stand-patches/xlrd_stub из git",
+      "запрет FLUSHDB на стенде (runbook)"
+    ],
+    "evidence": {
+      "ci_pr_head_sha": "64f4fcfdc2626258d7f8971f4f1265020194ebfc",
+      "ci_pr_checks": "backend, frontend, playwright — success",
+      "ci_main_runs": {
+        "ci": "42764456130",
+        "e2e_playwright": "42764455872",
+        "conclusion": "success"
+      },
+      "staging_acceptance_owner": "PASS (регистрация, billing checkout/webhook/активация, НДС, пороги, спецставки)",
+      "staging_tenant_b_isolation_404": "PASS на предыдущей сборке стенда"
+    },
+    "not_verified": [
+      "tenant B register/verify на последней сборке после squash merge",
+      "вебхук ЮKassa с определением IP через X-Forwarded-For при первой реальной оплате",
+      "production deploy"
+    ],
+    "docs": [
+      "docs/runbook-staging-window.md",
+      "docs/runbook-staging-acceptance.md",
+      "docs/runbook-staging.md"
+    ]
+  },
   "stages": [
     {
       "id": "FA-R00",
@@ -1718,7 +1756,7 @@
     "optional_migration": "import_batches.preview_context JSONB if needed at implementation"
   },
   "note": "REL1 2026-10-29: P4a+P4b приняты и задеплоены на staging (только frontend f147092); backend ebd3912, schema 20261027_0017 без изменений. Окно 2026-10-28 (backend+0017) закрыто ранее. Pack v1 выключен. Q6 → набор-шаблон v1; проценты по депозитам → investing.",
-  "updated_at": "2026-11-02",
+  "updated_at": "2026-11-10",
   "fa_r03_1_samples_2026_10_30": {
     "august_hold_out_folder": "var/fa-r03-client-samples-2026-08/",
     "september_folder": "var/fa-r03-client-samples/",
