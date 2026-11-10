@@ -44,6 +44,23 @@ class ImportRowLineage(Base):
     linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class SourceCorrectionFinding(Base):
+    __tablename__ = "source_correction_finding"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    company_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("companies.id"))
+    kind: Mapped[str] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(Text, default="warning")
+    fingerprint_ids: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    lineage_ids: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    import_batch_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    period_from: Mapped[date | None] = mapped_column(Date)
+    period_to: Mapped[date | None] = mapped_column(Date)
+    details: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ReconciliationRun(Base):
     __tablename__ = "reconciliation_run"
 

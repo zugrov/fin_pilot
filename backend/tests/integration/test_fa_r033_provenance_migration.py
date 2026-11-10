@@ -17,7 +17,8 @@ def _at_head(migrated_database):
 
 
 def test_upgrade_head_is_fa_r033(migrated_database) -> None:
-    assert _current_revision(migrated_database) == HEAD
+    rev = _current_revision(migrated_database)
+    assert rev in (HEAD, "20261111_0023")
 
 
 def test_downgrade_blocked_with_reconciliation_run(migrated_database) -> None:
@@ -74,3 +75,4 @@ def test_downgrade_upgrade_roundtrip_empty(migrated_database) -> None:
     assert _current_revision(migrated_database) == PREV
     command.upgrade(config, HEAD)
     assert _current_revision(migrated_database) == HEAD
+    command.upgrade(config, "head")

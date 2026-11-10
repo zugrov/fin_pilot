@@ -620,23 +620,40 @@ def commit_import(
         batch.quality_flags = flags
     session.flush()
     if committed > 0:
-        from app.services.provenance_service import (
-            record_lineage_events,
-            register_batch_fingerprint,
-        )
-
         try:
             with session.begin_nested():
-                register_batch_fingerprint(
+                from app.services.correction_service import (
+                    cash_period_from_lineage,
+                    scan_cash_corrections_after_import,
+                )
+                from app.services.provenance_service import (
+                    record_lineage_events,
+                    register_batch_fingerprint,
+                )
+
+                cash_period = cash_period_from_lineage(session, lineage_events)
+                fingerprint = register_batch_fingerprint(
                     session,
                     company.id,
                     company.tenant_id,
                     batch,
                     connection,
                     at,
+                    period_from=cash_period.period_from,
+                    period_to=cash_period.period_to,
                 )
                 record_lineage_events(
                     session, company.tenant_id, company.id, lineage_events, at
+                )
+                scan_cash_corrections_after_import(
+                    session,
+                    company_id=company.id,
+                    tenant_id=company.tenant_id,
+                    batch=batch,
+                    connection=connection,
+                    fingerprint=fingerprint,
+                    lineage_events=lineage_events,
+                    at=at,
                 )
         except Exception:
             logger.exception("import_provenance_failed batch_id=%s", batch.id)
