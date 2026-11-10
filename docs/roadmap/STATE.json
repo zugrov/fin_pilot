@@ -2542,11 +2542,25 @@
     "pr": 36,
     "merge_sha": "45f6668b27cb732b5f25fd49308dd981824c1806",
     "runbook": "docs/runbook-staging-window-pr25-0022-0023.md",
-    "main_sha_at_authoring": "a0d5ac73789d955e35330985e75956ae88268e05",
+    "main_sha_at_authoring": "1be20626d6957cf2bd192af3e428f99bc190c056",
     "migrations": [
       "20261110_0022",
       "20261111_0023"
     ]
+  },
+  "staging_baseline_probe_2026_11_10": {
+    "ssh_readonly_agent": "connect_timeout_not_completed",
+    "schema_expected_from_state": "20261027_0017",
+    "deployed_code_expected": "behind_main_see_DECISIONS_2026_11_10",
+    "disk_and_table_counts": "pending_owner_step_0_var_WINDOW_ID",
+    "rehearsal_large_0017_to_0023": {
+      "script": "scripts/rehearse_staging_migrations_0022_0023.py",
+      "profile": "200k_cash_30k_revenue_20k_plan",
+      "db_size_approx": "110 MB",
+      "upgrade_seconds_0018_through_0023_sum": 0.31,
+      "owner_migrate_timing": "var_WINDOW_ID_migrate_timing_txt"
+    },
+    "owner_decisions_ref": "docs/roadmap/DECISIONS.md § Окно стенда 2026-11-10"
   },
   "pilot_topkom_d6": {
     "organization": "ООО «ТОПКОМ»",

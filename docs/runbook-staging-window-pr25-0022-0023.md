@@ -19,7 +19,7 @@
 
 | Объект | SHA / ссылка |
 | --- | --- |
-| **main на момент подготовки runbook** | `a0d5ac73789d955e35330985e75956ae88268e05` |
+| **main на момент подготовки runbook** | `1be20626d6957cf2bd192af3e428f99bc190c056` |
 | Минимум для PR #25 (rate limit) | `c34328f1873c636c4c23f5eb1e545cdc774e585f` |
 | Минимум для FA-R03.3-min + migration 0022 | `0fc224d5eb39355a0911e1fb61a9024eb6307a14` |
 | Минимум для FA-R03.4 v1 + migration 0023 | `7258e2bb83997066ba1b541e737771078f6e628` |
@@ -56,19 +56,66 @@ CI **main** на выбранном SHA — **success** (backend, frontend, play
 
 ---
 
+## Шаг 0 · фактический baseline стенда (только чтение)
+
+**Перед окном** (вручную на VPS; в `var/${WINDOW_ID}/baseline.json` без секретов):
+
+```bash
+# Ревизия Alembic (один из вариантов)
+docker compose … exec -T backend alembic current
+# или
+docker compose … exec -T postgres psql -U … -d … -c 'SELECT version_num FROM alembic_version;'
+
+git -C "${APP_ROOT}" rev-parse HEAD
+git -C "${APP_ROOT}" status --short
+
+docker compose … exec -T postgres psql -U … -d … -c \
+  "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 30;"
+docker compose … exec -T postgres psql -U … -d … -c \
+  "SELECT pg_size_pretty(pg_database_size(current_database()));"
+
+df -h
+free -m
+ls -la "${APP_ROOT}/var/backups"
+```
+
+**Агент 2026-11-10:** read-only SSH **не выполнен** (connect timeout); опора на **STATE/DECISIONS** (`20261027_0017`) до снятия факта владельцем в шаге 0.
+
+### Два сценария migrate
+
+| Сценарий | Baseline | В логе `alembic upgrade head` |
+| --- | --- | --- |
+| **A (факт стенда по STATE)** | `20261027_0017` | `0017→0018→…→0023` (6 шагов) |
+| **B (уже догнали 0021)** | `20261107_0021` | только `0021→0022→0023` |
+
+---
+
 ## Оценка времени migrate (репетиция)
 
-Локальная репетиция без staging: `scripts/rehearse_staging_migrations_0022_0023.py` (Postgres как в CI, `TEST_PG_PORT=5433`).
+Локально: `cd backend && uv run python ../scripts/rehearse_staging_migrations_0022_0023.py --baseline 20261027_0017 --profile large`
 
-| Этап | Ориентир (синтетика, ~2 импорта до upgrade) |
+Профиль **large** (2026-11-10): **200k** `cash_transactions`, **30k** `revenue_entries`, **20k** `planned_cash_events`, БД **~110 MB**.  
+DDL-шаги **не сканируют** cash; время отражает накладные расходы DDL/backfill на профилях.
+
+| Ревизия | Тип | Backfill / риск | Время upgrade (large), с |
+| --- | --- | --- | ---: |
+| `20261106_0018` | DDL + seed | tax_norm_versions | 0,05 |
+| `20261107_0019` | DDL + seed | tax_norm_versions | 0,04 |
+| `20261107_0020` | DDL + backfill | 1 `organization_profile_versions` на company | 0,05 |
+| `20261107_0021` | data | UPDATE bands, trigger off, lock_timeout 5s | 0,05 |
+| `20261110_0022` | DDL | provenance | 0,07 |
+| `20261111_0023` | DDL | corrections | 0,05 |
+| **Сумма 0018–0023** | | | **~0,31** |
+
+| Этап | Ориентир |
 | --- | --- |
-| `upgrade` с `20261107_0021` → head (0022+0023) | **~0,06 с** (`scripts/rehearse_staging_migrations_0022_0023.py`, 2026-11-10, `upgrade_0021_to_head`) |
-| Полный roundtrip downgrade `0021` → upgrade head (legacy-данные, пустые таблицы 0022/0023) | **~0,12 с** (downgrade + upgrade roundtrip в том же прогоне) |
-| На стенде (объём ООО «Топ») | **DECISION_REQUIRED:** владелец фиксирует фактическое время migrate из логов окна; ориентир — порядок **1–5 мин** при одном `upgrade head`, если baseline уже `20261107_0021`. |
+| Сценарий **B** `0021→head` | **~0,12 с** (малый объём, 2026-11-10) |
+| Roundtrip `head→0021` (пустые 0022/0023) | **~0,12 с** |
+| **Стенд** | Факт `upgrade` start/end в `var/${WINDOW_ID}/migrate_timing.txt` (**решение владельца 2026-11-10**) |
 
-> **Факт STATE:** историческая схема стенда может быть ниже `20261107_0021` (`migration_staging_note`: `20261027_0017`); тогда один `upgrade head` пройдёт длиннее — время окна и бэкап обязательны.
+Откат: **0018–0021** — штатный downgrade SQL на репетиции; **0022/0023** — только при пустых таблицах, иначе restore из бэкапа.
 
-**Базовая ревизия до окна (целевая):** `20261107_0021` (runbook); сверить `SELECT version_num FROM alembic_version` на стенде до migrate.
+**Базовая ревизия до окна:** зафиксировать шагом 0; **ожидание по STATE:** `20261027_0017`.
 
 ---
 
@@ -91,7 +138,7 @@ CI **main** на выбранном SHA — **success** (backend, frontend, play
 5. **Smoke post-migrate:** health, revision **0023**, таблицы/RLS, worker grants, import → fingerprint/lineage + **коррекции** (§ ниже).
 6. **Приёмка PR #25:** `staging_acceptance.py`, tenant B, webhook IP.
 7. **Ручной UI** 10–15 мин (базовый acceptance).
-8. **Завершение:** дамп после окна, отчёт `var/${WINDOW_ID}/`, остановка VPS по политике.
+8. **Завершение:** дамп после окна, отчёт `var/${WINDOW_ID}/` (`baseline.json`, `migrate_timing.txt`, smoke batch id), остановка VPS по политике.
 
 ---
 
@@ -198,15 +245,16 @@ WHERE n.nspname = 'public'
 1. **Дубль файла / duplicate_suspect:** провести тот же cash CSV дважды (разные имена файлов) или второй файл с пересекающимся `external_id`/`amount` — ожидание: запись в `source_correction_finding` с `kind = 'duplicate_suspect'`, commit обоих batch **успешен**.
 2. **Пересечение периодов / period_overlap:** два cash-файла с датами в перекрывающихся диапазонах по одному кошельку — ожидание: `kind = 'period_overlap'`.
 
+Записать в notes **`smoke_batch_id_a`**, **`smoke_batch_id_b`** (UUID из ответа upload/commit API).
+
 ```sql
-SELECT kind, severity, count(*)
-FROM source_correction_finding f
-JOIN companies c ON c.id = f.company_id
-WHERE c.name LIKE '%Топ%'  -- уточнить company_id в notes
-GROUP BY 1, 2;
+SELECT id, kind, severity, import_batch_id, created_at
+FROM source_correction_finding
+WHERE import_batch_id IN (:smoke_batch_id_a, :smoke_batch_id_b)
+ORDER BY created_at;
 ```
 
-Ожидание: хотя бы одна строка по каждому сценарию smoke **или** обоснованный skip в notes.
+Ожидание: по каждому тестовому файлу — **конкретные** строки с ожидаемым `kind`; не полагаться на `count(*)` по всей таблице.
 
 ### 7. Логи API/worker
 
