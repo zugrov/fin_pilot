@@ -1,6 +1,6 @@
 # Окно деплоя на стенд · PR #25 (rate limit, приёмка, compose override)
 
-> **Актуальный комбинированный runbook (PR #25 + миграция `20261110_0022`):** [runbook-staging-window-pr25-0022.md](runbook-staging-window-pr25-0022.md).
+> **Актуальный комбинированный runbook (PR #25 + migrate `20261110_0022` + `20261111_0023`):** [runbook-staging-window-pr25-0022-0023.md](runbook-staging-window-pr25-0022-0023.md).
 
 **Назначение:** плановое окно выката на VPS **уже слитого** пакета [PR #25](https://github.com/zugrov/fin_pilot/pull/25) (squash → `c34328f…`) и проверки пунктов, которые в STATE остаются **не проверенными** на последней сборке.
 
