@@ -46,3 +46,37 @@
 **CI:** backend, frontend, playwright — success на каждом PR.
 
 **STATE:** ключ `docs-roadmap-batch-2026-11-10` в [STATE.json](STATE.json).
+
+---
+
+## staging-window-pr25-0022
+
+| Поле | Значение |
+| --- | --- |
+| Статус | **merged** (runbook; не deployed) |
+| PR | [#36](https://github.com/zugrov/fin_pilot/pull/36) |
+| Merge SHA | `45f6668b27cb732b5f25fd49308dd981824c1806` |
+| Runbook | [runbook-staging-window-pr25-0022.md](../runbook-staging-window-pr25-0022.md) |
+
+**Содержание:** бэкап, migrate `20261110_0022`, smoke provenance/RLS, откат, чек-лист владельца + PR #25.
+
+**Не проверено:** фактическое окно на VPS.
+
+**STATE:** `staging_window_pr25_0022_docs` в [STATE.json](STATE.json).
+
+---
+
+## fa-r03-4-v1
+
+| Поле | Значение |
+| --- | --- |
+| Статус | **merged** (не deployed) |
+| PR | [#37](https://github.com/zugrov/fin_pilot/pull/37) |
+| Merge SHA | `7258e2bb83997066ba1b541e737771078f6e628` |
+| Миграция | `20261111_0023` не на стенде/проде |
+
+**Содержание:** `source_correction_finding`, коллизии cash без UI/API.
+
+**CI PR #37:** backend, frontend, playwright — success.
+
+**STATE:** `fa_r03_4_v1` в [STATE.json](STATE.json). `current_stage` / `current_task` не менялись.

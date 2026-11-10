@@ -2492,10 +2492,37 @@
       "conclusion": "success"
     }
   },
+  "fa_r03_4_v1": {
+    "title": "FA-R03.4 v1: коллизии и коррекции источников (cash)",
+    "status": "merged",
+    "deployed": false,
+    "accepted": false,
+    "pr": 37,
+    "merge_sha": "7258e2bb83997066ba1b541e737771078f6e628",
+    "merged_at": "2026-11-10",
+    "migration_revision": "20261111_0023",
+    "migration_applied_staging": false,
+    "migration_applied_production": false,
+    "current_stage_unchanged": "STATE.json current_stage FA-R03, current_task FA-R03.2 — без смены по MASTER_PLAN",
+    "in_scope_merged": [
+      "source_correction_finding",
+      "period_overlap duplicate_suspect internal_transfer",
+      "скан после commit cash в import_service",
+      "period_from/to на fingerprint"
+    ],
+    "deferred": [
+      "CLI --report-corrections",
+      "reconciliation_run.metrics",
+      "сторно и FX",
+      "UI и публичный API"
+    ],
+    "design_doc": "docs/roadmap/FA-R03.4-corrections-design.md",
+    "depends_on": "fa_r03_3_min"
+  },
   "fa_r03_4": {
-    "status": "design_proposed",
-    "owner_decision": "pending",
-    "code_started": false,
+    "status": "v1_merged",
+    "owner_decision": "accepted_2026-11-10",
+    "code_started": true,
     "design_doc": "docs/roadmap/FA-R03.4-corrections-design.md",
     "scope_v1": [
       "пересечение периодов",
@@ -2505,7 +2532,17 @@
     "deferred_client_request": ["сторно", "валюты"],
     "depends_on": "FA-R03.3-min",
     "proposed_before": "FA-R03.3-full",
-    "approval_note": "утверждение design не разрешает код и миграции"
+    "v1_merge_sha": "7258e2bb83997066ba1b541e737771078f6e628",
+    "approval_note": "код v1 в main; migrate/deploy — отдельное окно"
+  },
+  "staging_window_pr25_0022_docs": {
+    "title": "Runbook окна деплоя PR #25 + migration 0022",
+    "status": "merged",
+    "deployed": false,
+    "pr": 36,
+    "merge_sha": "45f6668b27cb732b5f25fd49308dd981824c1806",
+    "runbook": "docs/runbook-staging-window-pr25-0022.md",
+    "main_sha_at_authoring": "91a2d55c24dce159b0777d901610c37bf9a8ba68"
   },
   "pilot_topkom_d6": {
     "organization": "ООО «ТОПКОМ»",
