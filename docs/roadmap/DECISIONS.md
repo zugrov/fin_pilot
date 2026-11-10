@@ -377,7 +377,7 @@ FA-R00.3 не блокируют.
 | ID | Решение | Gate пересмотра |
 | --- | --- | --- |
 | `real_pilot_isolation_method_before_launch` | **C** — staging = synthetic | **FA-R10.1** (A или B) |
-| `source_precedence_for_target_pnl_and_balance` | **A** — деньги/ClientBank для текущей модели; **ADR по начислению обязателен** до FA-R06.1–06.4 и R07 (**deferred**, не closed) | FA-R06.1–06.4, FA-R07 |
+| `source_precedence_for_target_pnl_and_balance` | **A** — банк/деньги + начисления для выручки; **ADR-004 accepted** 2026-11-10 (Q1–Q5); карта статей — FA-R06.2 | FA-R06.2 |
 | `period_close_authority` | **A** на staging; целевое **C** (чек-лист) | **FA-R06.4** |
 | `incoming_mail_provider_and_identity_boundary` | **C** — fixture only, `POLL_IMAP=false` | **FA-R04.2** |
 | `ocr_llm_data_processing_boundary` | **A** — local only, без внешнего LLM | **FA-R05** |
@@ -586,25 +586,21 @@ FA-R00.3 не блокируют.
 | L5 | Налоговая сторона сделки между **связанными лицами** — **бухгалтер + юрист**; **не** решать в продукте | по запросу | вне roadmap кода | консультация |
 | L6 | Контур B: секреты, TLS, мониторинг, доступы, порядок **активации** реальной фirmы, порядок **удаления** данных | 1–2 нед. после выбора провайдера B | FA-R10.1, после D6 | VPS/backup (OPEX после выбора) |
 
-**FA-R03.3 / FA-R03.4 — design proposed (ожидает владельца):**
-
-- Документы: [`FA-R03.3-provenance-design.md`](FA-R03.3-provenance-design.md), [`FA-R03.4-corrections-design.md`](FA-R03.4-corrections-design.md).
-- **Порядок этапов (предложение):** **FA-R03.3-min** (fingerprint + lineage) **→** **FA-R03.4 v1** (пересечение периодов, повтор платежа в разных файлах, внутренние переводы) **→** **FA-R03.3** полный (неизменяемый прогон сверки в **отдельной** таблице, не `DatasetCoverage`).
-- **Сторно и валюты** — пакет **«по запросу клиента»**, вне v1 FA-R03.4.
-- **Ledger-шаг** — **FA-R03.2d**, отдельно от FA-R03.3.
-
-**Q1–Q6 (FA-R03.3) — рекомендации (предложено, не принято):**
-
-| # | Вопрос | Рекомендация |
-| --- | --- | --- |
-| Q1 | Где хранить производные метрики сверки? | **Отдельная таблица `reconciliation_run`**, не `DatasetCoverage` |
-| Q2 | Срок хранения прогонов | **24 месяца** rolling |
-| Q3 | Product API сверки вне локального dev-флага | **Пока нет** |
-| Q4 | Ledger в том же релизе? | **Нет**, FA-R03.2d отдельно |
-| Q5 | Кто создаёт run | Роль **finance** (write) |
-| Q6 | UI в FA-R03.3 | **Не** в MVP |
+**FA-R03.3 / FA-R03.4 — design:** **принято 2026-11-10** (см. ниже § **2026-11-10**); FA-R03.4 — design без изменения этим листом.
 
 **Hold-out набор правил · скрипт:** воспроизведение — [`tools/august_card51_reconcile.py`](../../tools/august_card51_reconcile.py), README [`docs/tools-august-card51-reconcile.md`](../tools-august-card51-reconcile.md) (вместо `/tmp/finpilot_august_card51_reconcile.py`).
+
+### Ответ владельца · лист решений (**2026-11-10**)
+
+**Источник:** сообщение владельца; [OWNER-DECISIONS-2026-11-10.md](OWNER-DECISIONS-2026-11-10.md).
+
+**Строка ответа:** `ADR-Q1:A; ADR-Q2:mixed; ADR-Q3:dual; ADR-Q4:no; ADR-Q5:flag-only; R033-Q1:reconciliation_run; R033-Q2:24m; R033-Q3:no-api; R033-Q4:no-ledger; R033-Q5:finance-write; R033-Q6:no-ui; F061-Q6:bundle-no-seed; P4-Q4:bank-badge; ADR003-defl:wait; R033-order:A; P3:as-spec; P4:as-spec`
+
+**ADR-004** ([документ](ADR-004-accrual-vs-bank-source-precedence.md)): Q1 **A** (деньги — банк, выручка — начисления); Q2 **mixed map**; Q3 **dual** reconciled; Q4 **нет** авто-match; Q5 **flag-only** для рег↔банк.
+
+**FA-R03.3** ([design](FA-R03.3-provenance-design.md) **accepted**): Q1 таблица **`reconciliation_run`**; Q2 retention **24 мес**; Q3 **no-api** в продуктовом контуре без отдельного окна; Q4 **no-ledger**; Q5 запись — **finance write** + подтверждённый email, audit read; Q6 **no-ui**; порядок пакетов **A** (3.3-min → 3.4 v1 → 3.3 full).
+
+**Прочее:** ADR-003 дефляторы 2028–2029 — **ждать приказа**; FA-R06.1 Q6 — **bundle-no-seed**; P4 Q4 — **bank-badge**; P3/P4 — **as-spec**.
 
 ### FA-R06.2-B0 · массовая отмена применения правила (2026-10-22)
 
