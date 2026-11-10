@@ -175,6 +175,7 @@
 
 ## 8. Связанные документы
 
+- [`FA-R03.3-implementation-scope.md`](FA-R03.3-implementation-scope.md) — пакет реализации, API, тесты, DoD
 - [`FA-R03.2-reconciliation-design.md`](FA-R03.2-reconciliation-design.md)
 - [`FA-R03.2-owner-acceptance-checklist.md`](FA-R03.2-owner-acceptance-checklist.md)
 - [`FA-R03.1-sample-matrix.md`](FA-R03.1-sample-matrix.md)
