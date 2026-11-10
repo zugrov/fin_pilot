@@ -2446,9 +2446,9 @@
     "docs_acceptance_commit_note": "отдельный docs-коммит на fa-r03-2-reconciliation после product SHA 59279ff"
   },
   "fa_r03_3": {
-    "status": "design_proposed",
-    "owner_decision": "pending",
-    "code_started": false,
+    "status": "design_accepted",
+    "owner_decision": "accepted_2026-11-10",
+    "code_started": true,
     "design_doc": "docs/roadmap/FA-R03.3-provenance-design.md",
     "scope_narrowed": [
       "отпечаток исходника",
@@ -2457,8 +2457,40 @@
     ],
     "ledger_step": "FA-R03.2d отдельно",
     "proposed_after": "FA-R03.4 v1",
-    "subpackage_3_3_min": "fingerprint + lineage (до FA-R03.4)",
-    "approval_note": "утверждение design не разрешает код и миграции; миграции — отдельное одобрение с целью и средой"
+    "subpackage_3_3_min": "fingerprint + lineage + reconciliation_run DDL (main)",
+    "implementation_scope_doc": "docs/roadmap/FA-R03.3-implementation-scope.md",
+    "approval_note": "код 3.3-min в main; migrate/deploy — отдельное окно"
+  },
+  "fa_r03_3_min": {
+    "title": "FA-R03.3-min: provenance и reconciliation_run (DDL)",
+    "status": "merged",
+    "deployed": false,
+    "accepted": false,
+    "pr": 34,
+    "merge_sha": "0fc224d5eb39355a0911e1fb61a9024eb6307a14",
+    "merged_at": "2026-11-10",
+    "migration_revision": "20261110_0022",
+    "migration_applied_staging": false,
+    "migration_applied_production": false,
+    "current_stage_unchanged": "STATE.json current_stage FA-R03, current_task FA-R03.2 — без смены по MASTER_PLAN",
+    "in_scope_merged": [
+      "import_source_fingerprint",
+      "import_row_lineage",
+      "reconciliation_run table RLS append-only",
+      "provenance hook post-commit import",
+      "app_expire_reconciliation_runs SQL",
+      "integration tests RLS hook lineage retention"
+    ],
+    "deferred_by_owner_2026_11_10": [
+      "persist_reconciliation_run из сверки (с FA-R03.2 / FA-R03.4)",
+      "retention schedule worker/cron",
+      "reconciliation run API и UI",
+      "ledger FA-R03.2d"
+    ],
+    "ci_main_after_merge": {
+      "run_ci": "42843882983",
+      "conclusion": "success"
+    }
   },
   "fa_r03_4": {
     "status": "design_proposed",
