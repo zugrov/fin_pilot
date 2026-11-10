@@ -79,7 +79,9 @@ free -m
 ls -la "${APP_ROOT}/var/backups"
 ```
 
-**Агент 2026-11-10:** read-only SSH **не выполнен** (connect timeout); опора на **STATE/DECISIONS** (`20261027_0017`) до снятия факта владельцем в шаге 0.
+**Повтор 2026-11-10:** `ssh -o ConnectTimeout=10 … true` → **timeout**, без повторных попыток. Факт с VPS **не подтверждён**; сценарий **A** (`20261027_0017`) по-прежнему из STATE до `baseline.json` владельца.
+
+Если preflight SSH не проходит — окно migrate **не начинать**, пока шаг 0 не даст `alembic_version` и объём таблиц.
 
 ### Два сценария migrate
 
