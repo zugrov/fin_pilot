@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import (
     BACKEND,
+    HEAD_REVISION,
     freeze,
     login,
     open_workspace,
@@ -980,7 +981,7 @@ def test_scope_fk_gap_on_0011_then_enforced_on_0012(migrated_database) -> None:
                 "ingestion_delivery_parts_batch_scope_fk",
             )
     finally:
-        _alembic_revision(REVISION)
+        _alembic_revision("head")
 
 
 def test_migration_0012_downgrade_restores_0011_constraints(migrated_database) -> None:
@@ -996,7 +997,7 @@ def test_migration_0012_downgrade_restores_0011_constraints(migrated_database) -
             assert _constraint_exists(connection, "import_batches_delivery_fk")
             assert not _constraint_exists(connection, "import_batches_delivery_scope_fk")
     finally:
-        _alembic_revision(REVISION)
+        _alembic_revision("head")
 
 
 def test_rls_hides_foreign_tenant_delivery(client, admin, app, fake, tmp_path) -> None:
@@ -1043,7 +1044,7 @@ def test_migration_downgrade_blocked_with_transport_history(
         deliveries = connection.execute(
             text("SELECT count(*) FROM ingestion_deliveries")
         ).scalar_one()
-    assert revision == REVISION
+    assert revision == HEAD_REVISION
     assert int(deliveries) >= 1
 
 
@@ -1055,7 +1056,7 @@ def test_migration_sql_downgrade_guard(migrated_database) -> None:
     assert "downgrade_blocked" in downgrade_sql
     with migrated_database.connect() as connection:
         revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert revision == REVISION
+    assert revision == HEAD_REVISION
 
 
 def _wallet(client, company_id: str) -> str:
