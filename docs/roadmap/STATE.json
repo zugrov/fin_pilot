@@ -2550,7 +2550,13 @@
   },
   "staging_baseline_probe_2026_11_10": {
     "ssh_readonly_agent": "connect_timeout_not_completed",
+    "ssh_readonly_retry_2026_11_10": {
+      "preflight": "ssh -o ConnectTimeout=10 … true",
+      "result": "connect_timeout",
+      "retries": 0
+    },
     "schema_expected_from_state": "20261027_0017",
+    "confirmed_alembic_on_staging": null,
     "deployed_code_expected": "behind_main_see_DECISIONS_2026_11_10",
     "disk_and_table_counts": "pending_owner_step_0_var_WINDOW_ID",
     "rehearsal_large_0017_to_0023": {
