@@ -7,6 +7,7 @@ END
 $$;
 
 DROP POLICY IF EXISTS reconciliation_run_retention ON reconciliation_run;
+DROP POLICY IF EXISTS reconciliation_run_worker_select ON reconciliation_run;
 DROP POLICY IF EXISTS reconciliation_run_tenant ON reconciliation_run;
 DROP POLICY IF EXISTS import_row_lineage_tenant ON import_row_lineage;
 DROP POLICY IF EXISTS import_source_fingerprints_tenant ON import_source_fingerprints;

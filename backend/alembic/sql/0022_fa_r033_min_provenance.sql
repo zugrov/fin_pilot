@@ -99,7 +99,8 @@ CREATE POLICY reconciliation_run_tenant ON reconciliation_run
 
 GRANT SELECT, INSERT, UPDATE ON import_source_fingerprints TO finpilot_app, finpilot_worker;
 GRANT SELECT, INSERT ON import_row_lineage TO finpilot_app, finpilot_worker;
-GRANT SELECT, INSERT ON reconciliation_run TO finpilot_app, finpilot_worker;
+GRANT SELECT, INSERT ON reconciliation_run TO finpilot_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON reconciliation_run TO finpilot_worker;
 
 REVOKE UPDATE, DELETE ON reconciliation_run FROM finpilot_app;
 
@@ -127,27 +128,27 @@ CREATE OR REPLACE FUNCTION app_expire_reconciliation_runs(
 )
 RETURNS integer
 LANGUAGE plpgsql
-SECURITY DEFINER
+SECURITY INVOKER
 SET search_path = public
 AS $$
 DECLARE
-  removed integer;
+  v_row reconciliation_run%ROWTYPE;
+  v_count integer := 0;
 BEGIN
   PERFORM set_config('app.reconciliation_run_retention', '1', true);
-  WITH doomed AS (
-    SELECT id, tenant_id
+  FOR v_row IN
+    SELECT *
     FROM reconciliation_run
     WHERE created_at < p_before
     ORDER BY created_at
     LIMIT p_limit
-    FOR UPDATE
-  )
-  DELETE FROM reconciliation_run rr
-  USING doomed d
-  WHERE rr.id = d.id AND rr.tenant_id = d.tenant_id;
-  GET DIAGNOSTICS removed = ROW_COUNT;
+  LOOP
+    DELETE FROM reconciliation_run
+    WHERE tenant_id = v_row.tenant_id AND id = v_row.id;
+    v_count := v_count + 1;
+  END LOOP;
   PERFORM set_config('app.reconciliation_run_retention', '', true);
-  RETURN removed;
+  RETURN v_count;
 END;
 $$;
 
@@ -155,6 +156,15 @@ ALTER FUNCTION app_expire_reconciliation_runs(timestamptz, integer) OWNER TO fin
 REVOKE ALL ON FUNCTION app_expire_reconciliation_runs(timestamptz, integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app_expire_reconciliation_runs(timestamptz, integer)
   TO finpilot_worker;
+
+CREATE POLICY reconciliation_run_worker_select ON reconciliation_run
+  AS PERMISSIVE
+  FOR SELECT
+  TO finpilot_worker
+  USING (
+    tenant_id = app_tenant()
+    OR current_setting('app.reconciliation_run_retention', true) = '1'
+  );
 
 CREATE POLICY reconciliation_run_retention ON reconciliation_run
   AS PERMISSIVE
