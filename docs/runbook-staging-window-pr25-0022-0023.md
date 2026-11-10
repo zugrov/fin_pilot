@@ -62,8 +62,8 @@ CI **main** на выбранном SHA — **success** (backend, frontend, play
 
 | Этап | Ориентир (синтетика, ~2 импорта до upgrade) |
 | --- | --- |
-| `upgrade` с `20261107_0021` → head (0022+0023) | **заполнить после прогона скрипта** (`timings_seconds.upgrade_0021_to_head`) |
-| Полный roundtrip downgrade `0021` → upgrade head (legacy-данные, пустые таблицы 0022/0023) | **заполнить после прогона** (`downgrade_head_to_0021` + `upgrade_roundtrip_to_head`) |
+| `upgrade` с `20261107_0021` → head (0022+0023) | **~0,06 с** (`scripts/rehearse_staging_migrations_0022_0023.py`, 2026-11-10, `upgrade_0021_to_head`) |
+| Полный roundtrip downgrade `0021` → upgrade head (legacy-данные, пустые таблицы 0022/0023) | **~0,12 с** (downgrade + upgrade roundtrip в том же прогоне) |
 | На стенде (объём ООО «Топ») | **DECISION_REQUIRED:** владелец фиксирует фактическое время migrate из логов окна; ориентир — порядок **1–5 мин** при одном `upgrade head`, если baseline уже `20261107_0021`. |
 
 > **Факт STATE:** историческая схема стенда может быть ниже `20261107_0021` (`migration_staging_note`: `20261027_0017`); тогда один `upgrade head` пройдёт длиннее — время окна и бэкап обязательны.
