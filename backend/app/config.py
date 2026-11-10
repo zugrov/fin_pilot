@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     classification_packs_enabled: bool = False
     fa_r03_local_reconciliation_enabled: bool = False
     fa_r03_local_samples_root: str = ""
+    reconciliation_run_retention_months: int = 24
     fa_r03_local_reconciliation_company_id: str = ""
 
     @field_validator("app_env")

@@ -596,7 +596,7 @@ def commit_import(
     if batch.status != "preview_ready":
         raise AppError(409, "conflict", "Импорт нельзя провести")
     batch.status = "committing"
-    committed, pending, has_review = _commit_identity_batch(
+    committed, pending, has_review, lineage_events = _commit_identity_batch(
         session, company, connection, company_user, batch, at
     )
     batch.rows_committed = committed
@@ -616,6 +616,23 @@ def commit_import(
         batch.status = "completed"
         batch.quality_flags = flags
     session.flush()
+    if committed > 0:
+        from app.services.provenance_service import (
+            record_lineage_events,
+            register_batch_fingerprint,
+        )
+
+        register_batch_fingerprint(
+            session,
+            company.id,
+            company.tenant_id,
+            batch,
+            connection,
+            at,
+        )
+        record_lineage_events(
+            session, company.tenant_id, company.id, lineage_events, at
+        )
     _batch_audit(session, company_user, company.tenant_id, "import_committed", batch.id, at)
     invalidate_reconciled_for_connection(session, connection, at, reason="import_commit")
     if commit_delivery is not None:
@@ -1264,9 +1281,12 @@ def _commit_identity_batch(
     company_user: User,
     batch: ImportBatch,
     at: datetime,
-) -> tuple[int, bool, bool]:
+) -> tuple[int, bool, bool, list]:
+    from app.services.provenance_service import LineageEvent
+
     rows = _rows(session, batch)
     entity_type = _dataset_entity(connection.dataset)
+    lineage_events: list[LineageEvent] = []
     keys = sorted(
         {
             (connection.namespace, row.external_id)
@@ -1373,7 +1393,16 @@ def _commit_identity_batch(
                 payload_hash=row.payload_hash,
                 advance_only=False,
             )
-    return committed, pending, has_review
+            if identity.canonical_entity_id is not None:
+                lineage_events.append(
+                    LineageEvent(
+                        row=row,
+                        entity_kind=entity_type,
+                        entity_id=identity.canonical_entity_id,
+                        source_identity_id=identity.id,
+                    )
+                )
+    return committed, pending, has_review, lineage_events
 
 
 def _parse_balances(content: bytes, connection: SourceConnection, settings: Settings):
