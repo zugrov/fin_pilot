@@ -1,6 +1,6 @@
 # Лист решений владельца · 2026-11-10
 
-**Статус:** для ответа владельца; **ничего здесь не считается принятым** (`accepted` в ADR/STATE не ставится этим файлом).  
+**Статус:** **отвечено владельцем 2026-11-10** (зафиксировано в DECISIONS.md, ADR-004, FA-R03.3 design).  
 **Источники:** [ADR-004](ADR-004-accrual-vs-bank-source-precedence.md) §6, [FA-R03.3-provenance-design.md](FA-R03.3-provenance-design.md) §7, [DECISIONS.md](DECISIONS.md), [STATE.json](STATE.json).
 
 ---
@@ -280,13 +280,13 @@
 
 ---
 
-## 4. Шаблон ответа владельца (одна строка)
-
-Скопируйте, подставьте буквы (**A/B/C** или значения из таблиц):
+## 4. Ответ владельца (2026-11-10, дословно)
 
 ```text
 ADR-Q1:A; ADR-Q2:mixed; ADR-Q3:dual; ADR-Q4:no; ADR-Q5:flag-only; R033-Q1:reconciliation_run; R033-Q2:24m; R033-Q3:no-api; R033-Q4:no-ledger; R033-Q5:finance-write; R033-Q6:no-ui; F061-Q6:bundle-no-seed; P4-Q4:bank-badge; ADR003-defl:wait; R033-order:A; P3:as-spec; P4:as-spec
 ```
+
+**Источник:** сообщение владельца.
 
 ---
 

@@ -194,6 +194,22 @@
       "ci_checks": "backend, frontend, playwright — success на PR #27–#29"
     }
   },
+  "owner-decisions-2026-11-10": {
+    "title": "Ответ владельца на лист решений 2026-11-10",
+    "outside_fa_r_linear_stages": true,
+    "status": "recorded",
+    "decision_date": "2026-11-10",
+    "source": "owner_message",
+    "paths": [
+      "docs/roadmap/DECISIONS.md#2026-11-10",
+      "docs/roadmap/OWNER-DECISIONS-2026-11-10.md",
+      "docs/roadmap/ADR-004-accrual-vs-bank-source-precedence.md",
+      "docs/roadmap/FA-R03.3-provenance-design.md",
+      "docs/roadmap/ADR-003-organization-profile-and-tax-rules.md"
+    ],
+    "response_line": "ADR-Q1:A; ADR-Q2:mixed; ADR-Q3:dual; ADR-Q4:no; ADR-Q5:flag-only; R033-Q1:reconciliation_run; R033-Q2:24m; R033-Q3:no-api; R033-Q4:no-ledger; R033-Q5:finance-write; R033-Q6:no-ui; F061-Q6:bundle-no-seed; P4-Q4:bank-badge; ADR003-defl:wait; R033-order:A; P3:as-spec; P4:as-spec",
+    "notes": "current_stage/current_task не менялись — FA-R03.1 по-прежнему ждёт образцов S10/S11"
+  },
   "stages": [
     {
       "id": "FA-R00",
