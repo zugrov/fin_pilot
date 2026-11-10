@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Deploy (remote)",
+      "type": "shell",
+      "command": "ssh \"${input:deploySshAlias}\" 'set -euo pipefail; cd \"${input:appRoot}\"; git fetch origin main; git checkout -B main origin/main; docker compose --env-file .env -f infra/docker-compose.prod.yml -f infra/docker-compose.prod.ip.override.yml up -d'",
+      "problemMatcher": []
+    },
+    {
+      "label": "Logs (remote)",
+      "type": "shell",
+      "command": "ssh \"${input:deploySshAlias}\" 'cd \"${input:appRoot}\" && docker compose --env-file .env -f infra/docker-compose.prod.yml -f infra/docker-compose.prod.ip.override.yml logs -f --tail=200'",
+      "problemMatcher": [],
+      "isBackground": true
+    },
+    {
+      "label": "Restart (remote)",
+      "type": "shell",
+      "command": "ssh \"${input:deploySshAlias}\" 'cd \"${input:appRoot}\" && docker compose --env-file .env -f infra/docker-compose.prod.yml -f infra/docker-compose.prod.ip.override.yml restart'",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "deploySshAlias",
+      "type": "promptString",
+      "description": "SSH Host alias (~/.ssh/config)",
+      "default": "finpilot"
+    },
+    {
+      "id": "appRoot",
+      "type": "promptString",
+      "description": "Каталог приложения на сервере",
+      "default": "/opt/finpilot"
+    }
+  ]
+}

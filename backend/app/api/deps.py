@@ -10,6 +10,7 @@ from app.errors import AppError
 from app.models.identity import Membership, User
 from app.models.identity import Session as SessionRow
 from app.security.access import require_membership
+from app.security.client_ip import resolve_client_ip
 from app.security.rate_limit import enforce
 from app.services.auth_service import load_session
 
@@ -35,12 +36,7 @@ def settings_of(request: Request) -> Settings:
 
 
 def client_ip(request: Request, settings: Settings) -> str:
-    peer = request.client.host if request.client else ""
-    if settings.trust_proxy and peer in {"127.0.0.1", "::1"}:
-        forwarded = request.headers.get("x-forwarded-for", "")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-    return peer
+    return resolve_client_ip(request, settings)
 
 
 def limit(request: Request, action: str, max_hits: int, window: int) -> None:

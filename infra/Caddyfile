@@ -1,6 +1,7 @@
 :80 {
 	encode gzip
 	handle /api/* {
+		# Caddy reverse_proxy по умолчанию добавляет X-Forwarded-For с адресом клиента.
 		reverse_proxy api:8000
 	}
 	handle /health/* {
