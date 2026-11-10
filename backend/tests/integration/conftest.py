@@ -103,6 +103,11 @@ def migrated_database():
 
 
 HEAD_REVISION = "20261111_0023"
+# Ревизия схемы стенда непосредственно перед окном FA-R03.3-min (runbook / ожидание migrate).
+STAGING_BASELINE_REVISION = "20261107_0021"
+# Целевые ревизии пакетов (roundtrip/downgrade guard), не подменяют HEAD_REVISION.
+FA_R033_MIGRATION_REVISION = "20261110_0022"
+FA_R034_MIGRATION_REVISION = "20261111_0023"
 
 # Baseline из alembic/sql/0002_billing.sql — после очистки test-only строк в annual_offer_versions.
 _ANNUAL_OFFER_BASELINE = text(

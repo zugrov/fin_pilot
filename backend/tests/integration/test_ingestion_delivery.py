@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from tests.integration.balances_test_util import assert_finpilot_test_database
 from tests.integration.conftest import (
     BACKEND,
+    FA_R033_MIGRATION_REVISION,
     HEAD_REVISION,
     freeze,
     login,
@@ -34,7 +35,8 @@ from tests.integration.conftest import (
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "imports"
 RECEIVED = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 SCOPE_SEED_AT = RECEIVED
-REVISION = "20261110_0022"
+# Пин схемы для сценариев ingestion 0011/0012 (не repo head).
+INGESTION_LEGACY_REVISION_PIN = FA_R033_MIGRATION_REVISION
 REV_0011 = "20261018_0011"
 PREV = "20261017_0010"
 _PG_PORT = __import__("os").environ.get("TEST_PG_PORT", "5432")
@@ -960,7 +962,7 @@ def test_scope_fk_gap_on_0011_then_enforced_on_0012(migrated_database) -> None:
                 text("DELETE FROM ingestion_delivery_parts WHERE id = :id"),
                 {"id": gap_part},
             )
-        _alembic_revision(REVISION)
+        _alembic_revision(INGESTION_LEGACY_REVISION_PIN)
         with migrated_database.begin() as connection:
             fixtures = _seed_scope_fixtures(connection)
             _expect_fk_violation(
@@ -986,7 +988,7 @@ def test_scope_fk_gap_on_0011_then_enforced_on_0012(migrated_database) -> None:
 
 def test_migration_0012_downgrade_restores_0011_constraints(migrated_database) -> None:
     assert_finpilot_test_database(migrated_database)
-    _alembic_revision(REVISION)
+    _alembic_revision(INGESTION_LEGACY_REVISION_PIN)
     try:
         with migrated_database.connect() as connection:
             assert _constraint_exists(connection, "ingestion_delivery_parts_batch_scope_fk")
