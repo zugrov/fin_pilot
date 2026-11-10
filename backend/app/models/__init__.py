@@ -58,7 +58,12 @@ from app.models.plan import (
     PlannedCashEvent,
     RecurrenceRule,
 )
-from app.models.provenance import ImportRowLineage, ImportSourceFingerprint, ReconciliationRun
+from app.models.provenance import (
+    ImportRowLineage,
+    ImportSourceFingerprint,
+    ReconciliationRun,
+    SourceCorrectionFinding,
+)
 from app.models.revenue import Counterparty, Direction, RevenueCashMatch, RevenueEntry
 from app.models.signals import (
     Alert,
@@ -130,6 +135,7 @@ __all__ = [
     "RawImportRow",
     "RecurrenceRule",
     "ReconciliationRun",
+    "SourceCorrectionFinding",
     "Refund",
     "RevenueCashMatch",
     "RevenueEntry",

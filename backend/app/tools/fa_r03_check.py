@@ -34,6 +34,7 @@ from app.domain.imports.fa_r03.cash_flow_sections import (
     section_for_account,
 )
 from app.domain.imports.fa_r03.clientbank_daily import parse_clientbank_daily_sections
+from app.domain.imports.fa_r03.deposit_heuristics import deposit_operation_bucket
 from app.domain.imports.fa_r03.osv_month import (
     OsvCounterpartySheet,
     OsvSingleAccountSheet,
@@ -87,11 +88,6 @@ class MonthSamples:
     s9b: Path | None
     s12: Path | None
     s13: Path | None
-
-
-DEPOSIT_PLACEMENT = ("РАЗМЕЩЕНИЕ ВКЛАД", "РАЗМЕЩЕНИЕ ДЕПОЗ", "ВО ВКЛАД", "НА ДЕПОЗ")
-DEPOSIT_RETURN = ("ВОЗВРАТ ДЕПОЗИТ", "ВОЗВРАТ ВКЛАД")
-DEPOSIT_INTEREST = ("ПРОЦЕНТОВ ПО ДЕПОЗ",)
 
 
 @dataclass(frozen=True)
@@ -333,17 +329,6 @@ def s1_document_kind_counts(content: bytes, encoding: str) -> dict[str, int]:
         if line.startswith("СекцияДокумент="):
             counts[line.split("=", 1)[1].strip()] += 1
     return dict(counts)
-
-
-def deposit_operation_bucket(description: str) -> str | None:
-    upper = (description or "").upper()
-    if any(marker in upper for marker in DEPOSIT_PLACEMENT):
-        return "placement"
-    if any(marker in upper for marker in DEPOSIT_RETURN):
-        return "return"
-    if any(marker in upper for marker in DEPOSIT_INTEREST):
-        return "interest"
-    return None
 
 
 def report_pack_coverage(
