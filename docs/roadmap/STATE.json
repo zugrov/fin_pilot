@@ -2541,8 +2541,12 @@
     "deployed": false,
     "pr": 36,
     "merge_sha": "45f6668b27cb732b5f25fd49308dd981824c1806",
-    "runbook": "docs/runbook-staging-window-pr25-0022.md",
-    "main_sha_at_authoring": "91a2d55c24dce159b0777d901610c37bf9a8ba68"
+    "runbook": "docs/runbook-staging-window-pr25-0022-0023.md",
+    "main_sha_at_authoring": "a0d5ac73789d955e35330985e75956ae88268e05",
+    "migrations": [
+      "20261110_0022",
+      "20261111_0023"
+    ]
   },
   "pilot_topkom_d6": {
     "organization": "ООО «ТОПКОМ»",

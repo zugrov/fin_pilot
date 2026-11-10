@@ -56,7 +56,7 @@
 | Статус | **merged** (runbook; не deployed) |
 | PR | [#36](https://github.com/zugrov/fin_pilot/pull/36) |
 | Merge SHA | `45f6668b27cb732b5f25fd49308dd981824c1806` |
-| Runbook | [runbook-staging-window-pr25-0022.md](../runbook-staging-window-pr25-0022.md) |
+| Runbook | [runbook-staging-window-pr25-0022-0023.md](../runbook-staging-window-pr25-0022-0023.md) |
 
 **Содержание:** бэкап, migrate `20261110_0022`, smoke provenance/RLS, откат, чек-лист владельца + PR #25.
 
