@@ -108,3 +108,29 @@
 - Вызов сервисного пути на стенде: флаг сам по себе строку не создаёт
 
 **STATE:** `fa_r03_2_persist_run` в [STATE.json](STATE.json). `current_stage` / `current_task` не менялись.
+
+## fa-r03-2-persist-run-cli
+
+| Поле | Значение |
+| --- | --- |
+| Статус | **merged** (не deployed, не accepted) |
+| Решение владельца | **B**: непубличный CLI одной smoke-строки; API и UI не добавлять (R033 Q3, Q6) |
+| PR | [#49](https://github.com/zugrov/fin_pilot/pull/49) |
+| Head PR (CI) | `bc16c4849529b97e142757731e016389f75cc667` |
+| Merge SHA | `dca0cbd618064aa266db8358826b909bd8acc1e8` |
+| merged_at | 2026-11-11T13:39:01Z |
+| Команда | `python -m app.tools.fa_r03_persist_run` |
+| Флаг | `RECONCILIATION_RUN_PERSIST_ENABLED` **false** по умолчанию |
+
+**Содержание:** без `--yes` CLI считает сверку и ничего не пишет. С `--yes` загружает пользователя по email, проверяет finance write и подтверждённый email и пишет одну строку через `reconcile_bank_card51_for_company`, только если флаг включён. Повтор — вторая строка с `supersedes_run_id`. В stdout и логах нет полного email, контрагентов и назначений.
+
+**CI PR #49** на `bc16c48…`: backend, frontend, playwright — **success** (ci `43029110567`, e2e `43029110684`; push-дубли ci `43029100840`, e2e `43029100843`).
+
+**CI main** на `dca0cbd…`: ci [43031041447](https://github.com/zugrov/fin_pilot/actions/runs/43031041447), e2e [43031041354](https://github.com/zugrov/fin_pilot/actions/runs/43031041354) — **success**.
+
+**Не проверено**
+
+- Деплой, включение флага и запуск CLI на стенде
+- Команды runbook не выполнялись
+
+**STATE:** `fa_r03_2_persist_run_cli` в [STATE.json](STATE.json). `current_stage` / `current_task` не менялись.

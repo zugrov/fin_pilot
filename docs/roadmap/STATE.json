@@ -2487,7 +2487,7 @@
       "reconciliation run API и UI",
       "ledger FA-R03.2d"
     ],
-    "persist_run_followup": "код записи прогона в main 2026-11-11, ключ fa_r03_2_persist_run; флаг выключен по умолчанию, не deployed",
+    "persist_run_followup": "код записи прогона в main 2026-11-11, ключ fa_r03_2_persist_run; одна smoke-строка — непубличный CLI, ключ fa_r03_2_persist_run_cli; флаг выключен по умолчанию, не deployed",
     "ci_main_after_merge": {
       "run_ci": "42843882983",
       "conclusion": "success"
@@ -2515,7 +2515,8 @@
     "r033_q6": "no-ui",
     "current_stage_unchanged": "STATE.json current_stage FA-R03, current_task FA-R03.2 — без смены по MASTER_PLAN",
     "call_site": "reconcile_bank_card51_for_company после расчёта; GET bank-card-51 не пишет",
-    "enable_on_staging": "только после успешной миграции 20261111_0023 и smoke, см. runbook окна",
+    "enable_on_staging": "только после успешной миграции 20261111_0023 и smoke; одна строка — непубличный CLI, см. fa_r03_2_persist_run_cli",
+    "smoke_cli": "fa_r03_2_persist_run_cli",
     "ci_pr": {
       "head": "4cd403788b1f5825a04b3b24405bdc54c00d279c",
       "run_ci": "42998106382",
@@ -2526,6 +2527,40 @@
       "sha": "0cb5b66357f73758a3d9270be248f52fcdb65d59",
       "run_ci": "42999595253",
       "run_e2e": "42999595343",
+      "conclusion": "success"
+    }
+  },
+  "fa_r03_2_persist_run_cli": {
+    "title": "FA-R03.2: непубличный CLI одной smoke-записи прогона",
+    "status": "merged",
+    "deployed": false,
+    "accepted": false,
+    "owner_decision": "B",
+    "owner_decision_note": "непубличный CLI; публичный API и UI не добавлять (R033 Q3, Q6)",
+    "pr": 49,
+    "pr_head_sha": "bc16c4849529b97e142757731e016389f75cc667",
+    "merge_sha": "dca0cbd618064aa266db8358826b909bd8acc1e8",
+    "merged_at": "2026-11-11T13:39:01Z",
+    "command": "python -m app.tools.fa_r03_persist_run",
+    "public_api": false,
+    "ui": false,
+    "flag": "RECONCILIATION_RUN_PERSIST_ENABLED",
+    "flag_default": false,
+    "migration_added": false,
+    "ledger_unchanged": true,
+    "current_stage_unchanged": "STATE.json current_stage FA-R03, current_task FA-R03.2 — без смены по MASTER_PLAN",
+    "ci_pr": {
+      "head": "bc16c4849529b97e142757731e016389f75cc667",
+      "run_ci": "43029110567",
+      "run_e2e": "43029110684",
+      "run_ci_push": "43029100840",
+      "run_e2e_push": "43029100843",
+      "conclusion": "success"
+    },
+    "ci_main_after_merge": {
+      "sha": "dca0cbd618064aa266db8358826b909bd8acc1e8",
+      "run_ci": "43031041447",
+      "run_e2e": "43031041354",
       "conclusion": "success"
     }
   },
