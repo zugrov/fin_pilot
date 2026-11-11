@@ -52,7 +52,7 @@ CI **main** на выбранном SHA — **success** (backend, frontend, play
 - Скан после **commit cash**: `period_overlap`, `duplicate_suspect`, `internal_transfer`.
 - Период на `import_source_fingerprints` из min/max `business_date` по batch.
 
-**Вне этого окна:** cron retention, сторно/FX, UI коррекций, публичный API и UI прогонов сверки, деплой без бэкапа. Код записи прогона уже в main; `RECONCILIATION_RUN_PERSIST_ENABLED` остаётся **false**, пока не выполнен шаг после успешной миграции и smoke.
+**Вне этого окна:** cron retention, сторно/FX, UI коррекций, публичный API и UI прогонов сверки, деплой без бэкапа. Код записи прогона и непубличный CLI уже в main; `RECONCILIATION_RUN_PERSIST_ENABLED` остаётся **false**, пока не выполнен шаг после успешной миграции и smoke.
 
 ---
 
@@ -134,11 +134,11 @@ DDL-шаги **не сканируют** cash; время отражает на�
 ## Порядок шагов (обязательная последовательность)
 
 1. **До касания продакшн-данных:** снять **бэкап БД** (pg_dump или согласованный snapshot VPS).
-2. **Обновление кода:** `git pull` → SHA ≥ `7258e2b` (рекомендуется полный main `a0d5ac7…`).
+2. **Обновление кода:** `git pull` → SHA ≥ `dca0cbd` (в нём непубличный CLI прогона; миграции 0022/0023 уже с `7258e2b`).
 3. **Миграция:** один прогон `alembic upgrade head` из **migrate**-контейнера/job с `MIGRATION_DATABASE_URL`.
 4. **Пересборка и перезапуск:** `docker compose … up -d --build api worker beat frontend proxy` (три override — см. базовый runbook).
 5. **Smoke post-migrate:** health, revision **0023**, таблицы/RLS, worker grants, import → fingerprint/lineage + **коррекции** (§ ниже).
-6. **Флаг прогона сверки** — только если шаг 5 **PASS**: в env api выставить `RECONCILIATION_RUN_PERSIST_ENABLED=true` (не в git) и перезапустить api. До этого шага флаг **false**. Если migrate или smoke не PASS — флаг не включать.
+6. **Флаг и одна smoke-строка прогона** — только если шаг 5 **PASS**: включить `RECONCILIATION_RUN_PERSIST_ENABLED` в `.env` стенда, перезапустить api, пробный CLI, затем CLI с `--yes`, проверить одну строку и логи. После проверки решить: оставить флаг или вернуть `false`. Если migrate или smoke шага 5 не PASS — флаг не включать и `--yes` не запускать.
 7. **Приёмка PR #25:** `staging_acceptance.py`, tenant B, webhook IP.
 8. **Ручной UI** 10–15 мин (базовый acceptance).
 9. **Завершение:** дамп после окна, отчёт `var/${WINDOW_ID}/` (`baseline.json`, `migrate_timing.txt`, smoke batch id), остановка VPS по политике.
@@ -269,28 +269,114 @@ ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
 
 Ожидание: нет `import_provenance_failed` / `correction_scan_failed` на успешном smoke; нет необъяснимых ERROR.
 
-### 8. Флаг `RECONCILIATION_RUN_PERSIST_ENABLED` (после smoke PASS)
+### 8. Флаг и одна smoke-строка CLI (после smoke PASS)
 
-Команды ниже — для ручного окна. Агент их не выполняет.
+Команды ниже — для ручного окна. Из CI и агентом их не выполнять. Не подставлять клиентские выгрузки: только синтетические `S1_*.txt` и `S2_*.xls`.
 
-Включать **только после** `alembic_version = 20261111_0023` и успешного smoke выше (provenance, коррекции, логи без `import_provenance_failed` / `correction_scan_failed`). До этого в env api флаг отсутствует или равен `false` (значение по умолчанию в коде).
+Включать **только после** `alembic_version = 20261111_0023` и успешного smoke выше (provenance, коррекции, логи без `import_provenance_failed` / `correction_scan_failed`). До этого в env api флаг отсутствует или равен `false` (значение по умолчанию в коде). Код CLI — main с `dca0cbd`; образ api должен быть собран на этом SHA (шаг 4), иначе модуля в контейнере нет. `SAMPLES_DIR`, `COMPANY_ID`, `PERIOD`, `ACTOR_EMAIL` задаются в оболочке на стенде, не в git.
+
+Переменная читается из `${APP_ROOT}/.env` на стенде (`env_file` сервиса `api` в compose). Файла `.env` в git нет.
 
 ```bash
-# в .env на стенде, не в git
+# в ${APP_ROOT}/.env на стенде, не в git
 RECONCILIATION_RUN_PERSIST_ENABLED=true
 ```
 
-Перезапуск **только api** (compose override — как в базовом runbook), чтобы процесс перечитал env.
+Перезапуск **только api**, тем же набором compose, что и окно, чтобы процесс перечитал env:
+
+```bash
+ssh "${SSH_ALIAS}" 'set -euo pipefail
+  cd "${APP_ROOT}"
+  docker compose --env-file .env \
+    -f infra/docker-compose.prod.yml \
+    -f infra/docker-compose.prod.ip.override.yml \
+    -f infra/docker-compose.prod.deploy.override.yml \
+    up -d --no-deps api'
+```
 
 Что флаг делает и чего не делает:
 
 - Включает запись append-only `reconciliation_run` в `reconcile_bank_card51_for_company` (finance write + подтверждённый email).
 - **Не** превращает `GET /api/v1/companies/{id}/reconciliation/bank-card-51` в запись: осмотр остаётся без побочных эффектов.
-- Публичного API и UI прогонов нет. Строка в БД появляется, когда вызывается этот сервисный путь, а не от самого факта `true` в env.
-- Повторный прогон добавляет вторую строку (`supersedes_run_id`), без UPDATE. Ledger не меняется.
+- Публичного API и UI прогонов нет. Сам факт `true` в env строку не создаёт.
+- Повторный прогон добавляет вторую строку (`supersedes_run_id`), без UPDATE. Для smoke окна нужен один запуск с `--yes`.
 - Сбой INSERT пишется в лог как `reconciliation_run_persist_failed` с `company_id` и периодом, без текстов назначений и email.
 
-В `var/${WINDOW_ID}/notes.md`: `persist_flag=true|false`, момент перезапуска api. Id прогона — только если сервисный путь реально вызывали; без PII.
+Пробный запуск (без `--yes`): считает сверку, печатает счётчики и `persist=skipped`, в БД не пишет. `--as-user` — email пользователя с finance write и подтверждённым email. В notes не копировать полный email: CLI печатает маску, в SQL смотреть `created_by_user_id`.
+
+```bash
+ssh "${SSH_ALIAS}" 'set -euo pipefail
+  cd "${APP_ROOT}"
+  docker compose --env-file .env \
+    -f infra/docker-compose.prod.yml \
+    -f infra/docker-compose.prod.ip.override.yml \
+    -f infra/docker-compose.prod.deploy.override.yml \
+    run --rm -v "${SAMPLES_DIR}:/samples:ro" api \
+    uv run python -m app.tools.fa_r03_persist_run \
+      --company-id "${COMPANY_ID}" \
+      --period "${PERIOD}" \
+      --as-user "${ACTOR_EMAIL}" \
+      /samples'
+```
+
+Ожидание пробного запуска: exit 0, в stdout `persist=skipped` и счётчики, без контрагентов, назначений и полного email. `count(*)` по `reconciliation_run` для этого `company_id` не вырос.
+
+Запуск с записью — та же команда и то же окружение, в конце аргументов `--yes`. Флаг в env уже `true`, иначе CLI отказывает и ничего не пишет.
+
+```bash
+ssh "${SSH_ALIAS}" 'set -euo pipefail
+  cd "${APP_ROOT}"
+  docker compose --env-file .env \
+    -f infra/docker-compose.prod.yml \
+    -f infra/docker-compose.prod.ip.override.yml \
+    -f infra/docker-compose.prod.deploy.override.yml \
+    run --rm -v "${SAMPLES_DIR}:/samples:ro" api \
+    uv run python -m app.tools.fa_r03_persist_run \
+      --company-id "${COMPANY_ID}" \
+      --period "${PERIOD}" \
+      --as-user "${ACTOR_EMAIL}" \
+      --yes \
+      /samples'
+```
+
+Ожидание: exit 0, одна строка `run_id=…` и `persist=written`.
+
+Проверка одной строки (id из stdout, без дампа JSON):
+
+```sql
+SELECT count(*) FROM reconciliation_run
+ WHERE company_id = :company_id AND run_kind = 'bank_card_51';
+SELECT id, run_kind, period_year, period_month,
+       created_by_user_id, supersedes_run_id
+  FROM reconciliation_run
+ WHERE id = :run_id;
+```
+
+Ожидание: count = 1, `id` совпадает с напечатанным `run_id`, `created_by_user_id` — указанный пользователь, `supersedes_run_id` пуст.
+
+Логи одноразового CLI и api: нет `reconciliation_run_persist_failed`, `reconciliation_run_cli_failed`, `ERROR`, `Traceback`. В вывод не должны попасть назначения, контрагенты и полный email.
+
+```bash
+ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  -f infra/docker-compose.prod.deploy.override.yml \
+  logs --since=30m api 2>&1 \
+  | grep -E "reconciliation_run_persist_failed|reconciliation_run_cli_failed|ERROR|Traceback" || true'
+```
+
+Решение после успешной одной строки — записать в `var/${WINDOW_ID}/notes.md` (`persist_flag=left_true|reset_false`, `run_id`, без email и без сырого лога):
+
+- Вернуть `false` и снова перезапустить api (тот же `up -d --no-deps api`). Так следующий вызов сверки не допишет строку. Это ожидаемый исход smoke, если владелец отдельно не оставляет флаг включённым.
+- Оставить `true`, только если владелец явно хочет, чтобы сервисный путь оставался вооружённым. Повтор CLI с `--yes` создаст вторую строку.
+
+Откат этого шага:
+
+- Флаг: `RECONCILIATION_RUN_PERSIST_ENABLED=false` и перезапуск api. Уже записанную строку не удалять (`reconciliation_run` append-only).
+- Если строка есть, `alembic downgrade` не делать — сработает `downgrade_blocked`. Убрать строку можно только восстановлением из бэкапа `pre-0022-0023-*`.
+- Откат кода на SHA до `dca0cbd` CLI убирает, строку в БД не убирает.
+
+В `notes.md`: `persist_flag`, момент перезапуска api, `run_id` и счётчики из stdout. Без PII.
 
 ### 9. PR #25
 
@@ -306,6 +392,8 @@ RECONCILIATION_RUN_PERSIST_ENABLED=true
 | **0022/0023 применены, продукт неверен** | **Не** `alembic downgrade`, если есть строки в `reconciliation_run`, provenance или **`source_correction_finding`** — сработает `downgrade_blocked` |
 | **Откат схемы при пустых новых таблицах** | Только если **все** новые таблицы пусты: последовательный downgrade до `20261107_0021`; затем откат кода |
 | **Данные в provenance / corrections / run** | **Только восстановление из бэкапа** `pre-0022-0023-*` — **не** полагаться на downgrade на боевых данных |
+| **Флаг прогона включён, smoke CLI не нужен или неуспешен** | Вернуть `RECONCILIATION_RUN_PERSIST_ENABLED=false` и перезапустить api. Уже созданную строку не удалять |
+| **Нужно убрать smoke-строку `reconciliation_run`** | Только бэкап `pre-0022-0023-*`. DELETE приложению недоступен, downgrade при непустой таблице заблокирован |
 | Rate limit / 429 | `redis-cli DEL 'register:<ip>'` — точечно |
 | Критический FAIL | Остановить приёмку; не трогать prod |
 
@@ -322,7 +410,11 @@ RECONCILIATION_RUN_PERSIST_ENABLED=true
 - [ ] Smoke provenance — PASS.
 - [ ] Smoke коррекций (duplicate + period_overlap) — PASS или skip с причиной.
 - [ ] Логи без `import_provenance_failed` / `correction_scan_failed` на smoke.
-- [ ] `RECONCILIATION_RUN_PERSIST_ENABLED=true` — только после пунктов smoke выше; до них флаг false.
+- [ ] `RECONCILIATION_RUN_PERSIST_ENABLED=true` в `.env` стенда (не в git) и перезапуск api — только после smoke выше.
+- [ ] CLI без `--yes`: `persist=skipped`, новая строка не появилась.
+- [ ] CLI с `--yes`: один `run_id`, ровно одна строка `bank_card_51`, автор — указанный пользователь.
+- [ ] В stdout и логах нет `reconciliation_run_persist_failed` / `reconciliation_run_cli_failed` и нет полного email.
+- [ ] Решение по флагу записано: оставлен `true` или возвращён `false` и api перезапущен.
 - [ ] PR #25 acceptance — PASS.
 - [ ] STATE: `migration_applied_staging` для **0022 и 0023** — только после подписи окна.
 - [ ] Решение: **PASS** / **FAIL** + план.
