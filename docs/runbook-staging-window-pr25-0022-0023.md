@@ -52,7 +52,7 @@ CI **main** на выбранном SHA — **success** (backend, frontend, play
 - Скан после **commit cash**: `period_overlap`, `duplicate_suspect`, `internal_transfer`.
 - Период на `import_source_fingerprints` из min/max `business_date` по batch.
 
-**Вне этого окна:** `persist_reconciliation_run` из сверки, cron retention, сторно/FX, UI коррекций, деплой без бэкапа.
+**Вне этого окна:** cron retention, сторно/FX, UI коррекций, публичный API и UI прогонов сверки, деплой без бэкапа. Код записи прогона уже в main; `RECONCILIATION_RUN_PERSIST_ENABLED` остаётся **false**, пока не выполнен шаг после успешной миграции и smoke.
 
 ---
 
@@ -138,9 +138,10 @@ DDL-шаги **не сканируют** cash; время отражает на�
 3. **Миграция:** один прогон `alembic upgrade head` из **migrate**-контейнера/job с `MIGRATION_DATABASE_URL`.
 4. **Пересборка и перезапуск:** `docker compose … up -d --build api worker beat frontend proxy` (три override — см. базовый runbook).
 5. **Smoke post-migrate:** health, revision **0023**, таблицы/RLS, worker grants, import → fingerprint/lineage + **коррекции** (§ ниже).
-6. **Приёмка PR #25:** `staging_acceptance.py`, tenant B, webhook IP.
-7. **Ручной UI** 10–15 мин (базовый acceptance).
-8. **Завершение:** дамп после окна, отчёт `var/${WINDOW_ID}/` (`baseline.json`, `migrate_timing.txt`, smoke batch id), остановка VPS по политике.
+6. **Флаг прогона сверки** — только если шаг 5 **PASS**: в env api выставить `RECONCILIATION_RUN_PERSIST_ENABLED=true` (не в git) и перезапустить api. До этого шага флаг **false**. Если migrate или smoke не PASS — флаг не включать.
+7. **Приёмка PR #25:** `staging_acceptance.py`, tenant B, webhook IP.
+8. **Ручной UI** 10–15 мин (базовый acceptance).
+9. **Завершение:** дамп после окна, отчёт `var/${WINDOW_ID}/` (`baseline.json`, `migrate_timing.txt`, smoke batch id), остановка VPS по политике.
 
 ---
 
@@ -268,7 +269,30 @@ ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
 
 Ожидание: нет `import_provenance_failed` / `correction_scan_failed` на успешном smoke; нет необъяснимых ERROR.
 
-### 8. PR #25
+### 8. Флаг `RECONCILIATION_RUN_PERSIST_ENABLED` (после smoke PASS)
+
+Команды ниже — для ручного окна. Агент их не выполняет.
+
+Включать **только после** `alembic_version = 20261111_0023` и успешного smoke выше (provenance, коррекции, логи без `import_provenance_failed` / `correction_scan_failed`). До этого в env api флаг отсутствует или равен `false` (значение по умолчанию в коде).
+
+```bash
+# в .env на стенде, не в git
+RECONCILIATION_RUN_PERSIST_ENABLED=true
+```
+
+Перезапуск **только api** (compose override — как в базовом runbook), чтобы процесс перечитал env.
+
+Что флаг делает и чего не делает:
+
+- Включает запись append-only `reconciliation_run` в `reconcile_bank_card51_for_company` (finance write + подтверждённый email).
+- **Не** превращает `GET /api/v1/companies/{id}/reconciliation/bank-card-51` в запись: осмотр остаётся без побочных эффектов.
+- Публичного API и UI прогонов нет. Строка в БД появляется, когда вызывается этот сервисный путь, а не от самого факта `true` в env.
+- Повторный прогон добавляет вторую строку (`supersedes_run_id`), без UPDATE. Ledger не меняется.
+- Сбой INSERT пишется в лог как `reconciliation_run_persist_failed` с `company_id` и периодом, без текстов назначений и email.
+
+В `var/${WINDOW_ID}/notes.md`: `persist_flag=true|false`, момент перезапуска api. Id прогона — только если сервисный путь реально вызывали; без PII.
+
+### 9. PR #25
 
 `staging_acceptance.py`, tenant B, webhook — [runbook-staging-acceptance.md](runbook-staging-acceptance.md).
 
@@ -298,6 +322,7 @@ ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
 - [ ] Smoke provenance — PASS.
 - [ ] Smoke коррекций (duplicate + period_overlap) — PASS или skip с причиной.
 - [ ] Логи без `import_provenance_failed` / `correction_scan_failed` на smoke.
+- [ ] `RECONCILIATION_RUN_PERSIST_ENABLED=true` — только после пунктов smoke выше; до них флаг false.
 - [ ] PR #25 acceptance — PASS.
 - [ ] STATE: `migration_applied_staging` для **0022 и 0023** — только после подписи окна.
 - [ ] Решение: **PASS** / **FAIL** + план.

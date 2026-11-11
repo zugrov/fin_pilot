@@ -80,3 +80,31 @@
 **CI PR #37:** backend, frontend, playwright — success.
 
 **STATE:** `fa_r03_4_v1` в [STATE.json](STATE.json). `current_stage` / `current_task` не менялись.
+
+---
+
+## fa-r03-2-persist-run
+
+| Поле | Значение |
+| --- | --- |
+| Статус | **merged** (не deployed, не accepted) |
+| PR | [#47](https://github.com/zugrov/fin_pilot/pull/47) |
+| Head PR (CI) | `4cd403788b1f5825a04b3b24405bdc54c00d279c` |
+| Merge SHA | `0cb5b66357f73758a3d9270be248f52fcdb65d59` |
+| merged_at | 2026-11-11T09:57:59Z |
+| Флаг | `RECONCILIATION_RUN_PERSIST_ENABLED` **false** по умолчанию |
+| Миграция | не добавлялась; таблица из `20261110_0022` |
+
+**Содержание:** запись прогона bank↔card51 после расчёта (`reconcile_bank_card51_for_company`). Read-only GET не пишет. Нет публичного API, UI и изменений ledger. Расхождение — quality flag, без автосвязки оплат. Повтор — новая строка, без UPDATE.
+
+**CI PR #47** на `4cd4037…`: backend, frontend, playwright — **success** (ci `42998106382`, e2e `42998106271`).
+
+**CI main** на `0cb5b66…`: ci [42999595253](https://github.com/zugrov/fin_pilot/actions/runs/42999595253), e2e [42999595343](https://github.com/zugrov/fin_pilot/actions/runs/42999595343) — **success**.
+
+**Не проверено**
+
+- Деплой и migrate на стенде
+- Включение флага на стенде (только после smoke, см. runbook окна)
+- Вызов сервисного пути на стенде: флаг сам по себе строку не создаёт
+
+**STATE:** `fa_r03_2_persist_run` в [STATE.json](STATE.json). `current_stage` / `current_task` не менялись.
