@@ -87,6 +87,7 @@ TLS: Let's Encrypt или загруженный сертификат на **в�
 | `REFUNDS_ENABLED` | **false** |
 | `CLASSIFICATION_PACKS_ENABLED` | **false** (default) |
 | `FA_R03_LOCAL_RECONCILIATION_ENABLED` | **false** |
+| `RECONCILIATION_RUN_PERSIST_ENABLED` | **false** до шага runbook окна после migrate 0023 и smoke |
 | `SESSION_COOKIE_SECURE` | **true** |
 | `BILLING_MODE` | **`test`** на пилоте B до отдельного решения на **live** |
 | `BILLING_GUARD_BYPASS` | **не задавать** — **запрещён** |

@@ -2487,8 +2487,45 @@
       "reconciliation run API и UI",
       "ledger FA-R03.2d"
     ],
+    "persist_run_followup": "код записи прогона в main 2026-11-11, ключ fa_r03_2_persist_run; флаг выключен по умолчанию, не deployed",
     "ci_main_after_merge": {
       "run_ci": "42843882983",
+      "conclusion": "success"
+    }
+  },
+  "fa_r03_2_persist_run": {
+    "title": "FA-R03.2: запись прогона сверки bank↔card51",
+    "status": "merged",
+    "deployed": false,
+    "accepted": false,
+    "pr": 47,
+    "pr_head_sha": "4cd403788b1f5825a04b3b24405bdc54c00d279c",
+    "merge_sha": "0cb5b66357f73758a3d9270be248f52fcdb65d59",
+    "merged_at": "2026-11-11T09:57:59Z",
+    "flag": "RECONCILIATION_RUN_PERSIST_ENABLED",
+    "flag_default": false,
+    "migration_added": false,
+    "uses_existing_revision": "20261110_0022",
+    "public_api": false,
+    "ui": false,
+    "ledger_unchanged": true,
+    "adr_004_q5": "flag-only",
+    "adr_004_q4": "no automatic payment link",
+    "r033_q3": "no-api",
+    "r033_q6": "no-ui",
+    "current_stage_unchanged": "STATE.json current_stage FA-R03, current_task FA-R03.2 — без смены по MASTER_PLAN",
+    "call_site": "reconcile_bank_card51_for_company после расчёта; GET bank-card-51 не пишет",
+    "enable_on_staging": "только после успешной миграции 20261111_0023 и smoke, см. runbook окна",
+    "ci_pr": {
+      "head": "4cd403788b1f5825a04b3b24405bdc54c00d279c",
+      "run_ci": "42998106382",
+      "run_e2e": "42998106271",
+      "conclusion": "success"
+    },
+    "ci_main_after_merge": {
+      "sha": "0cb5b66357f73758a3d9270be248f52fcdb65d59",
+      "run_ci": "42999595253",
+      "run_e2e": "42999595343",
       "conclusion": "success"
     }
   },
