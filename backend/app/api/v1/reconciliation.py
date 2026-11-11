@@ -30,7 +30,11 @@ def get_bank_card51_reconciliation(
     year: int = Query(ge=2000, le=2100),
     month: int = Query(ge=1, le=12),
 ) -> dict:
-    """Сверка ClientBank ↔ карточка 51 без записи в БД; без текстов назначений."""
+    """Сверка ClientBank ↔ карточка 51 без записи в БД; без текстов назначений.
+
+    Прогон в `reconciliation_run` этот GET не создаёт. Запись — только
+    `reconcile_bank_card51_for_company` при `RECONCILIATION_RUN_PERSIST_ENABLED`.
+    """
     settings = settings_of(request)
     _local_reconciliation_or_404(settings, company_id)
 

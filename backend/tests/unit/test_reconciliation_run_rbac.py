@@ -34,6 +34,22 @@ def test_assert_can_persist_run_requires_verified_email() -> None:
     assert exc.value.code == "email_unverified"
 
 
+def test_operator_cannot_persist_run() -> None:
+    user = User(
+        id=uuid4(),
+        email="o@example.com",
+        normalized_email="o@example.com",
+        name="O",
+        password_hash="x",
+        created_at=datetime.now(UTC),
+        email_verified_at=datetime.now(UTC),
+    )
+    access = SimpleNamespace(role_override="operator")
+    with pytest.raises(AppError) as exc:
+        assert_can_persist_run(_membership("operator"), access, user)
+    assert exc.value.code == "forbidden"
+
+
 def test_viewer_cannot_persist_run() -> None:
     user = User(
         id=uuid4(),

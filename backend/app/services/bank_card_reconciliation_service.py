@@ -1,14 +1,24 @@
-"""Read-only сверка S1 ↔ карточка 51 (FA-R03.2), без записи в БД."""
+"""Сверка S1 ↔ карточка 51 (FA-R03.2).
+
+Просмотр отчёта не пишет в БД. Запись прогона — отдельный вызов после расчёта,
+флаг `reconciliation_run_persist_enabled` по умолчанию выключен.
+"""
 
 from __future__ import annotations
 
+import hashlib
+import json
+import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from app.config import Settings
 from app.domain.imports.clientbank import read_clientbank
 from app.domain.imports.fa_r03.bank_card51_matching import (
+    BankCardMatchReport,
     BankMovement,
     aggregate_card_rows,
     match_bank_to_card51,
@@ -23,8 +33,18 @@ from app.domain.imports.fa_r03.reconcile import (
 from app.domain.imports.fa_r03.xls_reader import XlsFormatError, read_card51, read_osv
 from app.domain.money import money, money_str
 from app.errors import AppError
+from app.models.identity import Membership, User
+from app.security.access import CompanyAccess
+from app.services.reconciliation_run_service import record_bank_card51_run
+from sqlalchemy.orm import Session
 
 ZERO = Decimal("0.00")
+
+_FINGERPRINT_PROFILES = {
+    "s1": "ru-bank-clientbank/1.0.0",
+    "s2": "1c-card51-xls/1",
+    "s3": "1c-osv-xls/1",
+}
 
 
 @dataclass(frozen=True)
@@ -135,6 +155,13 @@ def _totals_payload(label: str, item: Account51Totals) -> dict[str, str]:
 
 
 def build_bank_card51_report(samples: SampleFolder, *, year: int, month: int) -> dict[str, Any]:
+    report, _match = _bank_card51_calculation(samples, year=year, month=month)
+    return report
+
+
+def _bank_card51_calculation(
+    samples: SampleFolder, *, year: int, month: int
+) -> tuple[dict[str, Any], BankCardMatchReport]:
     bank_docs, raw_s1, encoding = _load_bank_movements(samples.s1, year=year, month=month)
     try:
         card_sheet = read_card51(samples.s2)
@@ -203,7 +230,7 @@ def build_bank_card51_report(samples: SampleFolder, *, year: int, month: int) ->
         and len(group.bank_indices) > 1
     ]
 
-    return {
+    report = {
         "period": {"year": year, "month": month},
         "quality": "ok",
         "control_totals": {
@@ -229,6 +256,105 @@ def build_bank_card51_report(samples: SampleFolder, *, year: int, month: int) ->
             "multi_document_groups": ambiguous_groups,
         },
     }
+    return report, match_report
+
+
+def group_refs_from_match(match_report: BankCardMatchReport) -> list[dict[str, Any]]:
+    """Ссылки на группы: дата, направление, сумма, вид. Без текстов документов."""
+    refs: list[dict[str, Any]] = []
+    for group in match_report.groups:
+        refs.append(
+            {
+                "business_date": group.key.business_date.isoformat(),
+                "direction": group.key.direction,
+                "amount": money_str(group.key.amount),
+                "kind": group.kind,
+                "bank_documents": len(group.bank_indices),
+                "card_aggregates": len(group.card_indices),
+            }
+        )
+    return refs
+
+
+def _file_fingerprint(path: Path, role: str) -> dict[str, Any]:
+    raw = path.read_bytes()
+    return {
+        "role": role,
+        "profile_code": _FINGERPRINT_PROFILES[role],
+        "content_sha256": hashlib.sha256(raw).hexdigest(),
+        "byte_size": len(raw),
+    }
+
+
+def _sample_fingerprints(samples: SampleFolder) -> list[dict[str, Any]]:
+    fingerprints = [
+        _file_fingerprint(samples.s1, "s1"),
+        _file_fingerprint(samples.s2, "s2"),
+    ]
+    if samples.s3 is not None and samples.s3.is_file():
+        fingerprints.append(_file_fingerprint(samples.s3, "s3"))
+    return fingerprints
+
+
+def _input_hashes(
+    fingerprints: list[dict[str, Any]], *, year: int, month: int
+) -> dict[str, str]:
+    canonical = json.dumps(
+        {
+            "period": [year, month],
+            "files": [
+                {"role": item["role"], "content_sha256": item["content_sha256"]}
+                for item in fingerprints
+            ],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return {"canonical_sha256": digest}
+
+
+def reconcile_bank_card51_for_company(
+    session: Session,
+    settings: Settings,
+    *,
+    samples: SampleFolder,
+    year: int,
+    month: int,
+    user: User,
+    membership: Membership,
+    access: CompanyAccess | None,
+    tenant_id: uuid.UUID,
+    company_id: uuid.UUID,
+    at: datetime,
+) -> dict[str, Any]:
+    """Расчёт сверки и, если флаг включён, append-only прогон в той же сессии.
+
+    Ошибка расчёта не создаёт строку. Ошибка INSERT не отменяет уже собранный отчёт.
+    Нет finance-write или неподтверждённый email — 403, строка не пишется.
+    """
+    report, match_report = _bank_card51_calculation(samples, year=year, month=month)
+    fingerprints = _sample_fingerprints(samples)
+    record_bank_card51_run(
+        session,
+        settings,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        user=user,
+        membership=membership,
+        access=access,
+        period_year=year,
+        period_month=month,
+        aligned=bool(report["control_totals"]["aligned"]),
+        chain_error_count=int(report["daily_chain"]["errors_count"]),
+        matching=report["matching"],
+        group_refs=group_refs_from_match(match_report),
+        control_totals=report["control_totals"],
+        input_fingerprints=fingerprints,
+        input_hashes=_input_hashes(fingerprints, year=year, month=month),
+        at=at,
+    )
+    return report
 
 
 def report_for_company_local(

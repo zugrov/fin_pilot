@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     fa_r03_local_reconciliation_enabled: bool = False
     fa_r03_local_samples_root: str = ""
     reconciliation_run_retention_months: int = 24
+    # Прогон сверки bank↔card51. На стенде включать после migrate 0023 и smoke.
+    reconciliation_run_persist_enabled: bool = False
     fa_r03_local_reconciliation_company_id: str = ""
 
     @field_validator("app_env")
