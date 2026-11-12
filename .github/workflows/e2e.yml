@@ -45,9 +45,16 @@ jobs:
       - name: Frontend deps
         working-directory: frontend
         run: npm ci
+      # --with-deps ставит пакеты через apt и зеркало azure.archive.ubuntu.com.
+      # На ubuntu-latest библиотеки Chromium уже есть; падение было на apt, до тестов.
+      - name: Кэш браузеров Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
       - name: Chromium
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: E2E
         working-directory: frontend
         run: npm run test:e2e
