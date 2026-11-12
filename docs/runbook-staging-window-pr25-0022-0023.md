@@ -98,11 +98,50 @@ ls -ld /var/backups
 
 Каталога `/var/backups/finpilot` на шаге 0 может ещё не быть: его создаёт шаг 1. Это не FAIL. Путь данных docker — `docker info -f '{{.DockerRootDir}}'`. Свободное место смотреть на файловой системе этого пути и на файловой системе `/var/backups`. Если корень docker не `/var/lib/docker`, в команду `df` подставить фактический путь.
 
-В `baseline.json` записать `long_tx_count`, `db_bytes`, `avail_backup_bytes`, `avail_docker_bytes`. `long_tx_count` должен быть 0. `avail_backup_bytes` и `avail_docker_bytes` — каждый не меньше `2 * db_bytes`. Иначе окно остановить до бэкапа и migrate.
+В `baseline.json` записать `long_tx_count`, `db_bytes`, `avail_backup_bytes`, `avail_docker_bytes`, `registry_ok`, `pypi_ok`, `actor_count`. `long_tx_count` должен быть 0. `avail_backup_bytes` и `avail_docker_bytes` — каждый не меньше `2 * db_bytes`. `actor_count` должен быть 1. Иначе окно остановить до бэкапа и migrate.
+
+Сеть с VPS, без `docker pull`, без запуска контейнеров и без записи в БД. Базовый образ сборки — `python:3.12.8-slim-bookworm`. Код ответа не 200 или обрыв — `registry_ok=0` или `pypi_ok=0`.
+
+```bash
+curl -fsS -o /dev/null -w '%{http_code}\n' \
+  https://pypi.org/simple/alembic/
+curl -fsS -o /dev/null -w '%{http_code}\n' \
+  https://files.pythonhosted.org/packages/a6/0c/c2a72d51fe56e08a08acc85d13013558a2d793028ae7385448a6ccdfae64/xlrd-2.0.1-py2.py3-none-any.whl
+docker manifest inspect python:3.12.8-slim-bookworm >/dev/null && echo registry_ok
+```
+
+`docker manifest inspect` только читает реестр и не подменяет тег `finpilot-api:0.2.0`. Если registry или PyPI недоступны, шаг 2b не выполнять.
+
+Пользователь `--as-user` уже должен быть в БД. Печатается только count, email в notes не писать. Ожидание: `1`.
+
+Команда ниже рассчитана на оболочку, где уже подключён `window.env`. В stdout попадает только число. Email в notes не копировать.
+
+```bash
+docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  -f infra/docker-compose.prod.deploy.override.yml \
+  exec -T -e "ACTOR_EMAIL=${ACTOR_EMAIL}" postgres \
+  sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -v ON_ERROR_STOP=1 -v actor="$ACTOR_EMAIL" -c "SELECT count(*) FROM users WHERE normalized_email = lower(:'\''actor'\'')"'
+```
+
+Шаблон `var/${WINDOW_ID}/window.env`, режим 600, без паролей и URL. `WINDOW_SHA` — кандидат с зелёными ci и e2e, не «кончик main после docs». `PREV_SHA` дописывает шаг 2.
+
+```bash
+WINDOW_ID=<id окна>
+WINDOW_SHA=30491d500b45beff43bbefcf03d630fe0de362dc
+PREV_SHA=
+APP_ROOT=<каталог на стенде>
+PERIOD=<ГГГГ-ММ>
+COMPANY_ID=<uuid организации стенда>
+ACTOR_EMAIL=<email пользователя finance write>
+```
+
+В `var/${WINDOW_ID}/notes.md` сразу записать сравнение, сделанное локально, не на стенде: `frontend_proxy=не менялись`, `frontend_proxy_base=c34328f1873c636c4c23f5eb1e545cdc774e585f`. Это последний известный деплой. Фактический SHA стенда до шага 0 неизвестен. Если `git rev-parse HEAD` на стенде не равен `c34328f`, перед шагом 2b заново посмотреть `git diff --stat <HEAD стенда>..30491d5 -- frontend infra`. Пустой diff — frontend и proxy не собирать. Непустой — шаг 2b не начинать, пока сборка frontend не добавлена отдельным решением.
 
 **Повтор 2026-11-10:** `ssh -o ConnectTimeout=10 … true` → **timeout**, без повторных попыток. Факт с VPS **не подтверждён**; сценарий **A** (`20261027_0017`) по-прежнему из STATE до `baseline.json` владельца.
 
-Если preflight SSH не проходит или шаг 0 не дал `alembic_version`, объём БД, `long_tx_count = 0` и место ≥ 2× размера БД — окно migrate **не начинать**.
+Если preflight SSH не проходит или шаг 0 не дал `alembic_version`, объём БД, `long_tx_count = 0`, место ≥ 2× размера БД, `actor_count = 1` и оба флага сети — окно не начинать. При `registry_ok=0` или `pypi_ok=0` шаг 2b не выполнять.
 
 ### Два сценария migrate
 
@@ -157,7 +196,7 @@ DDL-шаги **не сканируют** cash; время отражает на�
 0. **Baseline, только чтение.** Ревизия, долгие транзакции, место ≥ 2× размера БД. FAIL — стоп.
 1. **Бэкап** в `/var/backups/finpilot/`, размер, `pg_restore --list` внутри контейнера postgres. Без PASS migrate не начинать.
 2. **Код:** `PREV_SHA` в notes, чистое дерево, checkout точного `WINDOW_SHA`.
-2b. **Образ:** один `docker build` тега `finpilot-api:0.2.0`, `alembic heads` содержит `20261111_0023`, затем stop api, worker и beat.
+2b. **Образ api**, только после сети шага 0. Frontend и proxy не собирать, если diff от `c34328f` пустой. Затем `alembic heads` и stop api, worker, beat.
 3. **Миграция:** один `alembic upgrade head` из этого образа. Сразу после — gate `alembic_version = 20261111_0023`, иначе стоп.
 4. **Запуск** api, worker, beat, frontend, proxy без повторной сборки. Дамп шага 1 лежит вне `${APP_ROOT}`, checkout его не затирает.
 5. **Smoke post-migrate:** health, revision **0023**, таблицы/RLS, worker grants, import → fingerprint/lineage + **коррекции** (§ ниже).
@@ -167,6 +206,18 @@ DDL-шаги **не сканируют** cash; время отражает на�
 9. **Флаг обратно в false** и перезапуск api. `true` оставить только отдельным явным решением владельца.
 10. **Приёмка PR #25 и ручной UI** — UI всегда владелец.
 11. **Завершение:** дамп после окна, отчёт `var/${WINDOW_ID}/` (`baseline.json`, `migrate_timing.txt`, smoke batch id), остановка VPS по политике.
+
+Файлы compose. `prod` — `infra/docker-compose.prod.yml`, `ip` — `infra/docker-compose.prod.ip.override.yml`, `deploy` — `infra/docker-compose.prod.deploy.override.yml` (заглушка xlrd и `UV_NO_SYNC=1` у api, worker, beat).
+
+| Шаг | Команда | Файлы | deploy override |
+| --- | --- | --- | --- |
+| 2b stop | `stop api worker beat` | prod, ip, deploy | да, чтобы остановить тот же проект |
+| 3 | `run` одноразового migrate | prod, ip, deploy | да; alembic xlrd не читает |
+| 4 | `up -d` постоянных сервисов | prod, ip, deploy | да, заглушка остаётся |
+| 6 и 9 | `up -d --no-deps` api | prod, ip, deploy | да |
+| 8 | `run` CLI | prod, ip | нет |
+
+Сборки frontend в этих шагах нет.
 
 ---
 
@@ -316,7 +367,9 @@ PASS: `code_ok` и тот же SHA, на котором ci и e2e были succe
 
 ### Образ и остановка api, worker, beat
 
-Отдельного образа migrate в репозитории нет. api, worker, beat и одноразовый контейнер migrate — один тег `finpilot-api:0.2.0`, контекст `backend/`, как в Dockerfile (`uv sync --frozen --no-dev`). Postgres и redis не останавливать.
+Шаг 2b начинать только если шаг 0 записал `registry_ok` и `pypi_ok`. Иначе не собирать образ на VPS.
+
+Отдельного образа migrate в репозитории нет. api, worker, beat и одноразовый контейнер migrate — один тег `finpilot-api:0.2.0`, контекст `backend/`, как в Dockerfile (`uv sync --frozen --no-dev`). Postgres и redis не останавливать. Frontend и proxy с `c34328f` до `30491d5` не менялись (`git diff --stat` по `frontend/` и `infra/` пустой). Их в этом шаге не собирать. В notes уже есть `frontend_proxy=не менялись`. Если HEAD стенда из шага 0 не `c34328f` и повторный diff непустой, эту команду не запускать.
 
 ```bash
 ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
