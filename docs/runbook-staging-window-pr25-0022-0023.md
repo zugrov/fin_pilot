@@ -275,7 +275,9 @@ ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
 
 **Образцы.** Клиентские выгрузки на стенд запрещены (решение 2026-10-27: только локально у владельца, не git, не staging, не чат). `SAMPLES_DIR` — только каталог, который создаёт `scripts/make_synthetic_persist_run_samples.py`: `var/${WINDOW_ID}/synthetic/` с `S1_synthetic.txt` и `S2_synthetic.xls`. Готового генератора в тестах нет: фикстуры CLI кладут произвольные байты и подменяют расчёт. Шаг проверяет запись прогона и права, а не корректность парсеров на реальных данных.
 
-Образ api окна монтирует заглушку `infra/stand-patches/xlrd_stub` (`xls reading is disabled on the staging stand`). CLI внутри этого образа доходит до проверки прав, но чтение S2 падает до INSERT: строка не создаётся. Не обходить заглушку клиентским xls. Одна строка возможна только в процессе с настоящим xlrd 2.0.1; на текущем образе окна это не так.
+**Почему на стенде заглушка xlrd.** Решение 2026-10-27 (FA-R03.2, пункт 2c, и FA-R03.2b/2c): `xlrd==2.0.1` только в dev-группе, в CI и prod её не ставить до отдельного процесса. Образ api собирается `uv sync --frozen --no-dev`, в постоянные зависимости и в слои образа библиотека не входит. В `STATE.json` ключ `xlrd_2_0_1` = `dev_dependency_accepted_not_in_ci_prod_yet`. `infra/docker-compose.prod.deploy.override.yml` ставит `UV_NO_SYNC=1`, чтобы `uv run` не доставил dev-группу, и монтирует `infra/stand-patches/xlrd_stub` поверх `site-packages/xlrd` у api, worker и beat. Импорт бросает `xls reading is disabled on the staging stand`. Постоянный процесс стенда .xls не читает. Клиентские выгрузки туда не кладут (то же решение 2026-10-27).
+
+**Smoke-строка всё равно нужна.** `xlrd==2.0.1` ставится только в одноразовый контейнер CLI и только на синтетические файлы. Образ `finpilot-api:0.2.0` и lockfile не менять, контейнер не коммитить в образ, после запуска удалить (`--rm`). Deploy override в этот запуск не входит: с ним заглушка перекрыла бы только что поставленный пакет.
 
 Включать **только после** `alembic_version = 20261111_0023` и успешного smoke выше (provenance, коррекции, логи без `import_provenance_failed` / `correction_scan_failed`). До этого в env api флаг отсутствует или равен `false` (значение по умолчанию в коде). Код CLI — main с `dca0cbd`; образ api должен быть собран на этом SHA (шаг 4), иначе модуля в контейнере нет. `SAMPLES_DIR`, `COMPANY_ID`, `PERIOD`, `ACTOR_EMAIL` задаются в оболочке на стенде, не в git.
 
@@ -318,7 +320,28 @@ ssh "${SSH_ALIAS}" 'set -euo pipefail
 
 `SAMPLES_DIR` = `${APP_ROOT}/var/${WINDOW_ID}/synthetic`. Каталог в git не попадает.
 
-Пробный запуск (без `--yes`): считает сверку, печатает счётчики и `persist=skipped`, в БД не пишет. На образе с заглушкой xlrd пробный запуск завершится «расчёт сверки не выполнен» и тоже ничего не запишет. `--as-user` — email пользователя с finance write и подтверждённым email. В notes не копировать полный email: CLI печатает маску, в SQL смотреть `created_by_user_id`.
+Перед CLI записать id образа. После обоих запусков id должен совпасть: слой образа не пересобирался и контейнер в образ не коммитился.
+
+```bash
+ssh "${SSH_ALIAS}" 'set -euo pipefail
+  cd "${APP_ROOT}"
+  docker image inspect finpilot-api:0.2.0 --format "{{.Id}} {{json .RepoDigests}}"'
+```
+
+Файл хешей — во `var/${WINDOW_ID}/`, не в git. Хеш wheel — из `backend/uv.lock` для `xlrd` 2.0.1. Второй хеш — sdist из того же lock; `--only-binary=xlrd` его не скачивает, но `--require-hashes` сверяет тот артефакт, который реально ставится.
+
+```bash
+ssh "${SSH_ALIAS}" 'set -euo pipefail
+  cd "${APP_ROOT}"
+  mkdir -p "var/${WINDOW_ID}"
+  cat > "var/${WINDOW_ID}/xlrd-2.0.1.txt" <<EOF
+xlrd==2.0.1 --hash=sha256:6a33ee89877bd9abc1158129f6e94be74e2679636b8a205b43b85206c3f0bbdd --hash=sha256:f72f148f54442c6b056bf931dbc34f986fd0c3b0b6b5a58d013c9aef274d0c88
+EOF'
+```
+
+Одноразовый контейнер: те же prod и ip override, **без** `docker-compose.prod.deploy.override.yml`. База — уже собранный `finpilot-api:0.2.0`. `uv pip install` пишет пакет в venv контейнера, `uv run --no-sync` не пересинхронизирует lock и не выкидывает xlrd. `--rm` удаляет контейнер вместе с этим venv. Постоянный api/worker/beat заглушку не теряют.
+
+Пробный запуск (без `--yes`): считает сверку, печатает счётчики и `persist=skipped`, в БД не пишет. `--as-user` — email пользователя с finance write и подтверждённым email. В notes не копировать полный email: CLI печатает маску, в SQL смотреть `created_by_user_id`.
 
 ```bash
 ssh "${SSH_ALIAS}" 'set -euo pipefail
@@ -326,18 +349,23 @@ ssh "${SSH_ALIAS}" 'set -euo pipefail
   docker compose --env-file .env \
     -f infra/docker-compose.prod.yml \
     -f infra/docker-compose.prod.ip.override.yml \
-    -f infra/docker-compose.prod.deploy.override.yml \
-    run --rm -v "${SAMPLES_DIR}:/samples:ro" api \
-    uv run python -m app.tools.fa_r03_persist_run \
-      --company-id "${COMPANY_ID}" \
-      --period "${PERIOD}" \
-      --as-user "${ACTOR_EMAIL}" \
-      /samples'
+    run --rm --no-deps \
+    -v "${SAMPLES_DIR}:/samples:ro" \
+    -v "${APP_ROOT}/var/${WINDOW_ID}/xlrd-2.0.1.txt:/tmp/xlrd-2.0.1.txt:ro" \
+    api \
+    sh -c "uv pip install --python /app/.venv/bin/python \
+      --require-hashes --only-binary=xlrd \
+      -r /tmp/xlrd-2.0.1.txt \
+      && uv run --no-sync python -m app.tools.fa_r03_persist_run \
+      --company-id \"${COMPANY_ID}\" \
+      --period \"${PERIOD}\" \
+      --as-user \"${ACTOR_EMAIL}\" \
+      /samples"'
 ```
 
 Ожидание пробного запуска: exit 0, в stdout `persist=skipped` и счётчики, без контрагентов, назначений и полного email. `count(*)` по `reconciliation_run` для этого `company_id` не вырос.
 
-Запуск с записью — та же команда и то же окружение, в конце аргументов `--yes`. Флаг в env уже `true`, иначе CLI отказывает и ничего не пишет.
+Запуск с записью — тот же контейнер, в конце аргументов `--yes`. Флаг в env уже `true`, иначе CLI отказывает и ничего не пишет.
 
 ```bash
 ssh "${SSH_ALIAS}" 'set -euo pipefail
@@ -345,17 +373,24 @@ ssh "${SSH_ALIAS}" 'set -euo pipefail
   docker compose --env-file .env \
     -f infra/docker-compose.prod.yml \
     -f infra/docker-compose.prod.ip.override.yml \
-    -f infra/docker-compose.prod.deploy.override.yml \
-    run --rm -v "${SAMPLES_DIR}:/samples:ro" api \
-    uv run python -m app.tools.fa_r03_persist_run \
-      --company-id "${COMPANY_ID}" \
-      --period "${PERIOD}" \
-      --as-user "${ACTOR_EMAIL}" \
+    run --rm --no-deps \
+    -v "${SAMPLES_DIR}:/samples:ro" \
+    -v "${APP_ROOT}/var/${WINDOW_ID}/xlrd-2.0.1.txt:/tmp/xlrd-2.0.1.txt:ro" \
+    api \
+    sh -c "uv pip install --python /app/.venv/bin/python \
+      --require-hashes --only-binary=xlrd \
+      -r /tmp/xlrd-2.0.1.txt \
+      && uv run --no-sync python -m app.tools.fa_r03_persist_run \
+      --company-id \"${COMPANY_ID}\" \
+      --period \"${PERIOD}\" \
+      --as-user \"${ACTOR_EMAIL}\" \
       --yes \
-      /samples'
+      /samples"'
 ```
 
-Ожидание на образе с заглушкой xlrd: exit не 0, текст «расчёт сверки не выполнен», новая строка не появилась. Ожидание exit 0 и `run_id` — только если процесс CLI читает xls настоящим xlrd. Тогда count = 1, автор — указанный пользователь, `supersedes_run_id` пуст.
+Ожидание: exit 0, одна строка `run_id=…` и `persist=written`. Повторно снять id образа: он равен значению до запусков. `docker ps -a` не показывает оставшийся контейнер этого `run`.
+
+**PASS этого шага:** ровно одна новая строка `reconciliation_run` (`run_kind = bank_card_51`, count вырос на 1), `id` совпадает с напечатанным `run_id`, `created_by_user_id` — пользователь из `--as-user`, `supersedes_run_id` пуст. Ноль строк или строка от другого пользователя — FAIL шага, не обход через клиентский xls и не правка образа api.
 
 Проверка одной строки (id из stdout, без дампа JSON):
 
@@ -368,9 +403,9 @@ SELECT id, run_kind, period_year, period_month,
  WHERE id = :run_id;
 ```
 
-На образе с заглушкой xlrd count для этого `company_id` остаётся прежним. Если CLI напечатал `run_id`, count = 1, `id` совпадает с ним, `created_by_user_id` — указанный пользователь, `supersedes_run_id` пуст.
+Ожидание SQL: count на 1 больше, чем до `--yes`. `id` совпадает с `run_id`, `created_by_user_id` — пользователь из `--as-user`, `supersedes_run_id` пуст. В notes писать `run_id` и id образа до/после, без email.
 
-Логи одноразового CLI и api: нет `reconciliation_run_persist_failed`, `reconciliation_run_cli_failed`, `ERROR`, `Traceback`. В вывод не должны попасть назначения, контрагенты и полный email.
+Stdout одноразового CLI уже на терминале окна: там нет `reconciliation_run_persist_failed`, `reconciliation_run_cli_failed`, назначений, контрагентов и полного email. Контейнер с `--rm` в `docker logs` не остаётся. Ниже — логи постоянного api (он с заглушкой и эту строку не писал):
 
 ```bash
 ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
@@ -428,8 +463,8 @@ ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
 - [ ] Логи без `import_provenance_failed` / `correction_scan_failed` на smoke.
 - [ ] `RECONCILIATION_RUN_PERSIST_ENABLED=true` в `.env` стенда (не в git) и перезапуск api — только после smoke выше.
 - [ ] Образцы только из `scripts/make_synthetic_persist_run_samples.py`. Клиентских файлов на стенде нет.
-- [ ] CLI без `--yes` не создал строку. На образе с заглушкой xlrd расчёт не проходит — это не повод подставлять клиентский xls.
-- [ ] CLI с `--yes`: при заглушке xlrd строки нет; `run_id` и одна строка — только если процесс читает xls настоящим xlrd.
+- [ ] CLI без `--yes` в одноразовом контейнере не создал строку.
+- [ ] CLI с `--yes`: ровно одна новая строка, автор — пользователь из `--as-user`. Id образа `finpilot-api:0.2.0` до и после совпал, контейнер удалён.
 - [ ] В stdout и логах нет `reconciliation_run_persist_failed` / `reconciliation_run_cli_failed` и нет полного email.
 - [ ] Решение по флагу записано: оставлен `true` или возвращён `false` и api перезапущен.
 - [ ] PR #25 acceptance — PASS.
