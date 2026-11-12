@@ -271,7 +271,11 @@ ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
 
 ### 8. Флаг и одна smoke-строка CLI (после smoke PASS)
 
-Команды ниже — для ручного окна. Из CI и агентом их не выполнять. Не подставлять клиентские выгрузки: только синтетические `S1_*.txt` и `S2_*.xls`.
+Команды ниже — для ручного окна. Из CI и агентом их не выполнять.
+
+**Образцы.** Клиентские выгрузки на стенд запрещены (решение 2026-10-27: только локально у владельца, не git, не staging, не чат). `SAMPLES_DIR` — только каталог, который создаёт `scripts/make_synthetic_persist_run_samples.py`: `var/${WINDOW_ID}/synthetic/` с `S1_synthetic.txt` и `S2_synthetic.xls`. Готового генератора в тестах нет: фикстуры CLI кладут произвольные байты и подменяют расчёт. Шаг проверяет запись прогона и права, а не корректность парсеров на реальных данных.
+
+Образ api окна монтирует заглушку `infra/stand-patches/xlrd_stub` (`xls reading is disabled on the staging stand`). CLI внутри этого образа доходит до проверки прав, но чтение S2 падает до INSERT: строка не создаётся. Не обходить заглушку клиентским xls. Одна строка возможна только в процессе с настоящим xlrd 2.0.1; на текущем образе окна это не так.
 
 Включать **только после** `alembic_version = 20261111_0023` и успешного smoke выше (provenance, коррекции, логи без `import_provenance_failed` / `correction_scan_failed`). До этого в env api флаг отсутствует или равен `false` (значение по умолчанию в коде). Код CLI — main с `dca0cbd`; образ api должен быть собран на этом SHA (шаг 4), иначе модуля в контейнере нет. `SAMPLES_DIR`, `COMPANY_ID`, `PERIOD`, `ACTOR_EMAIL` задаются в оболочке на стенде, не в git.
 
@@ -302,7 +306,19 @@ ssh "${SSH_ALIAS}" 'set -euo pipefail
 - Повторный прогон добавляет вторую строку (`supersedes_run_id`), без UPDATE. Для smoke окна нужен один запуск с `--yes`.
 - Сбой INSERT пишется в лог как `reconciliation_run_persist_failed` с `company_id` и периодом, без текстов назначений и email.
 
-Пробный запуск (без `--yes`): считает сверку, печатает счётчики и `persist=skipped`, в БД не пишет. `--as-user` — email пользователя с finance write и подтверждённым email. В notes не копировать полный email: CLI печатает маску, в SQL смотреть `created_by_user_id`.
+Сгенерировать образцы на стенде из кода репозитория (не из клиентских файлов). `PERIOD` совпадает с `--period` CLI.
+
+```bash
+ssh "${SSH_ALIAS}" 'set -euo pipefail
+  cd "${APP_ROOT}"
+  python3 scripts/make_synthetic_persist_run_samples.py \
+    --window-id "${WINDOW_ID}" \
+    --period "${PERIOD}"'
+```
+
+`SAMPLES_DIR` = `${APP_ROOT}/var/${WINDOW_ID}/synthetic`. Каталог в git не попадает.
+
+Пробный запуск (без `--yes`): считает сверку, печатает счётчики и `persist=skipped`, в БД не пишет. На образе с заглушкой xlrd пробный запуск завершится «расчёт сверки не выполнен» и тоже ничего не запишет. `--as-user` — email пользователя с finance write и подтверждённым email. В notes не копировать полный email: CLI печатает маску, в SQL смотреть `created_by_user_id`.
 
 ```bash
 ssh "${SSH_ALIAS}" 'set -euo pipefail
@@ -339,7 +355,7 @@ ssh "${SSH_ALIAS}" 'set -euo pipefail
       /samples'
 ```
 
-Ожидание: exit 0, одна строка `run_id=…` и `persist=written`.
+Ожидание на образе с заглушкой xlrd: exit не 0, текст «расчёт сверки не выполнен», новая строка не появилась. Ожидание exit 0 и `run_id` — только если процесс CLI читает xls настоящим xlrd. Тогда count = 1, автор — указанный пользователь, `supersedes_run_id` пуст.
 
 Проверка одной строки (id из stdout, без дампа JSON):
 
@@ -352,7 +368,7 @@ SELECT id, run_kind, period_year, period_month,
  WHERE id = :run_id;
 ```
 
-Ожидание: count = 1, `id` совпадает с напечатанным `run_id`, `created_by_user_id` — указанный пользователь, `supersedes_run_id` пуст.
+На образе с заглушкой xlrd count для этого `company_id` остаётся прежним. Если CLI напечатал `run_id`, count = 1, `id` совпадает с ним, `created_by_user_id` — указанный пользователь, `supersedes_run_id` пуст.
 
 Логи одноразового CLI и api: нет `reconciliation_run_persist_failed`, `reconciliation_run_cli_failed`, `ERROR`, `Traceback`. В вывод не должны попасть назначения, контрагенты и полный email.
 
@@ -411,8 +427,9 @@ ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
 - [ ] Smoke коррекций (duplicate + period_overlap) — PASS или skip с причиной.
 - [ ] Логи без `import_provenance_failed` / `correction_scan_failed` на smoke.
 - [ ] `RECONCILIATION_RUN_PERSIST_ENABLED=true` в `.env` стенда (не в git) и перезапуск api — только после smoke выше.
-- [ ] CLI без `--yes`: `persist=skipped`, новая строка не появилась.
-- [ ] CLI с `--yes`: один `run_id`, ровно одна строка `bank_card_51`, автор — указанный пользователь.
+- [ ] Образцы только из `scripts/make_synthetic_persist_run_samples.py`. Клиентских файлов на стенде нет.
+- [ ] CLI без `--yes` не создал строку. На образе с заглушкой xlrd расчёт не проходит — это не повод подставлять клиентский xls.
+- [ ] CLI с `--yes`: при заглушке xlrd строки нет; `run_id` и одна строка — только если процесс читает xls настоящим xlrd.
 - [ ] В stdout и логах нет `reconciliation_run_persist_failed` / `reconciliation_run_cli_failed` и нет полного email.
 - [ ] Решение по флагу записано: оставлен `true` или возвращён `false` и api перезапущен.
 - [ ] PR #25 acceptance — PASS.
