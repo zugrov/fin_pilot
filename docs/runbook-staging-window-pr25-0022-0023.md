@@ -35,7 +35,7 @@
 | Минимум для FA-R03.4 v1 + migration 0023 | `7258e2bb83997066ba1b541e737771078f6e628` |
 | **Выкат окна** | точный `WINDOW_SHA`: полный SHA `main` с зелёными ci и e2e |
 
-Перед окном записать в `var/${WINDOW_ID}/notes.md` строку `WINDOW_SHA=<полный sha>`. На сервере `git fetch && git checkout --detach "${WINDOW_SHA}"`. `git rev-parse HEAD` обязан совпасть с `WINDOW_SHA`. Нижняя граница вида «не старее коммита» не используется: на стенд попадает этот SHA и только он.
+Перед окном записать в `var/${WINDOW_ID}/notes.md` и в `var/${WINDOW_ID}/window.env` строку `WINDOW_SHA=<полный sha>`. Checkout — команда шага 2: сначала `PREV_SHA`, пустой `git status --short`, затем этот SHA. `git rev-parse HEAD` обязан совпасть с `WINDOW_SHA`. Нижняя граница вида «не старее коммита» не используется.
 
 CI **main** на `WINDOW_SHA` — **success** (backend, frontend, playwright). Playwright — настоящий прогон тестов, не пропуск. Пока прогон не зелёный, шаг 2 не начинать.
 
@@ -148,17 +148,18 @@ DDL-шаги **не сканируют** cash; время отражает на�
 - [ ] Плейсхолдеры: `SSH_ALIAS`, `APP_ROOT`, `LOCAL_PORT`, `REMOTE_PROXY_PORT`, `BASE_URL`.
 - [ ] Тестовый магазин ЮKassa, `STAGING_PASSWORD`, туннель — как в базовом runbook.
 - [ ] **Не** боевой магазин, **не** данные клиента / ТОПКОМ, **не** `--force` / `--admin` на проде.
-- [ ] Зафиксирован **SHA до окна** (откат кода без отката БД).
+- [ ] На стенде лежит `var/${WINDOW_ID}/window.env` (режим 600, без секретов). `PREV_SHA` допишет шаг 2.
 
 ---
 
 ## Порядок шагов (обязательная последовательность)
 
 0. **Baseline, только чтение.** Ревизия, долгие транзакции, место ≥ 2× размера БД. FAIL — стоп.
-1. **Бэкап** в `/var/backups/finpilot/`, затем размер, `pg_restore --list` и проверка, что путь вне `${APP_ROOT}`. Без PASS migrate не начинать.
-2. **Код:** checkout точного `WINDOW_SHA` из notes. HEAD стенда равен этой строке. Миграции 0022/0023 уже в main с `7258e2b`.
-3. **Миграция:** один прогон `alembic upgrade head` из **migrate**-контейнера с `MIGRATION_DATABASE_URL`.
-4. **Пересборка и перезапуск:** `docker compose … up -d --build api worker beat frontend proxy` (три override — см. базовый runbook). Каталог `${APP_ROOT}` эта пересборка может заменить, поэтому дамп шага 1 там не лежит.
+1. **Бэкап** в `/var/backups/finpilot/`, размер, `pg_restore --list` внутри контейнера postgres. Без PASS migrate не начинать.
+2. **Код:** `PREV_SHA` в notes, чистое дерево, checkout точного `WINDOW_SHA`.
+2b. **Образ:** один `docker build` тега `finpilot-api:0.2.0`, `alembic heads` содержит `20261111_0023`, затем stop api, worker и beat.
+3. **Миграция:** один `alembic upgrade head` из этого образа. Сразу после — gate `alembic_version = 20261111_0023`, иначе стоп.
+4. **Запуск** api, worker, beat, frontend, proxy без повторной сборки. Дамп шага 1 лежит вне `${APP_ROOT}`, checkout его не затирает.
 5. **Smoke post-migrate:** health, revision **0023**, таблицы/RLS, worker grants, import → fingerprint/lineage + **коррекции** (§ ниже).
 6. **Флаг** `RECONCILIATION_RUN_PERSIST_ENABLED=true` в `.env` стенда и перезапуск api — только если шаг 5 **PASS**.
 7. **Образцы:** одна схема ниже. На стенд только `var/${WINDOW_ID}/synthetic/`.
@@ -169,73 +170,252 @@ DDL-шаги **не сканируют** cash; время отражает на�
 
 ---
 
+## Переменные окна
+
+Файл на стенде: `${APP_ROOT}/var/${WINDOW_ID}/window.env`, режим `600`, не в git. Секретов в нём нет: ни паролей, ни URL с паролем, ни ключей. Содержимое файла в notes, логи и чат не копировать.
+
+```bash
+WINDOW_ID=pr25-0022-0023-YYYYMMDD
+WINDOW_SHA=<полный sha main с зелёными ci и e2e>
+PREV_SHA=
+APP_ROOT=/path/to/app
+PERIOD=ГГГГ-ММ
+COMPANY_ID=<uuid организации стенда>
+ACTOR_EMAIL=<email пользователя с finance write>
+```
+
+`PREV_SHA` до шага 2 пустой. `SSH_ALIAS` остаётся в оболочке, с которой запускают ssh, и в файл не пишется. `set -u` в командах не снимать: не заданная переменная обрывает шаг.
+
+Каждая ssh-команда начинается с подключения этого файла. `APP_ROOT` и `WINDOW_ID` в аргументах нужны только чтобы найти файл; рабочие значения после точки берутся из него.
+
+```bash
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+REMOTE
+```
+
 ## Команды (не выполнять из CI)
 
 ### Бэкап БД до миграции
 
-Дамп пишется в `/var/backups/finpilot/`, вне `${APP_ROOT}`. Пересборка шага 4 идёт из каталога приложения и может его заменить. Файл внутри `${APP_ROOT}` проверку не проходит.
+Дамп пишется в `/var/backups/finpilot/`, вне `${APP_ROOT}`. Checkout и повторная выкладка каталога приложения этот путь не затирают. Файл внутри `${APP_ROOT}` проверку не проходит. `pg_restore --list` идёт в уже запущенном контейнере `postgres` этого compose. Новый образ для проверки не скачивать.
 
 ```bash
-ssh "${SSH_ALIAS}" 'set -euo pipefail
-  cd "${APP_ROOT}"
-  TS=$(date -u +%Y%m%dT%H%M%SZ)
-  DUMP="/var/backups/finpilot/pre-0022-0023-${WINDOW_ID}-${TS}.dump"
-  case "${DUMP}" in
-    "${APP_ROOT}"/*) echo "FAIL dump inside APP_ROOT"; exit 1;;
-  esac
-  mkdir -p /var/backups/finpilot
-  docker compose --env-file .env -f infra/docker-compose.prod.yml \
-    -f infra/docker-compose.prod.ip.override.yml \
-    exec -T postgres \
-    pg_dump -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" --format=custom \
-    > "${DUMP}"
-  test -s "${DUMP}"
-  stat -c %s "${DUMP}"
-  docker run --rm -v /var/backups/finpilot:/dumps:ro postgres:16.6-bookworm \
-    pg_restore --list "/dumps/$(basename "${DUMP}")" >/tmp/pre-0022-0023.list
-  test -s /tmp/pre-0022-0023.list
-  rm -f /tmp/pre-0022-0023.list
-  echo "backup_ok ${DUMP}"'
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+DUMP="/var/backups/finpilot/pre-0022-0023-${WINDOW_ID}-${TS}.dump"
+case "${DUMP}" in
+  "${APP_ROOT}"/*) echo "FAIL dump inside APP_ROOT"; exit 1;;
+esac
+install -d -m 700 /var/backups/finpilot
+docker compose --env-file .env -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  exec -T postgres \
+  sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
+  > "${DUMP}"
+test -s "${DUMP}"
+stat -c %s "${DUMP}"
+chmod 600 "${DUMP}"
+docker compose --env-file .env -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  cp "${DUMP}" postgres:/tmp/pre-0022-0023.dump
+docker compose --env-file .env -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  exec -T postgres pg_restore --list /tmp/pre-0022-0023.dump \
+  >/tmp/pre-0022-0023.list
+docker compose --env-file .env -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  exec -T postgres rm -f /tmp/pre-0022-0023.dump
+test -s /tmp/pre-0022-0023.list
+rm -f /tmp/pre-0022-0023.list
+sha256sum "${DUMP}" | awk '{print $1}' > "${DUMP}.sha256"
+chmod 600 "${DUMP}.sha256"
+printf 'backup_file=%s\n' "${DUMP}" >> "var/${WINDOW_ID}/notes.md"
+echo "backup_ok ${DUMP}"
+REMOTE
 ```
 
-PASS шага 1: команда завершилась с `backup_ok`, размер в байтах больше нуля, `pg_restore --list` завершился без ошибки, путь дампа не под `${APP_ROOT}`. Имя, размер и путь записать в notes. Список объектов из `--list` в notes, git и чат не копировать. Если любой пункт не сошёлся — migrate не начинать.
+PASS шага 1: `backup_ok`, размер больше нуля, `pg_restore --list` без ошибки, путь не под `${APP_ROOT}`. Список объектов из `--list` в notes, git и чат не копировать. Иначе migrate не начинать.
+
+Копия дампа вне VPS необязательна и делается после PASS, только этот файл и его sha256, на Mac владельца:
+
+`DUMP_PATH` — значение `backup_file` из notes, один файл.
+
+```bash
+mkdir -p "${HOME}/finpilot-window-backups"
+scp "${SSH_ALIAS}:${DUMP_PATH}" "${SSH_ALIAS}:${DUMP_PATH}.sha256" \
+  "${HOME}/finpilot-window-backups/"
+cd "${HOME}/finpilot-window-backups"
+dump=$(basename "${DUMP_PATH}")
+test "$(shasum -a 256 "${dump}" | awk '{print $1}')" = "$(cat "${dump}.sha256")"
+echo "offsite_ok"
+```
 
 ### Код на WINDOW_SHA
 
-После PASS бэкапа и до migrate. `WINDOW_SHA` уже записан в notes и экспортирован в оболочке стенда.
+После PASS бэкапа. Грязное дерево — стоп, checkout не делать.
 
 ```bash
-ssh "${SSH_ALIAS}" 'set -euo pipefail
-  cd "${APP_ROOT}"
-  git fetch origin
-  git checkout --detach "${WINDOW_SHA}"
-  test "$(git rev-parse HEAD)" = "${WINDOW_SHA}"
-  echo "code_ok ${WINDOW_SHA}"'
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+test -n "${WINDOW_SHA}"
+if test -n "$(git status --short)"; then
+  echo "FAIL dirty tree"
+  exit 1
+fi
+prev=$(git rev-parse HEAD)
+printf 'PREV_SHA=%s\n' "${prev}" >> "var/${WINDOW_ID}/notes.md"
+python3 - "${prev}" <<'PY'
+import sys
+from pathlib import Path
+import os
+prev = sys.argv[1]
+path = Path(os.environ["APP_ROOT"]) / "var" / os.environ["WINDOW_ID"] / "window.env"
+lines = path.read_text().splitlines()
+key = "PREV_SHA="
+out = []
+found = False
+for line in lines:
+    if line.startswith(key):
+        out.append(key + prev)
+        found = True
+    else:
+        out.append(line)
+if not found:
+    out.append(key + prev)
+path.write_text("\n".join(out) + "\n")
+path.chmod(0o600)
+PY
+git fetch origin
+git checkout --detach "${WINDOW_SHA}"
+test "$(git rev-parse HEAD)" = "${WINDOW_SHA}"
+echo "code_ok ${WINDOW_SHA}"
+REMOTE
 ```
 
-PASS: строка `code_ok` и тот же SHA, на котором ci и e2e были success. Иначе migrate не начинать.
+PASS: `code_ok` и тот же SHA, на котором ci и e2e были success. Иначе сборку и migrate не начинать.
 
-Migrate запускать только после PASS шагов 1 и 2. Иначе стоп.
+### Образ и остановка api, worker, beat
 
-### Миграция (одноразовый migrate-контейнер)
+Отдельного образа migrate в репозитории нет. api, worker, beat и одноразовый контейнер migrate — один тег `finpilot-api:0.2.0`, контекст `backend/`, как в Dockerfile (`uv sync --frozen --no-dev`). Postgres и redis не останавливать.
 
 ```bash
-ssh "${SSH_ALIAS}" 'set -euo pipefail
-  cd "${APP_ROOT}"
-  docker compose --env-file .env \
-    -f infra/docker-compose.prod.yml \
-    -f infra/docker-compose.prod.ip.override.yml \
-    run --rm migrate alembic upgrade head'
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+docker build --network=host -t finpilot-api:0.2.0 backend
+heads=$(docker run --rm --entrypoint "" finpilot-api:0.2.0 \
+  /app/.venv/bin/alembic heads)
+printf '%s\n' "${heads}"
+printf '%s\n' "${heads}" | grep -q '20261111_0023 (head)'
+docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  -f infra/docker-compose.prod.deploy.override.yml \
+  stop api worker beat
+running=$(docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  -f infra/docker-compose.prod.deploy.override.yml \
+  ps --services --filter status=running)
+for name in api worker beat; do
+  if printf '%s\n' "${running}" | grep -qx "${name}"; then
+    echo "FAIL ${name} still running"
+    exit 1
+  fi
+done
+echo "images_ok"
+REMOTE
 ```
 
-Ожидание в логе (при baseline `20261107_0021`):
+PASS: в выводе heads есть `20261111_0023 (head)` и строка `images_ok`. Иначе migrate не начинать.
+
+### Миграция и gate ревизии
+
+Один прогон. `MIGRATION_DATABASE_URL` берётся из `.env` сервиса, в лог и notes его не писать. Сервиса `migrate` в compose нет: это `run` образа api.
+
+```bash
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  -f infra/docker-compose.prod.deploy.override.yml \
+  run --rm --no-deps --entrypoint "" api \
+  /app/.venv/bin/alembic upgrade head
+ver=$(docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  exec -T postgres \
+  sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -c "SELECT version_num FROM alembic_version;"')
+printf 'alembic_version=%s\n' "${ver}" >> "var/${WINDOW_ID}/notes.md"
+test "${ver}" = "20261111_0023"
+echo "migrate_ok ${ver}"
+REMOTE
+```
+
+Ожидание в логе upgrade (при baseline `20261107_0021`):
 
 - `Running upgrade 20261107_0021 -> 20261110_0022`
 - `Running upgrade 20261110_0022 -> 20261111_0023`
 
+PASS: `migrate_ok 20261111_0023`. Если версия другая — стоп, api/worker/beat не запускать.
+
+### Запуск после gate
+
+Без `--build`: образ уже проверен на шаге 2b.
+
+```bash
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  -f infra/docker-compose.prod.deploy.override.yml \
+  up -d --no-build api worker beat frontend proxy
+echo "up_ok"
+REMOTE
+```
+
 ### Health, compose up, туннель, acceptance
 
-Как в [runbook-staging-window-pr25-0022.md](runbook-staging-window-pr25-0022.md) (§ Команды): compose up, health, `staging_acceptance.py`.
+Запуск compose — команда выше, без повторного `--build`. Health и `staging_acceptance.py` — как в [runbook-staging-window-pr25-0022.md](runbook-staging-window-pr25-0022.md). Acceptance относится к шагу 10, не к migrate.
 
 ---
 
@@ -244,9 +424,13 @@ ssh "${SSH_ALIAS}" 'set -euo pipefail
 | Проверка | PASS |
 | --- | --- |
 | CI main на `WINDOW_SHA` | success, ci и e2e; playwright — прогон тестов |
-| HEAD стенда | равен `WINDOW_SHA` из notes |
+| `git status --short` до checkout | пусто |
+| `PREV_SHA` в notes и в `window.env` | записан до checkout |
+| HEAD стенда | равен `WINDOW_SHA` |
+| `alembic heads` внутри `finpilot-api:0.2.0` | `20261111_0023 (head)` |
+| api, worker, beat перед migrate | остановлены |
 | Бэкап в `/var/backups/finpilot/`, не в `${APP_ROOT}` | да |
-| Размер дампа и `pg_restore --list` | размер > 0, list без ошибок |
+| Размер дампа и `pg_restore --list` в контейнере postgres | размер > 0, list без ошибок |
 | Долгие транзакции и место | count = 0; свободно ≥ 2× размера БД |
 | Текущая ревизия alembic | `20261107_0021` **или** известная предыдущая (зафиксировать в notes) |
 | `.env` не в git, `chmod 600` | да |
@@ -322,9 +506,19 @@ ORDER BY created_at;
 ### 7. Логи API/worker
 
 ```bash
-ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
-  -f infra/docker-compose.prod.yml logs --since=30m api worker 2>&1 \
-  | grep -E "import_provenance_failed|correction_scan_failed|ERROR|Traceback" || true'
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  logs --since=30m api worker 2>&1 \
+  | grep -E "import_provenance_failed|correction_scan_failed|ERROR|Traceback" || true
+REMOTE
 ```
 
 Ожидание: нет `import_provenance_failed` / `correction_scan_failed` на успешном smoke; нет необъяснимых ERROR.
@@ -333,31 +527,63 @@ ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
 
 Команды ниже CI не выполняет. В режиме Б их выполняет Cursor только после письменного разрешения на `WINDOW_SHA`.
 
-**Образцы. Одна схема.** Клиентские выгрузки на стенд запрещены (решение 2026-10-27: только локально у владельца, не git, не staging, не чат). Генератор — `scripts/make_synthetic_persist_run_samples.py`. Он пишет два файла: `S1_synthetic.txt` и `S2_synthetic.xls`. Где генерировать: на машине владельца в копии репозитория `WINDOW_SHA` либо в одноразовом контейнере, которому на запись смонтирован только каталог синтетики. Куда класть на стенде: `${APP_ROOT}/var/${WINDOW_ID}/synthetic/`. Если файлы родились локально, на стенд копируется только этот каталог (эти два файла), не остальной `var/`, не фикстуры тестов и не любой другой путь. Готового генератора в тестах нет: фикстуры CLI кладут произвольные байты и подменяют расчёт. Шаг проверяет запись прогона и права, а не корректность парсеров на реальных данных.
+**Образцы. Одна схема.** Клиентские выгрузки на стенд запрещены (решение 2026-10-27). Генератор `scripts/make_synthetic_persist_run_samples.py` лежит вне контекста `docker build ... backend`, в образ api не попадает и dev-зависимости не требует: это стандартная библиотека. Создавать файлы на машине владельца, в копии репозитория на `WINDOW_SHA`. На стенд копировать только `S1_synthetic.txt` и `S2_synthetic.xls` в `${APP_ROOT}/var/${WINDOW_ID}/synthetic/`. Фикстуры тестов, остальной `var/` и любой другой путь не копировать. Шаг проверяет запись прогона и права, не парсеры на реальных выгрузках.
 
 **Почему на стенде заглушка xlrd.** Решение 2026-10-27 (FA-R03.2, пункт 2c, и FA-R03.2b/2c): `xlrd==2.0.1` только в dev-группе, в CI и prod её не ставить до отдельного процесса. Образ api собирается `uv sync --frozen --no-dev`, в постоянные зависимости и в слои образа библиотека не входит. В `STATE.json` ключ `xlrd_2_0_1` = `dev_dependency_accepted_not_in_ci_prod_yet`. `infra/docker-compose.prod.deploy.override.yml` ставит `UV_NO_SYNC=1`, чтобы `uv run` не доставил dev-группу, и монтирует `infra/stand-patches/xlrd_stub` поверх `site-packages/xlrd` у api, worker и beat. Импорт бросает `xls reading is disabled on the staging stand`. Постоянный процесс стенда .xls не читает. Клиентские выгрузки туда не кладут (то же решение 2026-10-27).
 
-**Smoke-строка всё равно нужна.** `xlrd==2.0.1` ставится только в одноразовый контейнер CLI и только на синтетические файлы. Образ `finpilot-api:0.2.0` и lockfile не менять, контейнер не коммитить в образ, после запуска удалить (`--rm`). Deploy override в этот запуск не входит: с ним заглушка перекрыла бы только что поставленный пакет.
+**Smoke-строка всё равно нужна.** `xlrd==2.0.1` не входит в образ. Wheel берётся по URL из `backend/uv.lock` (файлы `files.pythonhosted.org`), заранее на машине владельца, с проверкой sha256. На VPS во время окна пакет из сети не качается: одноразовый контейнер ставит локальный wheel с `--offline`. Образ `finpilot-api:0.2.0` и lockfile не менять, контейнер не коммитить, после запуска удалить (`--rm`). Deploy override в этот запуск не входит.
 
-Включать **только после** `alembic_version = 20261111_0023` и успешного smoke выше (provenance, коррекции, логи без `import_provenance_failed` / `correction_scan_failed`). До этого в env api флаг отсутствует или равен `false` (значение по умолчанию в коде). Образ api собран на `WINDOW_SHA` (шаг 4), иначе модуля CLI в контейнере нет. `SAMPLES_DIR`, `COMPANY_ID`, `PERIOD`, `ACTOR_EMAIL` задаются в оболочке на стенде, не в git.
+Включать флаг **только после** `alembic_version = 20261111_0023` и успешного smoke выше. До этого флаг `false`. Образ api собран на шаге 2b из `WINDOW_SHA`. `COMPANY_ID`, `PERIOD`, `ACTOR_EMAIL` читаются из `window.env`.
 
 Переменная читается из `${APP_ROOT}/.env` на стенде (`env_file` сервиса `api` в compose). Файла `.env` в git нет.
 
-```bash
-# в ${APP_ROOT}/.env на стенде, не в git
-RECONCILIATION_RUN_PERSIST_ENABLED=true
-```
-
-Перезапуск **только api**, тем же набором compose, что и окно, чтобы процесс перечитал env:
+Правка `.env` не печатает файл. Копия лежит вне `${APP_ROOT}`. В stdout только `flag_ok`, затем перезапуск api.
 
 ```bash
-ssh "${SSH_ALIAS}" 'set -euo pipefail
-  cd "${APP_ROOT}"
-  docker compose --env-file .env \
-    -f infra/docker-compose.prod.yml \
-    -f infra/docker-compose.prod.ip.override.yml \
-    -f infra/docker-compose.prod.deploy.override.yml \
-    up -d --no-deps api'
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+install -d -m 700 /var/backups/finpilot
+backup="/var/backups/finpilot/dotenv.before-flag-${WINDOW_ID}"
+cp -p .env "${backup}"
+chmod 600 "${backup}"
+python3 - <<'PY'
+from pathlib import Path
+path = Path(".env")
+key = "RECONCILIATION_RUN_PERSIST_ENABLED"
+wanted = "true"
+out = []
+found = False
+for line in path.read_text().splitlines():
+    if line.startswith(key + "="):
+        out.append(f"{key}={wanted}")
+        found = True
+    else:
+        out.append(line)
+if not found:
+    out.append(f"{key}={wanted}")
+path.write_text("\n".join(out) + "\n")
+path.chmod(0o600)
+vals = [
+    line.split("=", 1)[1]
+    for line in path.read_text().splitlines()
+    if line.startswith(key + "=")
+]
+if vals != [wanted]:
+    raise SystemExit("FAIL flag")
+print("flag_ok")
+PY
+docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  -f infra/docker-compose.prod.deploy.override.yml \
+  up -d --no-deps --no-build api
+REMOTE
 ```
 
 Что флаг делает и чего не делает:
@@ -368,7 +594,7 @@ ssh "${SSH_ALIAS}" 'set -euo pipefail
 - Повторный прогон добавляет вторую строку (`supersedes_run_id`), без UPDATE. Для smoke окна нужен один запуск с `--yes`.
 - Сбой INSERT пишется в лог как `reconciliation_run_persist_failed` с `company_id` и периодом, без текстов назначений и email.
 
-`PERIOD` совпадает с `--period` CLI. Локально у владельца, в каталоге репозитория на `WINDOW_SHA`:
+На машине владельца, в каталоге репозитория на `WINDOW_SHA`. `PERIOD` совпадает с `--period` CLI:
 
 ```bash
 python3 scripts/make_synthetic_persist_run_samples.py \
@@ -376,77 +602,99 @@ python3 scripts/make_synthetic_persist_run_samples.py \
   --period "${PERIOD}"
 ```
 
-На стенд — только этот каталог:
+На стенд — только эти два файла:
 
 ```bash
-ssh "${SSH_ALIAS}" "mkdir -p '${APP_ROOT}/var/${WINDOW_ID}/synthetic'"
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+mkdir -p "${APP_ROOT}/var/${WINDOW_ID}/synthetic"
+REMOTE
 scp "var/${WINDOW_ID}/synthetic/S1_synthetic.txt" \
   "var/${WINDOW_ID}/synthetic/S2_synthetic.xls" \
   "${SSH_ALIAS}:${APP_ROOT}/var/${WINDOW_ID}/synthetic/"
 ```
 
-Другой локальный путь в `scp` не подставлять. Тот же результат без копирования с машины владельца: одноразовый контейнер пишет сразу в каталог стенда. На запись смонтирован только он.
-
-```bash
-ssh "${SSH_ALIAS}" 'set -euo pipefail
-  cd "${APP_ROOT}"
-  mkdir -p "var/${WINDOW_ID}/synthetic"
-  docker compose --env-file .env \
-    -f infra/docker-compose.prod.yml \
-    -f infra/docker-compose.prod.ip.override.yml \
-    run --rm --no-deps \
-    -v "${APP_ROOT}/scripts/make_synthetic_persist_run_samples.py:/tmp/make_synthetic.py:ro" \
-    -v "${APP_ROOT}/var/${WINDOW_ID}/synthetic:/out/${WINDOW_ID}/synthetic" \
-    api \
-    python /tmp/make_synthetic.py \
-      --window-id "${WINDOW_ID}" \
-      --period "${PERIOD}" \
-      --root /out'
-```
-
-Выбирается один из двух запусков, не оба. После него в каталоге ровно `S1_synthetic.txt` и `S2_synthetic.xls`. `SAMPLES_DIR` = `${APP_ROOT}/var/${WINDOW_ID}/synthetic`. Каталог в git не попадает.
+Другой локальный путь в `scp` не подставлять. После копирования в каталоге ровно два имени. `SAMPLES_DIR` = `${APP_ROOT}/var/${WINDOW_ID}/synthetic`. Каталог в git не попадает.
 
 Перед CLI записать id образа. После обоих запусков id должен совпасть: слой образа не пересобирался и контейнер в образ не коммитился.
 
 ```bash
-ssh "${SSH_ALIAS}" 'set -euo pipefail
-  cd "${APP_ROOT}"
-  docker image inspect finpilot-api:0.2.0 --format "{{.Id}} {{json .RepoDigests}}"'
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+docker image inspect finpilot-api:0.2.0 --format '{{.Id}} {{json .RepoDigests}}'
+REMOTE
 ```
 
-Файл хешей — во `var/${WINDOW_ID}/`, не в git. Хеш wheel — из `backend/uv.lock` для `xlrd` 2.0.1. Второй хеш — sdist из того же lock; `--only-binary=xlrd` его не скачивает, но `--require-hashes` сверяет тот артефакт, который реально ставится.
+Wheel готовится на машине владельца, не на VPS. URL и sha256 — строка wheel в `backend/uv.lock` для `xlrd` 2.0.1. Ожидаемый sha256: `6a33ee89877bd9abc1158129f6e94be74e2679636b8a205b43b85206c3f0bbdd`. Если сумма не сошлась, файл на стенд не копировать.
 
 ```bash
-ssh "${SSH_ALIAS}" 'set -euo pipefail
-  cd "${APP_ROOT}"
-  mkdir -p "var/${WINDOW_ID}"
-  cat > "var/${WINDOW_ID}/xlrd-2.0.1.txt" <<EOF
-xlrd==2.0.1 --hash=sha256:6a33ee89877bd9abc1158129f6e94be74e2679636b8a205b43b85206c3f0bbdd --hash=sha256:f72f148f54442c6b056bf931dbc34f986fd0c3b0b6b5a58d013c9aef274d0c88
-EOF'
+curl -fsSL -o xlrd-2.0.1-py2.py3-none-any.whl \
+  "https://files.pythonhosted.org/packages/a6/0c/c2a72d51fe56e08a08acc85d13013558a2d793028ae7385448a6ccdfae64/xlrd-2.0.1-py2.py3-none-any.whl"
+test "$(shasum -a 256 xlrd-2.0.1-py2.py3-none-any.whl | awk '{print $1}')" \
+  = "6a33ee89877bd9abc1158129f6e94be74e2679636b8a205b43b85206c3f0bbdd"
+printf '%s\n' 'xlrd==2.0.1 --hash=sha256:6a33ee89877bd9abc1158129f6e94be74e2679636b8a205b43b85206c3f0bbdd' \
+  > xlrd-2.0.1.txt
 ```
 
-Одноразовый контейнер: те же prod и ip override, **без** `docker-compose.prod.deploy.override.yml`. База — уже собранный `finpilot-api:0.2.0`. `uv pip install` пишет пакет в venv контейнера, `uv run --no-sync` не пересинхронизирует lock и не выкидывает xlrd. `--rm` удаляет контейнер вместе с этим venv. Постоянный api/worker/beat заглушку не теряют.
+На стенд только wheel и этот файл хеша:
+
+```bash
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+mkdir -p "${APP_ROOT}/var/${WINDOW_ID}/xlrd"
+REMOTE
+scp xlrd-2.0.1-py2.py3-none-any.whl xlrd-2.0.1.txt \
+  "${SSH_ALIAS}:${APP_ROOT}/var/${WINDOW_ID}/xlrd/"
+```
+
+Одноразовый контейнер: prod и ip override, **без** deploy override. База — уже собранный `finpilot-api:0.2.0`. `uv pip install --offline --no-index --find-links` берёт wheel с диска и сверяет хеш. `uv run --no-sync` не пересинхронизирует lock. `--rm` удаляет контейнер. Постоянный api заглушку не теряет. Сеть до PyPI этому шагу не нужна.
 
 Пробный запуск (без `--yes`): считает сверку, печатает счётчики и `persist=skipped`, в БД не пишет. `--as-user` — email пользователя с finance write и подтверждённым email. В notes не копировать полный email: CLI печатает маску, в SQL смотреть `created_by_user_id`.
 
 ```bash
-ssh "${SSH_ALIAS}" 'set -euo pipefail
-  cd "${APP_ROOT}"
-  docker compose --env-file .env \
-    -f infra/docker-compose.prod.yml \
-    -f infra/docker-compose.prod.ip.override.yml \
-    run --rm --no-deps \
-    -v "${SAMPLES_DIR}:/samples:ro" \
-    -v "${APP_ROOT}/var/${WINDOW_ID}/xlrd-2.0.1.txt:/tmp/xlrd-2.0.1.txt:ro" \
-    api \
-    sh -c "uv pip install --python /app/.venv/bin/python \
-      --require-hashes --only-binary=xlrd \
-      -r /tmp/xlrd-2.0.1.txt \
-      && uv run --no-sync python -m app.tools.fa_r03_persist_run \
-      --company-id \"${COMPANY_ID}\" \
-      --period \"${PERIOD}\" \
-      --as-user \"${ACTOR_EMAIL}\" \
-      /samples"'
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+test -n "${COMPANY_ID}" && test -n "${PERIOD}" && test -n "${ACTOR_EMAIL}"
+docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  run --rm --no-deps \
+  -e COMPANY_ID -e PERIOD -e ACTOR_EMAIL \
+  -v "${APP_ROOT}/var/${WINDOW_ID}/synthetic:/samples:ro" \
+  -v "${APP_ROOT}/var/${WINDOW_ID}/xlrd:/wheels:ro" \
+  api \
+  sh -c 'uv pip install --python /app/.venv/bin/python \
+    --offline --no-index --find-links /wheels \
+    --require-hashes --only-binary=xlrd \
+    -r /wheels/xlrd-2.0.1.txt \
+    && uv run --no-sync python -m app.tools.fa_r03_persist_run \
+    --company-id "$COMPANY_ID" \
+    --period "$PERIOD" \
+    --as-user "$ACTOR_EMAIL" \
+    /samples'
+REMOTE
 ```
 
 Ожидание пробного запуска: exit 0, в stdout `persist=skipped` и счётчики, без контрагентов, назначений и полного email. `count(*)` по `reconciliation_run` для этого `company_id` не вырос.
@@ -454,24 +702,34 @@ ssh "${SSH_ALIAS}" 'set -euo pipefail
 Запуск с записью — тот же контейнер, в конце аргументов `--yes`. Флаг в env уже `true`, иначе CLI отказывает и ничего не пишет.
 
 ```bash
-ssh "${SSH_ALIAS}" 'set -euo pipefail
-  cd "${APP_ROOT}"
-  docker compose --env-file .env \
-    -f infra/docker-compose.prod.yml \
-    -f infra/docker-compose.prod.ip.override.yml \
-    run --rm --no-deps \
-    -v "${SAMPLES_DIR}:/samples:ro" \
-    -v "${APP_ROOT}/var/${WINDOW_ID}/xlrd-2.0.1.txt:/tmp/xlrd-2.0.1.txt:ro" \
-    api \
-    sh -c "uv pip install --python /app/.venv/bin/python \
-      --require-hashes --only-binary=xlrd \
-      -r /tmp/xlrd-2.0.1.txt \
-      && uv run --no-sync python -m app.tools.fa_r03_persist_run \
-      --company-id \"${COMPANY_ID}\" \
-      --period \"${PERIOD}\" \
-      --as-user \"${ACTOR_EMAIL}\" \
-      --yes \
-      /samples"'
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+test -n "${COMPANY_ID}" && test -n "${PERIOD}" && test -n "${ACTOR_EMAIL}"
+docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  run --rm --no-deps \
+  -e COMPANY_ID -e PERIOD -e ACTOR_EMAIL \
+  -v "${APP_ROOT}/var/${WINDOW_ID}/synthetic:/samples:ro" \
+  -v "${APP_ROOT}/var/${WINDOW_ID}/xlrd:/wheels:ro" \
+  api \
+  sh -c 'uv pip install --python /app/.venv/bin/python \
+    --offline --no-index --find-links /wheels \
+    --require-hashes --only-binary=xlrd \
+    -r /wheels/xlrd-2.0.1.txt \
+    && uv run --no-sync python -m app.tools.fa_r03_persist_run \
+    --company-id "$COMPANY_ID" \
+    --period "$PERIOD" \
+    --as-user "$ACTOR_EMAIL" \
+    --yes \
+    /samples'
+REMOTE
 ```
 
 Ожидание: exit 0, одна строка `run_id=…` и `persist=written`. Повторно снять id образа: он равен значению до запусков. `docker ps -a` не показывает оставшийся контейнер этого `run`.
@@ -494,15 +752,71 @@ SELECT id, run_kind, period_year, period_month,
 Stdout одноразового CLI уже на терминале окна: там нет `reconciliation_run_persist_failed`, `reconciliation_run_cli_failed`, назначений, контрагентов и полного email. Контейнер с `--rm` в `docker logs` не остаётся. Ниже — логи постоянного api (он с заглушкой и эту строку не писал):
 
 ```bash
-ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+docker compose --env-file .env \
   -f infra/docker-compose.prod.yml \
   -f infra/docker-compose.prod.ip.override.yml \
   -f infra/docker-compose.prod.deploy.override.yml \
   logs --since=30m api 2>&1 \
-  | grep -E "reconciliation_run_persist_failed|reconciliation_run_cli_failed|ERROR|Traceback" || true'
+  | grep -E "reconciliation_run_persist_failed|reconciliation_run_cli_failed|ERROR|Traceback" || true
+REMOTE
 ```
 
-Рекомендация владельца для шага 9: вернуть `RECONCILIATION_RUN_PERSIST_ENABLED=false` и перезапустить api тем же `up -d --no-deps api`. Так следующий вызов сверки не допишет строку. Оставить `true` можно только отдельным явным решением владельца, записанным до этого шага. Без такой записи шаг 9 выполняет возврат в `false`.
+Шаг 9 по умолчанию возвращает флаг в `false` и перезапускает api. Содержимое `.env` не печатается. Оставить `true` можно только отдельным явным решением владельца, записанным до этого шага. Без такой записи выполнять команду ниже.
+
+```bash
+ssh "${SSH_ALIAS}" bash -s -- "${APP_ROOT}" "${WINDOW_ID}" <<'REMOTE'
+set -euo pipefail
+APP_ROOT=$1
+WINDOW_ID=$2
+set -a
+. "${APP_ROOT}/var/${WINDOW_ID}/window.env"
+set +a
+cd "${APP_ROOT}"
+install -d -m 700 /var/backups/finpilot
+backup="/var/backups/finpilot/dotenv.before-reset-${WINDOW_ID}"
+cp -p .env "${backup}"
+chmod 600 "${backup}"
+python3 - <<'PY'
+from pathlib import Path
+path = Path(".env")
+key = "RECONCILIATION_RUN_PERSIST_ENABLED"
+wanted = "false"
+out = []
+found = False
+for line in path.read_text().splitlines():
+    if line.startswith(key + "="):
+        out.append(f"{key}={wanted}")
+        found = True
+    else:
+        out.append(line)
+if not found:
+    out.append(f"{key}={wanted}")
+path.write_text("\n".join(out) + "\n")
+path.chmod(0o600)
+vals = [
+    line.split("=", 1)[1]
+    for line in path.read_text().splitlines()
+    if line.startswith(key + "=")
+]
+if vals != [wanted]:
+    raise SystemExit("FAIL flag")
+print("flag_ok")
+PY
+docker compose --env-file .env \
+  -f infra/docker-compose.prod.yml \
+  -f infra/docker-compose.prod.ip.override.yml \
+  -f infra/docker-compose.prod.deploy.override.yml \
+  up -d --no-deps --no-build api
+REMOTE
+```
 
 В `var/${WINDOW_ID}/notes.md` записать `persist_flag=reset_false` или, если отдельное решение было, `persist_flag=left_true`. Рядом `run_id`. Без email и без сырого лога. Повтор CLI с `--yes` при оставленном `true` создаст вторую строку.
 
@@ -524,7 +838,7 @@ ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
 
 | Ситуация | Действие |
 | --- | --- |
-| **Migrate не завершился** / api не стартует | Откат **кода** на SHA до pull; БД без изменений (если migrate не commit) — повтор после fix |
+| **Migrate не завершился** / api не стартует | Откат **кода** на `PREV_SHA`; БД без изменений (если migrate не commit) — повтор после fix |
 | **0022/0023 применены, продукт неверен** | **Не** `alembic downgrade`, если есть строки в `reconciliation_run`, provenance или **`source_correction_finding`** — сработает `downgrade_blocked` |
 | **Откат схемы при пустых новых таблицах** | Только если **все** новые таблицы пусты: последовательный downgrade до `20261107_0021`; затем откат кода |
 | **Данные в provenance / corrections / run** | **Только восстановление из бэкапа** `pre-0022-0023-*` — **не** полагаться на downgrade на боевых данных |
@@ -539,14 +853,15 @@ ssh "${SSH_ALIAS}" 'cd "${APP_ROOT}" && docker compose --env-file .env \
 
 ## Чек-лист приёмки владельцем
 
-- [ ] WINDOW_ID, `WINDOW_SHA` (полный SHA, ci и e2e success), время начала/конца migrate.
-- [ ] Бэкап до migrate вне `${APP_ROOT}`: путь, размер > 0, `pg_restore --list` без ошибок.
+- [ ] WINDOW_ID, `WINDOW_SHA`, `PREV_SHA`, время начала/конца migrate.
+- [ ] Бэкап до migrate вне `${APP_ROOT}`: путь, размер > 0, `pg_restore --list` внутри контейнера postgres без ошибок.
+- [ ] До checkout дерево было чистым. В образе `alembic heads` показал `20261111_0023`. api, worker и beat на время migrate были остановлены.
 - [ ] Alembic **`20261111_0023`** подтверждён.
 - [ ] RLS/grants 0022+0023 — PASS.
 - [ ] Smoke provenance — PASS.
 - [ ] Smoke коррекций (duplicate + period_overlap) — PASS или skip с причиной.
 - [ ] Логи без `import_provenance_failed` / `correction_scan_failed` на smoke.
-- [ ] `RECONCILIATION_RUN_PERSIST_ENABLED=true` в `.env` стенда (не в git) и перезапуск api — только после smoke выше.
+- [ ] Флаг выставлен в `true` правкой `.env` с копией вне `${APP_ROOT}`, в логе только `flag_ok`, содержимое `.env` не печаталось. Api перезапущен после smoke.
 - [ ] На стенде только `${APP_ROOT}/var/${WINDOW_ID}/synthetic/` с двумя файлами генератора. Другие файлы туда не копировались.
 - [ ] CLI без `--yes` в одноразовом контейнере не создал строку.
 - [ ] CLI с `--yes`: ровно одна новая строка, автор — пользователь из `--as-user`. Id образа `finpilot-api:0.2.0` до и после совпал, контейнер удалён.
